@@ -1,0 +1,59 @@
+{
+  "metadata": {
+    "report_id": "golden-persistence-schtask_basic_001",
+    "generated_at": "2025-12-27T13:17:14.083003Z",
+    "incident_id": "GOLDEN-PERSISTENCE-001",
+    "session_id": "golden-session-schtask_basic_001",
+    "family": "persistence",
+    "host_id": "golden-workstation-01",
+    "time_window": null,
+    "summary": "[GOLDEN BUNDLE] persistence - Scheduled task persistence",
+    "synthetic": true
+  },
+  "hypotheses": [
+    {
+      "rank": 1,
+      "hypothesis_id": "H-PERSISTENCE-001",
+      "family": "persistence",
+      "template_id": "TPERS",
+      "confidence": 0.85,
+      "severity": "High",
+      "suppressed": false,
+      "suppression_reason": null,
+      "slots_satisfied": "5/6 slots filled"
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2025-01-15T10:00:00Z",
+      "summary": "Registry persistence added",
+      "category": "registry_write",
+      "evidence_ptr": "seg_schtask_basic_001_001:registry_write:0",
+      "is_late_arrival": false
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "C-PERSISTENCE-001",
+      "text": "persistence activity detected",
+      "certainty": "observed",
+      "claim_type": "persistence",
+      "evidence_ptrs": [
+        "seg_schtask_basic_001_001:registry_write:0"
+      ],
+      "has_conflict": false
+    }
+  ],
+  "visibility": {
+    "overall_health": "unknown",
+    "streams_present": [],
+    "streams_missing": [],
+    "degraded": false,
+    "degraded_reasons": [],
+    "late_arrival_count": 0,
+    "watermark_notes": []
+  },
+  "disambiguators": [],
+  "integrity_notes": [],
+  "evidence_excerpts": {}
+}

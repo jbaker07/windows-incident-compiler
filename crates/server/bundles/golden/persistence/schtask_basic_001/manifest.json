@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-persistence-schtask_basic_001",
+    "exported_at": "2025-12-27T13:17:14.083859Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "5ee0aac6afe1a3c54ae38b824b66858fae3d0f725f76835d09e938c00f9fa7f0",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "recompute/config_snapshot.json": "3bf6c1bd5296fca44b8293bca171420835353bc04988838bc0b7bef5c64ef703",
+    "recompute/events.jsonl": "c9a764af0e027d7f0cc99494f78b8bb5c08dd17f17c3b4555d6ea802d22c83e2",
+    "replay/report_bundle.json": "8781ee01171fc30b279a3b837a0eab1db7a2e9b5413903977e24cbf31dbabdd5"
+  }
+}

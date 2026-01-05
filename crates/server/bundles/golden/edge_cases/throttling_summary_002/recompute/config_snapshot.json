@@ -1,0 +1,27 @@
+{
+  "playbook_fingerprints": [
+    "playbook-edge_cases-v1"
+  ],
+  "mode": "mission",
+  "preset": "generic",
+  "focus_minutes": 15,
+  "late_arrival_window_secs": 60,
+  "component_versions": {
+    "playbooks": "1.0.0",
+    "engine": "0.1.0"
+  },
+  "capture_profile": "extended",
+  "throttle_config": {
+    "profile": "balanced",
+    "global_max_events_per_sec": 1000,
+    "global_max_bytes_per_sec": 10000000,
+    "enabled_sensors": [
+      "process",
+      "network"
+    ],
+    "enabled_collectors": [
+      "sysmon"
+    ]
+  },
+  "dynamic_enablements": null
+}

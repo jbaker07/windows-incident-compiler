@@ -1,0 +1,1 @@
+{"ts":"2025-01-15T09:59:00Z","stream_id":"process_exec","segment_id":"seg_late_arrival_001_001","record_index":0,"event_type":"late_event","payload":{"is_late_arrival":true,"summary":"Late-arriving process event"}}

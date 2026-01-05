@@ -1,0 +1,275 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Live Graph</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://unpkg.com/d3@7"></script>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif;background:#0b0f14;color:#e6f0ff}
+    header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid #13202f;background:#0e141b;position:sticky;top:0;z-index:10}
+    .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .hud{font-size:12px;color:#9bb1c9}
+    .btn{background:#172536;border:1px solid #294056;color:#e6f0ff;padding:6px 10px;border-radius:8px;cursor:pointer}
+    .btn:active{transform:translateY(1px)}
+    .field{background:#0b0f14;border:1px solid #294056;color:#e6f0ff;border-radius:8px;padding:6px 10px}
+    .slider{width:160px}
+    #graph{width:100vw;height:calc(100vh - 58px)}
+    .tooltip{position:absolute;pointer-events:none;background:#0e141b;border:1px solid #294056;padding:8px 10px;border-radius:8px;font-size:12px;color:#cfe3ff;max-width:420px}
+    .legend{display:flex;gap:10px;align-items:center}
+    .legend .item{display:flex;align-items:center;gap:6px;font-size:12px;color:#9bb1c9}
+    .legend svg{vertical-align:middle}
+    .dim{opacity:0.15}
+    .edge-invalid{stroke:#ff6b6b;stroke-dasharray:4 3}
+    .edge-valid{stroke:#4f6b8a;opacity:0.6}
+    .edge-label{font-size:10px;fill:#9bb1c9}
+    .selected{stroke:#ffe08a;stroke-width:2.5px}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="controls">
+      <button class="btn" id="pauseBtn">Pause</button>
+      <button class="btn" id="relayoutBtn">Relayout</button>
+      <label style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:12px;color:#9bb1c9">Risk lens</span>
+        <input type="range" min="0" max="100" value="30" id="riskSlider" class="slider">
+        <span id="riskVal" style="font-size:12px;color:#cfe3ff">0.30</span>
+      </label>
+      <label class="btn" style="display:flex;gap:6px;align-items:center">
+        <input type="checkbox" id="rgcnToggle">
+        <span>Use R-GCN scores</span>
+      </label>
+      <input id="search" class="field" placeholder="Find node id… (Enter)">
+      <button class="btn" id="downloadBtn">Download JSON</button>
+    </div>
+    <div class="legend">
+      <span class="item"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#5aa9e6"/></svg>Process</span>
+      <span class="item"><svg width="14" height="14"><rect x="2" y="2" width="10" height="10" fill="#95d5b2"/></svg>File/Dir</span>
+      <span class="item"><svg width="14" height="14"><polygon points="7,1 13,7 7,13 1,7" fill="#ffd166"/></svg>IP</span>
+      <span class="item"><svg width="14" height="14"><polygon points="7,1 13,13 1,13" fill="#f4978e"/></svg>User</span>
+      <span class="item"><svg width="14" height="14"><polygon points="7,1 13,5 13,11 7,13 1,11 1,5" fill="#cdb4db"/></svg>Domain</span>
+      <span class="item"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#8892b0"/></svg>Other</span>
+    </div>
+    <div class="hud" id="hud">ts: — | nodes: — | edges: —</div>
+  </header>
+
+  <div id="graph"></div>
+  <div id="tip" class="tooltip" style="display:none"></div>
+
+  <script>
+    const svg = d3.select("#graph").append("svg")
+      .attr("width", "100%").attr("height", "100%");
+    const g = svg.append("g");
+    const linkGroup = g.append("g").attr("stroke-width", 1.2);
+    const nodeGroup = g.append("g");
+    const labelGroup = g.append("g");
+    const tip = d3.select("#tip");
+
+    const zoom = d3.zoom().scaleExtent([0.1, 4]).on("zoom", (ev)=> g.attr("transform", ev.transform));
+    svg.call(zoom);
+
+    let paused = false;
+    let useRgcn = false;
+    let riskThreshold = 0.30;
+    let lastGraph = { nodes: [], edges: [] };
+
+    // Controls
+    document.getElementById("pauseBtn").onclick = ()=> {
+      paused = !paused;
+      document.getElementById("pauseBtn").textContent = paused ? "Resume" : "Pause";
+    };
+    document.getElementById("relayoutBtn").onclick = ()=> { if (!simulation) return; simulation.alpha(1).restart(); };
+    document.getElementById("riskSlider").oninput = (e)=> {
+      riskThreshold = (+e.target.value)/100;
+      document.getElementById("riskVal").textContent = riskThreshold.toFixed(2);
+      applyRiskLens();
+    };
+    document.getElementById("rgcnToggle").onchange = (e)=> {
+      useRgcn = e.target.checked;
+      applyRiskLens();
+    };
+    document.getElementById("downloadBtn").onclick = ()=> {
+      const blob = new Blob([JSON.stringify(lastGraph, null, 2)], {type: "application/json"});
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "graph_live_enriched.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    };
+    document.getElementById("search").addEventListener("keydown", (e)=>{
+      if (e.key === "Enter") {
+        focusNodeById(e.target.value.trim());
+      }
+    });
+
+    function otypeColor(otype){
+      switch((otype||"").toLowerCase()){
+        case "process": return "#5aa9e6";
+        case "file": return "#95d5b2";
+        case "ip": return "#ffd166";
+        case "user": return "#f4978e";
+        case "domain": return "#cdb4db";
+        default: return "#8892b0";
+      }
+    }
+    function otypeSymbol(otype){
+      switch((otype||"").toLowerCase()){
+        case "process": return d3.symbolCircle;
+        case "file": return d3.symbolSquare;
+        case "ip": return d3.symbolDiamond;
+        case "user": return d3.symbolTriangle;
+        case "domain": return d3.symbolHexagon || d3.symbolSquare; // fallback
+        default: return d3.symbolCircle;
+      }
+    }
+    function nodeRisk(n){
+      // prefer explicit rgcn_score (0..1), else 1 - trust_score
+      if (useRgcn && typeof n.rgcn_score === "number") return Math.max(0, Math.min(1, n.rgcn_score));
+      const t = typeof n.trust_score === "number" ? n.trust_score : 0.75;
+      return Math.max(0, Math.min(1, 1 - t));
+    }
+
+    function fmtDetails(n){
+      const d = n.details || {};
+      const bits = [];
+      if (d.pid !== undefined) bits.push(`pid=${d.pid}`);
+      if (d.ppid !== undefined) bits.push(`ppid=${d.ppid}`);
+      if (d.exe) bits.push(d.exe);
+      if (d.cmdline) bits.push(d.cmdline);
+      return bits.join(" · ");
+    }
+
+    let simulation;
+
+    function render(graph){
+      lastGraph = graph;
+      document.getElementById("hud").textContent =
+        `ts: ${graph.ts || "—"} | nodes: ${graph.nodes_count ?? graph.nodes?.length ?? 0} | edges: ${graph.edges_count ?? graph.edges?.length ?? 0}`;
+
+      // Data join
+      const links = linkGroup.selectAll("line").data(graph.edges, d => `${d.source}->${d.target}:${d.rel||""}`);
+      links.exit().remove();
+      const linksEnter = links.enter().append("line")
+        .attr("class", d => (d.rel_valid === false ? "edge-invalid" : "edge-valid"))
+        .attr("stroke", d => d.rel_valid === false ? "#ff6b6b" : "#4f6b8a");
+      const linkSel = linksEnter.merge(links);
+
+      const nodes = nodeGroup.selectAll("path").data(graph.nodes, d => d.id);
+      nodes.exit().remove();
+      const nodesEnter = nodes.enter().append("path")
+        .attr("d", d3.symbol().type(d=>otypeSymbol(d.otype)).size(150))
+        .attr("fill", d=> otypeColor(d.otype))
+        .attr("stroke", "#081421")
+        .attr("stroke-width", 1.2)
+        .on("mouseover", (ev,d)=> {
+          const risk = nodeRisk(d);
+          tip.style("display","block")
+            .style("left", (ev.pageX+12)+"px")
+            .style("top", (ev.pageY+12)+"px")
+            .html(`
+              <div style="font-weight:700;margin-bottom:4px">${d.otype || "Unknown"} · ${d.id}</div>
+              <div>${fmtDetails(d)}</div>
+              <div style="margin-top:6px;font-size:12px">risk=${risk.toFixed(2)} ${useRgcn?"(rgcn)":"(1-trust)"}${typeof d.rgcn_score==="number"?" | rgcn_score="+d.rgcn_score.toFixed(2):""}</div>
+            `);
+        })
+        .on("mouseout", ()=> tip.style("display","none"))
+        .on("click", (_,d)=> selectNeighborhood(d.id));
+      const nodeSel = nodesEnter.merge(nodes);
+
+      // Optional edge labels (relation)
+      const labels = labelGroup.selectAll("text").data(graph.edges, d => `${d.source}->${d.target}:${d.rel||""}`);
+      labels.exit().remove();
+      const labelsEnter = labels.enter().append("text")
+        .attr("class","edge-label")
+        .attr("pointer-events","none")
+        .text(d => d.rel || "");
+      const labelSel = labelsEnter.merge(labels);
+
+      // Force layout
+      if (simulation) simulation.stop();
+      simulation = d3.forceSimulation(graph.nodes)
+        .force("link", d3.forceLink(graph.edges).id(d=>d.id).distance(40).strength(0.4))
+        .force("charge", d3.forceManyBody().strength(-140))
+        .force("center", d3.forceCenter(window.innerWidth/2, (window.innerHeight-58)/2))
+        .force("collide", d3.forceCollide().radius(18));
+
+      simulation.on("tick", ()=>{
+        linkSel
+          .attr("x1", d=> d.source.x).attr("y1", d=> d.source.y)
+          .attr("x2", d=> d.target.x).attr("y2", d=> d.target.y);
+
+        nodeSel
+          .attr("transform", d=> `translate(${d.x},${d.y})`);
+
+        labelSel
+          .attr("x", d=> (d.source.x + d.target.x)/2)
+          .attr("y", d=> (d.source.y + d.target.y)/2);
+      });
+
+      applyRiskLens();
+    }
+
+    function applyRiskLens(){
+      // dim nodes & connected edges below threshold
+      const low = new Set();
+      (lastGraph.nodes||[]).forEach(n => { if (nodeRisk(n) < riskThreshold) low.add(n.id); });
+
+      nodeGroup.selectAll("path")
+        .classed("dim", d=> low.has(d.id));
+
+      linkGroup.selectAll("line")
+        .classed("dim", d=> low.has(d.source.id||d.source) && low.has(d.target.id||d.target));
+    }
+
+    function selectNeighborhood(nodeId){
+      const neigh = new Set([nodeId]);
+      (lastGraph.edges||[]).forEach(e=>{
+        if (e.source.id === nodeId || e.source === nodeId) neigh.add(e.target.id||e.target);
+        if (e.target.id === nodeId || e.target === nodeId) neigh.add(e.source.id||e.source);
+      });
+      nodeGroup.selectAll("path")
+        .classed("selected", d=> neigh.has(d.id))
+        .classed("dim", d=> !neigh.has(d.id));
+      linkGroup.selectAll("line")
+        .classed("dim", d=> !(neigh.has(d.source.id||d.source) && neigh.has(d.target.id||d.target)));
+    }
+
+    function focusNodeById(id){
+      if (!id) return;
+      const node = (lastGraph.nodes||[]).find(n=> n.id===id);
+      if (!node) return;
+      selectNeighborhood(id);
+      const t = d3.zoomIdentity.translate(window.innerWidth/2 - node.x*1.2, (window.innerHeight-58)/2 - node.y*1.2).scale(1.2);
+      svg.transition().duration(350).call(zoom.transform, t);
+    }
+
+    // Stream (SSE) with fallback
+    let es;
+    function connectSSE(){
+      if (es) es.close();
+      es = new EventSource("/graph/stream");
+      es.onmessage = (ev)=>{
+        if (paused) return;
+        try {
+          const v = JSON.parse(ev.data);
+          render(v);
+        } catch(e){ console.warn("bad graph chunk", e); }
+      };
+      es.onerror = async ()=>{
+        try {
+          const res = await fetch("/graph/live", { cache: "no-store" });
+          const v = await res.json();
+          render(v);
+        } catch(_) {}
+      };
+    }
+    connectSSE();
+
+    // Resize handling
+    window.addEventListener("resize", ()=>{
+      if (simulation) simulation.alpha(0.3).restart();
+    });
+  </script>
+</body>
+</html>

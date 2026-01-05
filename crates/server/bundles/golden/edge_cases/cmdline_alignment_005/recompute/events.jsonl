@@ -1,0 +1,1 @@
+{"ts":"2025-01-15T10:00:00Z","stream_id":"process_exec","segment_id":"seg_cmdline_alignment_005_001","record_index":0,"event_type":"process_start","payload":{"cmdline":"cmd.exe /c powershell -enc JABzAD0...","exe":"cmd.exe","summary":"Benign exe with malicious cmdline"}}

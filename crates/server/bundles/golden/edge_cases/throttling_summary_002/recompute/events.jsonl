@@ -1,0 +1,1 @@
+{"ts":"2025-01-15T10:00:00Z","stream_id":"throttle_summary","segment_id":"seg_throttling_summary_002_001","record_index":0,"event_type":"throttle_summary","payload":{"events_dropped":50,"summary":"Throttling summary: 50 events dropped","window_secs":30}}

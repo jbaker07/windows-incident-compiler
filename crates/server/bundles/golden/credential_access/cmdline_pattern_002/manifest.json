@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-credential_access-cmdline_pattern_002",
+    "exported_at": "2025-12-27T13:17:14.082445Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "8ccc36ba22839bc33a9873d155380665e4e1f938bdda2ee78020863a67e47300",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "recompute/config_snapshot.json": "873363f602320d8368e7c4d403a77eeb8f4087b5646e7860cc026be2eda7914d",
+    "recompute/events.jsonl": "d1f7d86cc6dbd8a67d0a61685043ca32b98e73d59695797938cfd23fecfa2837",
+    "replay/report_bundle.json": "d98f72af098c8ef71e3f549b333a805bca0f04d27a2aa0b7fc6529314bbfff39"
+  }
+}

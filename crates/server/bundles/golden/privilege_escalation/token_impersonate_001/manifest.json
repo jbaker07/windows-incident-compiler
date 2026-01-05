@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-privilege_escalation-token_impersonate_001",
+    "exported_at": "2025-12-27T13:17:14.095814Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "317d101e66b9d7f5e54cc20b3b91b0cf57c4c6ceeca1b86cfeb57fa8f69187b4",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "recompute/config_snapshot.json": "098fc35c5c5c3305fd2648df8ab268f55f2cb46b103da60f3d4f253429fb1ab7",
+    "recompute/events.jsonl": "09a88bd097478f31c9a8b9edfe125ef3dc862d194cb5817ebe038aee2b0bc5c8",
+    "replay/report_bundle.json": "556877d2983aa6d35f621002072445b82cbf25a2038c78b4406ea345e831adad"
+  }
+}

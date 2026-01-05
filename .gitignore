@@ -1,0 +1,44 @@
+# build + runtime
+target/
+logs/
+state/
+json_files/
+*.log
+*.out
+*.err
+*errors*.txt
+cargo-check.txt
+cargo-runner.txt
+run_output.txt
+edr-digest-*.txt
+
+# telemetry outputs (runtime data)
+telemetry_output_demo/
+test_telemetry/
+segments/
+incidents/
+exports/
+metrics/
+*.db
+
+# runtime bundles (but NOT bundles/golden/ which is test data)
+bundles/*
+!bundles/golden/
+
+# platform telemetry roots
+/var/lib/edr/
+
+# local / env
+target_user/
+.venv/
+venv/
+node_modules/
+*.pyc
+*.pyo
+*.o
+*.so
+*.d
+
+# editor junk
+.DS_Store
+*.swp

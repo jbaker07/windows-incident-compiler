@@ -1,0 +1,67 @@
+{
+  "metadata": {
+    "report_id": "golden-lateral_movement-wmi_lateral_002",
+    "generated_at": "2025-12-27T13:17:14.087451Z",
+    "incident_id": "GOLDEN-LATERAL_MOVEMENT-001",
+    "session_id": "golden-session-wmi_lateral_002",
+    "family": "lateral_movement",
+    "host_id": "golden-workstation-01",
+    "time_window": null,
+    "summary": "[GOLDEN BUNDLE] lateral_movement - WMI remote execution",
+    "synthetic": true
+  },
+  "hypotheses": [
+    {
+      "rank": 1,
+      "hypothesis_id": "H-LATERAL_MOVEMENT-001",
+      "family": "lateral_movement",
+      "template_id": "TLATE",
+      "confidence": 0.85,
+      "severity": "High",
+      "suppressed": false,
+      "suppression_reason": null,
+      "slots_satisfied": "5/6 slots filled"
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2025-01-15T10:00:00Z",
+      "summary": "SMB connection to remote host",
+      "category": "network_connect",
+      "evidence_ptr": "seg_wmi_lateral_002_001:network_connect:0",
+      "is_late_arrival": false
+    },
+    {
+      "ts": "2025-01-15T10:00:01Z",
+      "summary": "PsExec service created",
+      "category": "process_exec",
+      "evidence_ptr": "seg_wmi_lateral_002_001:process_exec:1",
+      "is_late_arrival": false
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "C-LATERAL_MOVEMENT-001",
+      "text": "lateral_movement activity detected",
+      "certainty": "observed",
+      "claim_type": "lateral_movement",
+      "evidence_ptrs": [
+        "seg_wmi_lateral_002_001:network_connect:0",
+        "seg_wmi_lateral_002_001:process_exec:1"
+      ],
+      "has_conflict": false
+    }
+  ],
+  "visibility": {
+    "overall_health": "unknown",
+    "streams_present": [],
+    "streams_missing": [],
+    "degraded": false,
+    "degraded_reasons": [],
+    "late_arrival_count": 0,
+    "watermark_notes": []
+  },
+  "disambiguators": [],
+  "integrity_notes": [],
+  "evidence_excerpts": {}
+}

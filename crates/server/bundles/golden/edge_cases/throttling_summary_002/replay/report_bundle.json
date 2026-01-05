@@ -1,0 +1,66 @@
+{
+  "metadata": {
+    "report_id": "golden-edge_cases-throttling_summary_002",
+    "generated_at": "2025-12-27T13:17:14.097589Z",
+    "incident_id": "GOLDEN-EDGE_CASES-001",
+    "session_id": "golden-session-throttling_summary_002",
+    "family": "edge_cases",
+    "host_id": "golden-workstation-01",
+    "time_window": null,
+    "summary": "[GOLDEN BUNDLE] edge_cases - Throttling summary present but deterministic",
+    "synthetic": true
+  },
+  "hypotheses": [
+    {
+      "rank": 1,
+      "hypothesis_id": "H-EDGE_CASES-001",
+      "family": "edge_cases",
+      "template_id": "TEDGE",
+      "confidence": 0.85,
+      "severity": "High",
+      "suppressed": false,
+      "suppression_reason": null,
+      "slots_satisfied": "5/6 slots filled"
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2025-01-15T10:00:00Z",
+      "summary": "Throttling summary: 50 events dropped",
+      "category": "throttle_summary",
+      "evidence_ptr": "seg_throttling_summary_002_001:throttle_summary:0",
+      "is_late_arrival": false
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "C-EDGE_CASES-001",
+      "text": "edge_cases activity detected",
+      "certainty": "observed",
+      "claim_type": "edge_cases",
+      "evidence_ptrs": [
+        "seg_throttling_summary_002_001:throttle_summary:0"
+      ],
+      "has_conflict": false
+    }
+  ],
+  "visibility": {
+    "overall_health": "unknown",
+    "streams_present": [],
+    "streams_missing": [],
+    "degraded": false,
+    "degraded_reasons": [],
+    "late_arrival_count": 0,
+    "watermark_notes": []
+  },
+  "disambiguators": [],
+  "integrity_notes": [
+    {
+      "note_type": "throttling_active",
+      "severity": "warning",
+      "description": "Throttling was active during capture. 50 events dropped in 30s window.",
+      "affected_evidence": []
+    }
+  ],
+  "evidence_excerpts": {}
+}

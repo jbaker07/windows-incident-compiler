@@ -1,0 +1,2 @@
+{"ts":"2025-01-15T10:00:00Z","stream_id":"process_exec","segment_id":"seg_cmdline_pattern_002_001","record_index":0,"event_type":"process_start","payload":{"cmdline":"mimikatz.exe sekurlsa::logonpasswords","exe":"C:\\Tools\\mimikatz.exe","pid":1234,"ppid":5678,"summary":"mimikatz.exe spawned"}}
+{"ts":"2025-01-15T10:00:01Z","stream_id":"process_exec","segment_id":"seg_cmdline_pattern_002_001","record_index":1,"event_type":"lsass_access","payload":{"access_mask":"0x1010","summary":"LSASS memory accessed","target_pid":500}}

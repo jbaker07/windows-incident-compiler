@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-process_injection-dll_inject_001",
+    "exported_at": "2025-12-27T13:17:14.093210Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "b83eaa460afd4cf6956273fb6e5d4df3ec242c94502b34405e4b1322744304fc",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "recompute/events.jsonl": "2d5c0c65c8c2b5291d57840a2780e63ab3fcaede379f52f38f81248ae55759ac",
+    "recompute/config_snapshot.json": "9a74915ca4d4adf50d35572fc121869df8aa6adabb7a0c6388b5a3d46bdce797",
+    "replay/report_bundle.json": "fc4035205a493c626faf91b36a4ad39cb7cf9c8eec66d7db27375cf45c0d7d80"
+  }
+}

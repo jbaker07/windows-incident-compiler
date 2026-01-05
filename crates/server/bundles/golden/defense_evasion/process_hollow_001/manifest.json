@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-defense_evasion-process_hollow_001",
+    "exported_at": "2025-12-27T13:17:14.089885Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "f73fa7c225b5e2fbb600eec9e2bf4decd0f0c98041a0ac0976aecbf3b92be2aa",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "recompute/events.jsonl": "15f8075cecf2c5542b3a13f7d361c30ec27d2d3d26b53fe16c4cfce63da154bc",
+    "replay/report_bundle.json": "03505b6a0510e58b582521702a1ef6f69cf9dbe02bd790ed7e4eb939160c6c53",
+    "recompute/config_snapshot.json": "195ca487c21df4b3ac4fe69e4e0235af68426d1ee524d5caa9568b01f2e0c561"
+  }
+}

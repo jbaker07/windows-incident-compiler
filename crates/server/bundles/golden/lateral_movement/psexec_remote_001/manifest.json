@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-lateral_movement-psexec_remote_001",
+    "exported_at": "2025-12-27T13:17:14.086966Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "fa114779a88338651b1abfa46d2a833280ba83807ee8e538541552ec95163099",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "recompute/config_snapshot.json": "22b681a187d796d5287be5ad409fd22c74899471f4daf89a0f18732519a591e2",
+    "recompute/events.jsonl": "4b4e41b095e1ea4c0fe5314acfa2c2b131c6c4cf44fee4c33b376aa252aa586c",
+    "replay/report_bundle.json": "b933eeeca075fd6a1401abc2ef0cfe7da12b62735ad82a47c77b30ce53a5e80e"
+  }
+}

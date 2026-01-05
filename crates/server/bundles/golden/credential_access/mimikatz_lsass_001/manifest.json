@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-credential_access-mimikatz_lsass_001",
+    "exported_at": "2025-12-27T13:17:14.080937Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "c1d49030ef95cd24419029ed7bd1de05a7d8215418f0ec3b3f5debf20806c7a4",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "replay/report_bundle.json": "165d655d3392d6a3e0dccf3de9cb73b6a1a8345b165b7e0ac052004ca40227b3",
+    "recompute/config_snapshot.json": "873363f602320d8368e7c4d403a77eeb8f4087b5646e7860cc026be2eda7914d",
+    "recompute/events.jsonl": "f83c1d615b44544ff1d03fd9693ea6765a0328119b9a81e91b4c50d212168354"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "metadata": {
+    "report_id": "golden-dns_anomaly-tunnel_pattern_001",
+    "generated_at": "2025-12-27T13:17:14.093747Z",
+    "incident_id": "GOLDEN-DNS_ANOMALY-001",
+    "session_id": "golden-session-tunnel_pattern_001",
+    "family": "dns_anomaly",
+    "host_id": "golden-workstation-01",
+    "time_window": null,
+    "summary": "[GOLDEN BUNDLE] dns_anomaly - DNS tunneling pattern",
+    "synthetic": true
+  },
+  "hypotheses": [
+    {
+      "rank": 1,
+      "hypothesis_id": "H-DNS_ANOMALY-001",
+      "family": "dns_anomaly",
+      "template_id": "TDNS_",
+      "confidence": 0.85,
+      "severity": "High",
+      "suppressed": false,
+      "suppression_reason": null,
+      "slots_satisfied": "5/6 slots filled"
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2025-01-15T10:00:00Z",
+      "summary": "dns_anomaly scenario event",
+      "category": "process_exec",
+      "evidence_ptr": "seg_tunnel_pattern_001_001:process_exec:0",
+      "is_late_arrival": false
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "C-DNS_ANOMALY-001",
+      "text": "dns_anomaly activity detected",
+      "certainty": "observed",
+      "claim_type": "dns_anomaly",
+      "evidence_ptrs": [
+        "seg_tunnel_pattern_001_001:process_exec:0"
+      ],
+      "has_conflict": false
+    }
+  ],
+  "visibility": {
+    "overall_health": "unknown",
+    "streams_present": [],
+    "streams_missing": [],
+    "degraded": false,
+    "degraded_reasons": [],
+    "late_arrival_count": 0,
+    "watermark_notes": []
+  },
+  "disambiguators": [],
+  "integrity_notes": [],
+  "evidence_excerpts": {}
+}

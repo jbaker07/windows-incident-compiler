@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-dns_anomaly-tunnel_pattern_001",
+    "exported_at": "2025-12-27T13:17:14.094501Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "fad7b02092a35cc1def253bed4d83d42127eeb1bc5695dc076c37edbd9b7c4c8",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "replay/report_bundle.json": "3b2b5e970263ff518e91fe877ece54d57d22bb64a3fc5587d093f51d06824b97",
+    "recompute/config_snapshot.json": "e3d0d16c7cea6e090038fde9a4c4b377a9a6dc8a196eaea6a3f64e5e86c21d7d",
+    "recompute/events.jsonl": "7b246572b46c37d331b60c238f23a610abcf9e604a7243d6515ec26b4e3ea372"
+  }
+}

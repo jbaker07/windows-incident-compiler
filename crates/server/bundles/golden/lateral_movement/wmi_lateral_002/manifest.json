@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-lateral_movement-wmi_lateral_002",
+    "exported_at": "2025-12-27T13:17:14.088340Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "7ef9c8c6b7d62b13e8ce2d06ee673f1258c3b5bc6f641fcda7fe6bb1bff8b383",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "replay/report_bundle.json": "e126d7fd87300965b0ba10cb3a861ed36edb5a1334d310594f41fd3fa2c1d124",
+    "recompute/config_snapshot.json": "ba24422cff0f7cdbc1e5001a6bc5af4a66d4b289760c9a38385decce541c7545",
+    "recompute/events.jsonl": "bd52d6f9518a1fdbb39c77ff432a8ab00d08f1bfc1dbe29ab018f382148bd72d"
+  }
+}

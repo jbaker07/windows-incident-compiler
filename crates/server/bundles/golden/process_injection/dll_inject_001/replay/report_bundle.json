@@ -1,0 +1,59 @@
+{
+  "metadata": {
+    "report_id": "golden-process_injection-dll_inject_001",
+    "generated_at": "2025-12-27T13:17:14.092452Z",
+    "incident_id": "GOLDEN-PROCESS_INJECTION-001",
+    "session_id": "golden-session-dll_inject_001",
+    "family": "process_injection",
+    "host_id": "golden-workstation-01",
+    "time_window": null,
+    "summary": "[GOLDEN BUNDLE] process_injection - DLL injection",
+    "synthetic": true
+  },
+  "hypotheses": [
+    {
+      "rank": 1,
+      "hypothesis_id": "H-PROCESS_INJECTION-001",
+      "family": "process_injection",
+      "template_id": "TPROC",
+      "confidence": 0.85,
+      "severity": "High",
+      "suppressed": false,
+      "suppression_reason": null,
+      "slots_satisfied": "5/6 slots filled"
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2025-01-15T10:00:00Z",
+      "summary": "process_injection scenario event",
+      "category": "process_exec",
+      "evidence_ptr": "seg_dll_inject_001_001:process_exec:0",
+      "is_late_arrival": false
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "C-PROCESS_INJECTION-001",
+      "text": "process_injection activity detected",
+      "certainty": "observed",
+      "claim_type": "process_injection",
+      "evidence_ptrs": [
+        "seg_dll_inject_001_001:process_exec:0"
+      ],
+      "has_conflict": false
+    }
+  ],
+  "visibility": {
+    "overall_health": "unknown",
+    "streams_present": [],
+    "streams_missing": [],
+    "degraded": false,
+    "degraded_reasons": [],
+    "late_arrival_count": 0,
+    "watermark_notes": []
+  },
+  "disambiguators": [],
+  "integrity_notes": [],
+  "evidence_excerpts": {}
+}

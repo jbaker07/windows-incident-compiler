@@ -1,0 +1,1871 @@
+<!doctype html>
+<!-- MARKER vZZ -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>EDR Demo Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <!-- ============ FIRST-RUN WIZARD MODAL ============ -->
+  <dialog id="wizardModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-lg w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="text-center mb-6">
+        <div class="text-3xl mb-2">🔬</div>
+        <h2 class="text-xl font-semibold text-slate-100">Welcome to EDR Desktop</h2>
+        <p class="text-sm text-slate-400 mt-1">Let's get you set up in under a minute</p>
+      </div>
+
+      <!-- Step Indicator -->
+      <div class="flex justify-center gap-2 mb-6">
+        <div id="step1Dot" class="w-2 h-2 rounded-full bg-sky-500"></div>
+        <div id="step2Dot" class="w-2 h-2 rounded-full bg-slate-600"></div>
+        <div id="step3Dot" class="w-2 h-2 rounded-full bg-slate-600"></div>
+      </div>
+
+      <!-- Step 1: Mode Selection -->
+      <div id="wizardStep1" class="space-y-4">
+        <div class="text-sm font-medium text-slate-300 mb-3">Choose your workflow mode:</div>
+        <div class="grid grid-cols-2 gap-3">
+          <button id="modeDiscovery" type="button" class="p-4 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left group">
+            <div class="text-lg mb-1">🔍</div>
+            <div class="font-medium text-slate-200 group-hover:text-sky-400">Discovery</div>
+            <div class="text-xs text-slate-400">Explore telemetry, build hypotheses</div>
+          </button>
+          <button id="modeMission" type="button" class="p-4 rounded-lg border-2 border-slate-700 hover:border-emerald-500 transition-colors text-left group">
+            <div class="text-lg mb-1">🎯</div>
+            <div class="font-medium text-slate-200 group-hover:text-emerald-400">Mission</div>
+            <div class="text-xs text-slate-400">Structured investigation workflow</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Preset Selection -->
+      <div id="wizardStep2" class="hidden space-y-4">
+        <div class="text-sm font-medium text-slate-300 mb-3">Choose your environment preset:</div>
+        <div class="grid grid-cols-2 gap-3">
+          <button data-preset="htb" type="button" class="preset-btn p-3 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left">
+            <div class="font-medium text-slate-200">HTB</div>
+            <div class="text-xs text-slate-400">HackTheBox labs</div>
+          </button>
+          <button data-preset="atomic" type="button" class="preset-btn p-3 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left">
+            <div class="font-medium text-slate-200">Atomic</div>
+            <div class="text-xs text-slate-400">Atomic Red Team tests</div>
+          </button>
+          <button data-preset="tryhackme" type="button" class="preset-btn p-3 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left">
+            <div class="font-medium text-slate-200">TryHackMe</div>
+            <div class="text-xs text-slate-400">TryHackMe rooms</div>
+          </button>
+          <button data-preset="generic" type="button" class="preset-btn p-3 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left">
+            <div class="font-medium text-slate-200">Generic</div>
+            <div class="text-xs text-slate-400">Custom environment</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3: Focus Window -->
+      <div id="wizardStep3" class="hidden space-y-4">
+        <div class="text-sm font-medium text-slate-300 mb-3">Set default focus window:</div>
+        <div class="space-y-3">
+          <div class="grid grid-cols-3 gap-2">
+            <button data-focus="5" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">5 min</button>
+            <button data-focus="15" type="button" class="focus-btn px-3 py-2 rounded border-2 border-sky-500 bg-sky-500/10 text-sm">15 min</button>
+            <button data-focus="30" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">30 min</button>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <button data-focus="60" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">1 hour</button>
+            <button data-focus="120" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">2 hours</button>
+            <button data-focus="240" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">4 hours</button>
+          </div>
+        </div>
+        <div class="pt-4 border-t border-slate-700">
+          <label class="flex items-start gap-2 text-sm text-slate-300">
+            <input id="loadVerificationCheck" type="checkbox" class="mt-1 rounded bg-slate-800 border-slate-600" />
+            <div>
+              <div>Load verification pack (optional)</div>
+              <div class="text-xs text-slate-400">Synthetic data to verify installation and learn the workflow</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Navigation Buttons -->
+      <div class="flex justify-between mt-6 pt-4 border-t border-slate-800">
+        <button id="wizardBack" type="button" class="px-4 py-2 rounded text-slate-400 hover:text-slate-200 invisible">
+          ← Back
+        </button>
+        <button id="wizardNext" type="button" class="px-6 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          Next →
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ LIVE SUCCESS DIAGNOSTIC MODAL ============ -->
+  <dialog id="liveSuccessModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <div id="liveSuccessEmoji" class="text-3xl mb-2">🔍</div>
+          <h2 id="liveSuccessTitle" class="text-xl font-semibold text-slate-100">Telemetry Check</h2>
+          <p id="liveSuccessSubtitle" class="text-sm text-slate-400 mt-1">Checking if sensors are working...</p>
+        </div>
+        <button id="closeLiveSuccessBtn" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+
+      <!-- Verdict Summary -->
+      <div id="liveSuccessVerdict" class="hidden p-4 rounded-lg mb-4">
+        <div class="flex items-center gap-3">
+          <span id="verdictIcon" class="text-2xl">✅</span>
+          <div>
+            <div id="verdictTitle" class="font-medium"></div>
+            <div id="verdictDesc" class="text-sm text-slate-400"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Issues -->
+      <div id="liveSuccessIssues" class="hidden mb-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-2">Issues Found:</h3>
+        <div id="issuesList" class="space-y-2 max-h-40 overflow-y-auto"></div>
+      </div>
+
+      <!-- Stream Status -->
+      <details id="streamDetails" class="hidden mb-4">
+        <summary class="cursor-pointer text-sm font-medium text-slate-300 py-2">Stream Status</summary>
+        <div id="streamsList" class="mt-2 space-y-1 max-h-40 overflow-y-auto text-xs"></div>
+      </details>
+
+      <!-- Probe Section -->
+      <div id="probeSection" class="hidden border-t border-slate-700 pt-4 mt-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-2">🧪 Run Harmless Probe</h3>
+        <p class="text-xs text-slate-400 mb-3">
+          Generate safe telemetry (echo command, temp file, localhost connect) to verify the full pipeline.
+        </p>
+        <div class="flex items-center gap-3">
+          <button id="runProbeBtn" type="button" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">
+            Run Probe
+          </button>
+          <span id="probeStatus" class="text-xs text-slate-400"></span>
+        </div>
+        <div id="probeResult" class="hidden mt-3 p-3 rounded bg-slate-800 text-xs">
+          <div id="probeResultContent"></div>
+        </div>
+      </div>
+
+      <!-- Recommended Actions -->
+      <div id="actionsSection" class="hidden border-t border-slate-700 pt-4 mt-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-2">Recommended Actions:</h3>
+        <div id="actionsList" class="space-y-2"></div>
+      </div>
+
+      <!-- Action Details Expandable -->
+      <div id="actionDetailsSection" class="hidden border-t border-slate-700 pt-4 mt-4">
+        <details>
+          <summary class="cursor-pointer text-sm font-medium text-slate-300 py-2">Fix Steps</summary>
+          <div id="actionDetailsContent" class="mt-2 p-3 rounded bg-slate-800 text-xs prose prose-invert prose-sm max-h-60 overflow-y-auto"></div>
+        </details>
+      </div>
+
+      <!-- Footer -->
+      <div class="flex justify-between items-center mt-6 pt-4 border-t border-slate-800">
+        <label class="flex items-center gap-2 text-sm text-slate-400">
+          <input id="loadVerificationCheckAlt" type="checkbox" class="rounded bg-slate-800 border-slate-600" />
+          <span>Load verification pack (optional)</span>
+        </label>
+        <button id="liveSuccessDone" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">
+          Done
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ VERIFICATION PACK LOADED BANNER ============ -->
+  <div id="verificationBanner" class="hidden fixed top-0 left-0 right-0 bg-amber-700/90 text-amber-100 px-4 py-2 z-50">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">⚠️</span>
+        <div>
+          <span class="font-medium">Verification pack loaded (synthetic data)</span>
+          <span class="text-amber-200 text-sm ml-2">Switch to Live mode to view real telemetry</span>
+        </div>
+      </div>
+      <button id="clearVerificationBtn" class="px-3 py-1 rounded bg-amber-800 hover:bg-amber-900 text-sm">
+        Clear verification data
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ VERIFICATION DATA LOADED TOAST ============ -->
+  <div id="verificationToast" class="fixed bottom-4 right-4 bg-amber-800/90 text-amber-100 px-4 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 z-50">
+    <div class="flex items-center gap-3">
+      <span class="text-lg">🔬</span>
+      <div>
+        <div class="font-medium text-sm">Verification pack loaded</div>
+        <div class="text-xs text-amber-200">Synthetic data - explore the workflow</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Desktop App Status Bar (hidden in browser, shown in Tauri) -->
+  <div id="desktopStatusBar" class="hidden bg-slate-900/80 border-b border-slate-800 px-4 py-2 text-xs">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <span class="flex items-center gap-1.5">
+          <span id="statusDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span id="statusText">Backend running</span>
+        </span>
+        <span class="text-slate-500">|</span>
+        <span id="statusPort" class="text-slate-400">Port: --</span>
+        <span class="text-slate-500">|</span>
+        <span id="statusTelemetry" class="text-slate-400 truncate max-w-[300px]">Telemetry: --</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="openTelemetryBtn" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">
+          Open Telemetry Folder
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ IMPORTED BUNDLE BANNER ============ -->
+  <div id="importedBundleBanner" class="hidden fixed top-0 left-0 right-0 bg-amber-600/95 text-amber-50 px-4 py-2 z-50 border-b-2 border-amber-500">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">📦</span>
+        <div>
+          <span class="font-bold">⚠️ IMPORTED BUNDLE</span>
+          <span class="text-amber-200 text-sm ml-2">This data is from an external source, not live telemetry</span>
+          <span id="importedBundleInfo" class="text-amber-100 text-sm ml-2 font-medium"></span>
+        </div>
+      </div>
+      <button id="clearImportedBtn" class="px-3 py-1 rounded bg-amber-700 hover:bg-amber-800 text-sm font-medium">
+        Clear imported data
+      </button>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto p-4">
+    <header class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <h1 class="text-xl font-semibold">EDR Demo</h1>
+        <span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-emerald-700/70">live</span>
+      </div>
+      <div class="flex items-center gap-4 text-sm text-slate-400">
+        <span id="statEvents">events: 0</span>
+        <span id="statAlerts">alerts: 0</span>
+        <span id="statNodes">nodes: 0</span>
+        <span id="statEdges">edges: 0</span>
+        <span id="statDrops">bpf_drops: 0</span>
+        <button id="exportBundleBtn" type="button" class="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-emerald-100 text-xs">
+          📤 Export Bundle
+        </button>
+        <label class="px-2 py-1 rounded bg-violet-700 hover:bg-violet-600 text-violet-100 text-xs cursor-pointer">
+          📥 Import Bundle
+          <input id="importBundleInput" type="file" accept=".zip,.json" class="hidden" />
+        </label>
+        <button id="exportSupportBundleBtn" type="button" class="px-2 py-1 rounded bg-amber-700 hover:bg-amber-600 text-amber-100 text-xs">
+          🆘 Export Support Bundle
+        </button>
+        <a class="underline decoration-sky-500/60 hover:decoration-sky-400" href="/ui/graph.html">Open Live Graph</a>
+      </div>
+    </header>
+
+    <!-- KPI row (app.js refreshKPIs fills this) -->
+    <div id="kpis" class="kpi-row mb-4"></div>
+
+    <nav class="flex gap-2 text-sm mb-4">
+      <button id="tabDash" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Dashboard</button>
+      <button id="tabIntegrations" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Integrations</button>
+    </nav>
+
+    <section id="screenDash">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 rounded border border-slate-800">
+          <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+            <div class="text-sm font-medium">Alerts (live)</div>
+            <div class="flex items-center gap-2 text-xs">
+              <input id="search" placeholder="filter…" class="bg-slate-900 border border-slate-700 rounded px-2 py-1" />
+              <select id="sevFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1">
+                <option value="">all severities</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+          </div>
+          <div class="overflow-auto max-h-[420px]">
+            <table class="w-full text-sm">
+              <thead class="text-slate-400 sticky top-0 bg-slate-950">
+                <tr>
+                  <th class="text-left px-3 py-2">time</th>
+                  <th class="text-left px-3 py-2">sev</th>
+                  <th class="text-left px-3 py-2">risk</th>
+                  <th class="text-left px-3 py-2">event</th>
+                  <th class="text-left px-3 py-2">findings</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-800 p-3">
+          <div class="text-sm font-medium mb-2">Timeline</div>
+          <canvas id="timeline" height="200"></canvas>
+        </div>
+
+        <div id="incidents" class="rounded border border-slate-800 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-medium">Incidents (rollups)</div>
+          </div>
+          <p class="text-xs text-slate-400 mb-2">No incidents yet.</p>
+          <ul id="incList" class="divide-y divide-slate-800"></ul>
+        </div>
+
+        <!-- Entity Filter Sidebar -->
+        <div id="entityFilterPanel" class="hidden rounded border border-cyan-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-medium text-cyan-400">🔍 Filter by Entity</div>
+            <button id="btnClearEntityFilter" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Clear filter</button>
+          </div>
+          <div id="entityFilterActiveLabel" class="hidden text-xs text-cyan-300 mb-2 px-2 py-1 bg-cyan-900/30 rounded">
+            Filtering: <span id="entityFilterActiveValue" class="font-semibold"></span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Executables</div>
+              <ul id="entityListExecutable" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Users</div>
+              <ul id="entityListUser" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Processes</div>
+              <ul id="entityListProcess" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Files</div>
+              <ul id="entityListFile" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Sockets</div>
+              <ul id="entityListSocket" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+          </div>
+        </div>
+        <!-- End Entity Filter Sidebar -->
+
+        <!-- Explain panel header hook; app.js can call attachExplainSummary(alertId) -->
+        <div class="rounded border border-slate-800 lg:col-span-3">
+          <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+            <div class="text-sm font-medium">Explain</div>
+            <div id="explainHeader" class="text-xs"></div>
+          </div>
+          <!-- Why This Hypothesis Panel -->
+          <div id="whyHypothesisPanel" class="hidden p-3 border-b border-slate-800 bg-slate-900/40">
+            <div class="text-sm font-semibold text-cyan-400 mb-3">🤔 Why This Hypothesis?</div>
+            <div class="space-y-3">
+              <!-- Top 3 Hypotheses -->
+              <div>
+                <div class="text-xs font-medium text-slate-400 mb-2">Top Candidates</div>
+                <div id="top3HypothesesList" class="space-y-1 text-xs"></div>
+              </div>
+              <!-- Key Claims -->
+              <div>
+                <div class="text-xs font-medium text-slate-400 mb-2">Key Claims</div>
+                <div id="keyClaimsList" class="space-y-1 text-xs max-h-32 overflow-auto"></div>
+              </div>
+              <!-- Evidence Pointers -->
+              <div>
+                <div class="text-xs font-medium text-slate-400 mb-2">Evidence Pointers</div>
+                <div id="evidencePointersList" class="space-y-1 text-xs max-h-24 overflow-auto font-mono bg-slate-950/70 rounded p-1"></div>
+              </div>
+              <!-- Visibility State -->
+              <div>
+                <div class="text-xs font-medium text-slate-400 mb-1">Visibility</div>
+                <div id="visibilityStateSummary" class="text-xs text-slate-400"></div>
+              </div>
+            </div>
+          </div>
+          <!-- Optional containers you can populate later from app.js (entities/anomalies/recs) -->
+          <div class="p-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div>
+              <div class="font-semibold mb-1 text-slate-300">Entities</div>
+              <pre id="explainEntities" class="bg-slate-900/70 border border-slate-800 rounded p-2 max-h-40 overflow-auto"></pre>
+            </div>
+            <div>
+              <div class="font-semibold mb-1 text-slate-300">Anomalies</div>
+              <ul id="explainAnoms" class="list-disc list-inside space-y-1 text-slate-300"></ul>
+            </div>
+            <div>
+              <div class="font-semibold mb-1 text-slate-300">Recommendations</div>
+              <ul id="explainRecs" class="list-disc list-inside space-y-1 text-slate-300"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- >>> THIS BLOCK IS THE MARKER YOU'LL TEST FOR <<< -->
+        <div class="rounded border border-slate-800 p-3 lg:col-span-3">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <div class="text-sm font-medium mb-2">Playbooks (live stream)</div>
+              <ul id="pb-feed" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
+            </div>
+            <div>
+              <div class="text-sm font-medium mb-2">Recent hits</div>
+              <ul id="pb-hits" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
+            </div>
+            <div>
+              <div class="text-sm font-medium mb-2">Pending matches</div>
+              <ul id="pb-pending" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ ANALYST WORKFLOW PANEL ============ -->
+        <div id="analystWorkflow" class="rounded border border-sky-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-sky-400">🔬 Analyst Workflow</div>
+            <div id="visibilityBadge" class="text-xs px-2 py-0.5 rounded bg-emerald-700/70">visibility: ok</div>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- Focus Window Control -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Focus Window</div>
+              <div class="space-y-2 text-xs">
+                <div class="flex gap-1">
+                  <input id="focusFrom" type="datetime-local" class="flex-1 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs" />
+                </div>
+                <div class="flex gap-1">
+                  <input id="focusTo" type="datetime-local" class="flex-1 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs" />
+                </div>
+                <button id="btnSetFocus" type="button" class="w-full px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs">Set Focus</button>
+                <div id="focusStatus" class="text-slate-400 text-[10px]">Default: last 1 hour</div>
+              </div>
+            </div>
+
+            <!-- Checkpoints -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Checkpoints</div>
+              <div class="space-y-2 text-xs">
+                <input id="checkpointLabel" placeholder="checkpoint label" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs" />
+                <button id="btnCreateCheckpoint" type="button" class="w-full px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs">Create Checkpoint</button>
+                <select id="checkpointList" class="w-full bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs">
+                  <option value="">-- select checkpoint --</option>
+                </select>
+                <button id="btnRestoreCheckpoint" type="button" class="w-full px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-xs">Restore</button>
+              </div>
+            </div>
+
+            <!-- Diff View -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Diff View</div>
+              <div class="space-y-2 text-xs">
+                <button id="btnShowDiff" type="button" class="w-full px-2 py-1 rounded bg-violet-600 hover:bg-violet-500 text-xs">Show Changes</button>
+                <div id="diffSummary" class="text-slate-400 text-[10px] max-h-20 overflow-auto">
+                  No diff loaded
+                </div>
+              </div>
+            </div>
+
+            <!-- Disambiguators -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Disambiguators</div>
+              <div class="space-y-2 text-xs">
+                <select id="disambiguatorList" class="w-full bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs">
+                  <option value="">-- select action --</option>
+                </select>
+                <button id="btnApplyDisambiguator" type="button" class="w-full px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-xs">Apply Pivot</button>
+                <div id="disambiguatorResult" class="text-slate-400 text-[10px] max-h-16 overflow-auto"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- ============ END ANALYST WORKFLOW PANEL ============ -->
+
+        <!-- ============ CAPTURE CONTROL PANEL ============ -->
+        <div id="captureControlPanel" class="rounded border border-amber-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-amber-400">⚙️ Capture Control</div>
+            <div class="flex items-center gap-2">
+              <div id="throttleBadge" class="text-xs px-2 py-0.5 rounded bg-emerald-700/70">throttling: ok</div>
+              <div id="profileBadge" class="text-xs px-2 py-0.5 rounded bg-sky-700/70">profile: core</div>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- Profile Selector -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Capture Profile</div>
+              <div class="space-y-2 text-xs">
+                <select id="profileSelector" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs">
+                  <option value="core" selected>Core (safe baseline)</option>
+                  <option value="extended">Extended (moderate)</option>
+                  <option value="forensic">Forensic (high resource)</option>
+                </select>
+                <div id="profileDescription" class="text-slate-400 text-[10px]">Minimal sensors, safe for dev laptops</div>
+                <button id="btnApplyProfile" type="button" class="w-full px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-xs">Apply Profile</button>
+              </div>
+            </div>
+
+            <!-- Throttle Stats -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Throttle Stats</div>
+              <div class="space-y-1 text-xs">
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Accepted:</span>
+                  <span id="throttleAccepted" class="text-emerald-400">0</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Dropped:</span>
+                  <span id="throttleDropped" class="text-rose-400">0</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Global tokens:</span>
+                  <span id="throttleTokens" class="text-sky-400">--</span>
+                </div>
+                <button id="btnResetThrottle" type="button" class="w-full px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs mt-1">Reset Counters</button>
+              </div>
+            </div>
+
+            <!-- Enabled Sensors Summary -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Active Sensors</div>
+              <div class="space-y-1 text-xs">
+                <div id="sensorsList" class="text-slate-400 text-[10px] max-h-16 overflow-auto">
+                  Loading...
+                </div>
+              </div>
+            </div>
+
+            <!-- Degraded Reasons (if any) -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Visibility Status</div>
+              <div id="degradedReasons" class="space-y-1 text-xs text-slate-400 text-[10px] max-h-20 overflow-auto">
+                No issues detected
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- ============ END CAPTURE CONTROL PANEL ============ -->
+
+        <!-- ============ THROTTLE DEGRADED BANNER (conditionally shown) ============ -->
+        <div id="throttleDegradedBanner" class="hidden rounded border border-rose-700/50 bg-rose-900/30 p-2 lg:col-span-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-rose-400">⚠️</span>
+              <span class="text-sm text-rose-300">Visibility degraded due to throttling</span>
+            </div>
+            <span id="throttleDegradedDetail" class="text-xs text-rose-400">--</span>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-800 lg:col-span-3">
+          <div class="p-3 border-b border-slate-800 text-sm font-medium">Selected alert (JSON)</div>
+          <pre id="detail" class="text-xs p-3 overflow-auto max-h-[300px]"></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="screenIntegrations" class="hidden">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-medium">Integrations</h2>
+        <div class="flex items-center gap-2">
+          <select id="integrationModeFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm">
+            <option value="">All modes</option>
+            <option value="export">Export</option>
+            <option value="ingest">Ingest</option>
+            <option value="both">Both</option>
+          </select>
+          <button id="btnRefreshIntegrations" type="button" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄 Refresh</button>
+          <button id="btnAdd" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500">+ Add Integration</button>
+        </div>
+      </div>
+
+      <!-- Integration Profiles Table -->
+      <div class="rounded border border-slate-800 mb-4">
+        <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+          <div class="text-sm font-medium">Integration Profiles</div>
+          <div class="text-xs text-slate-400" id="integrationCount">0 integrations</div>
+        </div>
+        <div class="overflow-auto max-h-[300px]">
+          <table class="w-full text-sm">
+            <thead class="text-slate-400 sticky top-0 bg-slate-950">
+              <tr>
+                <th class="text-left px-3 py-2">Status</th>
+                <th class="text-left px-3 py-2">Name</th>
+                <th class="text-left px-3 py-2">Type</th>
+                <th class="text-left px-3 py-2">Mode</th>
+                <th class="text-left px-3 py-2">EPS</th>
+                <th class="text-left px-3 py-2">Errors</th>
+                <th class="text-left px-3 py-2">Facts</th>
+                <th class="text-left px-3 py-2">Join Keys</th>
+                <th class="text-left px-3 py-2">Last Seen</th>
+                <th class="text-left px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="integrationRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Capabilities Matrix -->
+      <div class="rounded border border-slate-800 mb-4">
+        <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+          <div class="text-sm font-medium">📊 Capabilities Matrix</div>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1 text-xs text-slate-400">
+              <input id="showCollectors" type="checkbox" checked class="rounded bg-slate-800 border-slate-600" />
+              Show Collectors
+            </label>
+            <button id="btnRefreshCapabilities" type="button" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄</button>
+          </div>
+        </div>
+        <div class="p-3 overflow-auto max-h-[400px]">
+          <!-- Legend -->
+          <div class="flex items-center gap-4 mb-3 text-xs">
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-emerald-500"></span> HARD (full telemetry)</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-500"></span> SOFT (partial/joined)</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-slate-700"></span> None</span>
+          </div>
+          <div id="capabilitiesMatrix" class="text-xs">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Join Key Support Matrix -->
+      <div class="rounded border border-slate-800 mb-4">
+        <div class="p-3 border-b border-slate-800">
+          <div class="text-sm font-medium">🔗 Join Key Support</div>
+        </div>
+        <div class="p-3 overflow-auto max-h-[250px]">
+          <div id="joinKeyMatrix" class="text-xs">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Legacy Integration Tiles (for backwards compatibility) -->
+      <div class="rounded border border-slate-800 mb-4">
+        <div class="p-3 border-b border-slate-800">
+          <div class="text-sm font-medium">Active Integrations</div>
+        </div>
+        <div id="tiles" class="grid grid-cols-1 md:grid-cols-3 gap-3 p-3"></div>
+      </div>
+
+      <!-- Sample Event Inspector Modal -->
+      <dialog id="sampleEventModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+        <div class="p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-base font-semibold" id="sampleModalTitle">Sample Events</h3>
+            <button type="button" onclick="document.getElementById('sampleEventModal').close()" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+          </div>
+          <div id="sampleEventContent" class="space-y-3 max-h-[400px] overflow-auto"></div>
+        </div>
+      </dialog>
+
+      <dialog id="addDlg" class="bg-slate-950 text-slate-100 p-4 rounded max-w-xl w-full">
+        <form method="dialog">
+          <h3 class="text-base font-semibold mb-2">Add Integration</h3>
+          <div class="mb-2">
+            <label class="block text-sm">Vendor</label>
+            <select id="vendorSel" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1"></select>
+          </div>
+          <div id="credFields" class="space-y-2"></div>
+          <menu class="flex gap-2 justify-end mt-4">
+            <button value="cancel" class="px-3 py-1 rounded bg-slate-800">Cancel</button>
+            <button id="saveIntegration" value="default" class="px-3 py-1 rounded bg-sky-600">Save</button>
+          </menu>
+        </form>
+      </dialog>
+    </section>
+  </div>
+
+  <!-- IMPORTANT: point to /ui/app.js so you load the served file -->
+  <script src="/ui/app.js"></script>
+
+  <!-- First-Run Wizard & Verification Pack Integration -->
+  <script>
+    (function() {
+      const API_BASE = window.location.origin;
+      
+      // Wizard state
+      let wizardState = {
+        step: 1,
+        mode: null,
+        preset: null,
+        focusMinutes: 15
+      };
+      
+      // Elements
+      const modal = document.getElementById('wizardModal');
+      const step1 = document.getElementById('wizardStep1');
+      const step2 = document.getElementById('wizardStep2');
+      const step3 = document.getElementById('wizardStep3');
+      const backBtn = document.getElementById('wizardBack');
+      const nextBtn = document.getElementById('wizardNext');
+      const dots = [
+        document.getElementById('step1Dot'),
+        document.getElementById('step2Dot'),
+        document.getElementById('step3Dot')
+      ];
+      
+      // Toast and banner elements
+      const verificationToast = document.getElementById('verificationToast');
+      const verificationBanner = document.getElementById('verificationBanner');
+      const clearVerificationBtn = document.getElementById('clearVerificationBtn');
+      
+      function showToast(message, submessage) {
+        if (verificationToast) {
+          verificationToast.querySelector('.font-medium').textContent = message || 'Verification pack loaded';
+          verificationToast.querySelector('.text-amber-200').textContent = submessage || 'Synthetic data - explore the workflow';
+          verificationToast.classList.remove('translate-y-20', 'opacity-0');
+          setTimeout(() => {
+            verificationToast.classList.add('translate-y-20', 'opacity-0');
+          }, 4000);
+        }
+      }
+      
+      function showVerificationBanner() {
+        if (verificationBanner) {
+          verificationBanner.classList.remove('hidden');
+          // Offset main content
+          document.body.style.paddingTop = '40px';
+        }
+      }
+      
+      function hideVerificationBanner() {
+        if (verificationBanner) {
+          verificationBanner.classList.add('hidden');
+          document.body.style.paddingTop = '0';
+        }
+      }
+      
+      function updateStepIndicator() {
+        dots.forEach((dot, i) => {
+          if (i + 1 === wizardState.step) {
+            dot.className = 'w-2 h-2 rounded-full bg-sky-500';
+          } else if (i + 1 < wizardState.step) {
+            dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+          } else {
+            dot.className = 'w-2 h-2 rounded-full bg-slate-600';
+          }
+        });
+      }
+      
+      function showStep(stepNum) {
+        wizardState.step = stepNum;
+        step1.classList.toggle('hidden', stepNum !== 1);
+        step2.classList.toggle('hidden', stepNum !== 2);
+        step3.classList.toggle('hidden', stepNum !== 3);
+        
+        backBtn.classList.toggle('invisible', stepNum === 1);
+        
+        if (stepNum === 3) {
+          nextBtn.textContent = 'Get Started →';
+          nextBtn.disabled = false;
+        } else {
+          nextBtn.textContent = 'Next →';
+          nextBtn.disabled = (stepNum === 1 && !wizardState.mode) || 
+                             (stepNum === 2 && !wizardState.preset);
+        }
+        
+        updateStepIndicator();
+      }
+      
+      // Mode selection
+      document.getElementById('modeDiscovery')?.addEventListener('click', function() {
+        wizardState.mode = 'discovery';
+        this.classList.add('border-sky-500', 'bg-sky-500/10');
+        document.getElementById('modeMission')?.classList.remove('border-sky-500', 'bg-sky-500/10', 'border-emerald-500', 'bg-emerald-500/10');
+        nextBtn.disabled = false;
+      });
+      
+      document.getElementById('modeMission')?.addEventListener('click', function() {
+        wizardState.mode = 'mission';
+        this.classList.add('border-emerald-500', 'bg-emerald-500/10');
+        document.getElementById('modeDiscovery')?.classList.remove('border-sky-500', 'bg-sky-500/10');
+        nextBtn.disabled = false;
+      });
+      
+      // Preset selection
+      document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          wizardState.preset = this.dataset.preset;
+          document.querySelectorAll('.preset-btn').forEach(b => {
+            b.classList.remove('border-sky-500', 'bg-sky-500/10');
+          });
+          this.classList.add('border-sky-500', 'bg-sky-500/10');
+          nextBtn.disabled = false;
+        });
+      });
+      
+      // Focus selection
+      document.querySelectorAll('.focus-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          wizardState.focusMinutes = parseInt(this.dataset.focus);
+          document.querySelectorAll('.focus-btn').forEach(b => {
+            b.classList.remove('border-sky-500', 'bg-sky-500/10', 'border-2');
+            b.classList.add('border', 'border-slate-700');
+          });
+          this.classList.remove('border', 'border-slate-700');
+          this.classList.add('border-2', 'border-sky-500', 'bg-sky-500/10');
+        });
+      });
+      
+      // Navigation
+      backBtn?.addEventListener('click', () => {
+        if (wizardState.step > 1) showStep(wizardState.step - 1);
+      });
+      
+      nextBtn?.addEventListener('click', async () => {
+        if (wizardState.step < 3) {
+          showStep(wizardState.step + 1);
+        } else {
+          // Complete setup
+          nextBtn.disabled = true;
+          nextBtn.textContent = 'Loading...';
+          
+          const loadVerification = document.getElementById('loadVerificationCheck')?.checked ?? false;
+          
+          try {
+            const response = await fetch(`${API_BASE}/api/setup/complete`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                mode: wizardState.mode,
+                preset: wizardState.preset,
+                focus_minutes: wizardState.focusMinutes,
+                load_verification: loadVerification
+              })
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              modal.close();
+              
+              if (loadVerification) {
+                // Also load the verification pack
+                const verifyResponse = await fetch(`${API_BASE}/api/verify/load`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ bundle_name: 'verification_001' })
+                });
+                
+                if (verifyResponse.ok) {
+                  const verifyData = await verifyResponse.json();
+                  showToast('Verification pack loaded', `${verifyData.hypothesis_count} hypotheses, ${verifyData.timeline_entry_count} timeline entries`);
+                  showVerificationBanner();
+                  
+                  // Expose verification bundle globally for the UI
+                  window.VERIFICATION_BUNDLE = verifyData.report_bundle;
+                  
+                  // Trigger UI update if app.js has a handler
+                  if (typeof window.onVerificationLoaded === 'function') {
+                    window.onVerificationLoaded(verifyData);
+                  }
+                }
+              } else {
+                // No verification pack - run live success check
+                setTimeout(() => {
+                  if (typeof window.checkLiveSuccess === 'function') {
+                    window.checkLiveSuccess();
+                  }
+                }, 500);
+              }
+            } else {
+              console.error('Setup failed:', await response.text());
+              nextBtn.disabled = false;
+              nextBtn.textContent = 'Retry →';
+            }
+          } catch (e) {
+            console.error('Setup error:', e);
+            nextBtn.disabled = false;
+            nextBtn.textContent = 'Retry →';
+          }
+        }
+      });
+      
+      // Check first-run status on load
+      async function checkFirstRun() {
+        try {
+          const response = await fetch(`${API_BASE}/api/app/state`);
+          if (response.ok) {
+            const state = await response.json();
+            console.log('App state:', state);
+            
+            if (state.is_first_run) {
+              modal.showModal();
+            } else if (state.verification_loaded) {
+              // Verification pack already loaded, show banner
+              console.log('Verification pack loaded from previous session');
+              showVerificationBanner();
+            }
+          }
+        } catch (e) {
+          console.log('Could not check app state (backend may not be running):', e.message);
+        }
+      }
+      
+      // Clear verification data button handler
+      clearVerificationBtn?.addEventListener('click', async () => {
+        try {
+          const response = await fetch(`${API_BASE}/api/verify/reset`, { method: 'POST' });
+          if (response.ok) {
+            hideVerificationBanner();
+            window.VERIFICATION_BUNDLE = null;
+            showToast('Verification data cleared', 'Now showing real telemetry only');
+            // Trigger UI refresh
+            if (typeof window.onVerificationCleared === 'function') {
+              window.onVerificationCleared();
+            }
+          }
+        } catch (e) {
+          console.error('Clear verification failed:', e);
+        }
+      });
+      
+      // Expose verification reload function
+      window.reloadVerification = async function() {
+        try {
+          const response = await fetch(`${API_BASE}/api/verify/load`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bundle_name: 'verification_001' })
+          });
+          
+          if (response.ok) {
+            const verifyData = await response.json();
+            showToast('Verification pack reloaded', `${verifyData.hypothesis_count} hypotheses ready`);
+            showVerificationBanner();
+            window.VERIFICATION_BUNDLE = verifyData.report_bundle;
+            if (typeof window.onVerificationLoaded === 'function') {
+              window.onVerificationLoaded(verifyData);
+            }
+            return verifyData;
+          }
+        } catch (e) {
+          console.error('Verification reload failed:', e);
+        }
+      };
+      
+      // Expose clear function
+      window.clearVerification = async function() {
+        try {
+          const response = await fetch(`${API_BASE}/api/verify/reset`, { method: 'POST' });
+          if (response.ok) {
+            hideVerificationBanner();
+            window.VERIFICATION_BUNDLE = null;
+            console.log('Verification data cleared.');
+            if (typeof window.onVerificationCleared === 'function') {
+              window.onVerificationCleared();
+            }
+          }
+        } catch (e) {
+          console.error('Clear failed:', e);
+        }
+      };
+      
+      // Expose reset function (for testing)
+      window.resetFirstRun = async function() {
+        try {
+          const response = await fetch(`${API_BASE}/api/verify/reset`, { method: 'POST' });
+          if (response.ok) {
+            console.log('First-run reset. Reload the page to see the wizard.');
+            location.reload();
+          }
+        } catch (e) {
+          console.error('Reset failed:', e);
+        }
+      };
+      
+      // Initialize
+      checkFirstRun();
+    })();
+  </script>
+
+  <!-- ============ LIVE SUCCESS DIAGNOSTIC SCRIPT ============ -->
+  <script>
+    (function() {
+      const API_BASE = window.location.origin;
+      
+      // Elements
+      const modal = document.getElementById('liveSuccessModal');
+      const closeBtn = document.getElementById('closeLiveSuccessBtn');
+      const doneBtn = document.getElementById('liveSuccessDone');
+      const emojiEl = document.getElementById('liveSuccessEmoji');
+      const titleEl = document.getElementById('liveSuccessTitle');
+      const subtitleEl = document.getElementById('liveSuccessSubtitle');
+      const verdictSection = document.getElementById('liveSuccessVerdict');
+      const verdictIcon = document.getElementById('verdictIcon');
+      const verdictTitle = document.getElementById('verdictTitle');
+      const verdictDesc = document.getElementById('verdictDesc');
+      const issuesSection = document.getElementById('liveSuccessIssues');
+      const issuesList = document.getElementById('issuesList');
+      const streamDetails = document.getElementById('streamDetails');
+      const streamsList = document.getElementById('streamsList');
+      const probeSection = document.getElementById('probeSection');
+      const runProbeBtn = document.getElementById('runProbeBtn');
+      const probeStatus = document.getElementById('probeStatus');
+      const probeResult = document.getElementById('probeResult');
+      const probeResultContent = document.getElementById('probeResultContent');
+      const actionsSection = document.getElementById('actionsSection');
+      const actionsList = document.getElementById('actionsList');
+      const actionDetailsSection = document.getElementById('actionDetailsSection');
+      const actionDetailsContent = document.getElementById('actionDetailsContent');
+      const loadVerificationCheckAlt = document.getElementById('loadVerificationCheckAlt');
+      
+      // State
+      let lastDiagnostic = null;
+      
+      // Show/hide modal
+      function showLiveSuccessModal() {
+        if (modal) modal.showModal();
+      }
+      
+      function hideLiveSuccessModal() {
+        if (modal) modal.close();
+      }
+      
+      // Close handlers
+      closeBtn?.addEventListener('click', hideLiveSuccessModal);
+      doneBtn?.addEventListener('click', async () => {
+        // Check if user wants verification pack
+        if (loadVerificationCheckAlt?.checked) {
+          try {
+            const response = await fetch(`${API_BASE}/api/verify/load`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ bundle_name: 'verification_001' })
+            });
+            if (response.ok) {
+              window.showToast?.('Verification pack loaded', 'Explore the workflow with synthetic data');
+            }
+          } catch (e) {
+            console.error('Failed to load verification:', e);
+          }
+        }
+        hideLiveSuccessModal();
+      });
+      
+      // Run self-check
+      async function runSelfCheck() {
+        try {
+          subtitleEl.textContent = 'Checking telemetry...';
+          
+          const response = await fetch(`${API_BASE}/api/selfcheck`);
+          if (!response.ok) {
+            throw new Error('Self-check failed');
+          }
+          
+          const diagnostic = await response.json();
+          lastDiagnostic = diagnostic;
+          
+          updateUIFromDiagnostic(diagnostic);
+          return diagnostic;
+        } catch (e) {
+          console.error('Self-check error:', e);
+          subtitleEl.textContent = 'Could not check telemetry';
+          return null;
+        }
+      }
+      
+      // Update UI based on diagnostic
+      function updateUIFromDiagnostic(diag) {
+        const verdict = diag.verdict;
+        
+        // Update header
+        if (verdict === 'healthy') {
+          emojiEl.textContent = '✅';
+          titleEl.textContent = 'Telemetry Working';
+          subtitleEl.textContent = 'Sensors are detecting activity';
+        } else if (verdict === 'degraded') {
+          emojiEl.textContent = '⚠️';
+          titleEl.textContent = 'Telemetry Degraded';
+          subtitleEl.textContent = 'Some streams have issues';
+        } else {
+          emojiEl.textContent = '🚫';
+          titleEl.textContent = 'No Telemetry Detected';
+          subtitleEl.textContent = 'Let\'s fix this';
+        }
+        
+        // Show verdict
+        verdictSection.classList.remove('hidden');
+        if (verdict === 'healthy') {
+          verdictSection.className = 'p-4 rounded-lg mb-4 bg-emerald-900/30 border border-emerald-700';
+          verdictIcon.textContent = '✅';
+          verdictTitle.textContent = 'All Systems Healthy';
+          verdictTitle.className = 'font-medium text-emerald-400';
+          verdictDesc.textContent = `Capture profile: ${diag.app_state.capture_profile}`;
+        } else if (verdict === 'degraded') {
+          verdictSection.className = 'p-4 rounded-lg mb-4 bg-amber-900/30 border border-amber-700';
+          verdictIcon.textContent = '⚠️';
+          verdictTitle.textContent = 'Visibility Degraded';
+          verdictTitle.className = 'font-medium text-amber-400';
+          verdictDesc.textContent = 'Some streams have issues but core telemetry is flowing';
+        } else {
+          verdictSection.className = 'p-4 rounded-lg mb-4 bg-red-900/30 border border-red-700';
+          verdictIcon.textContent = '🚫';
+          verdictTitle.textContent = 'Telemetry Blocked';
+          verdictTitle.className = 'font-medium text-red-400';
+          verdictDesc.textContent = 'No events detected - run the probe to diagnose';
+        }
+        
+        // Show issues
+        if (diag.top_issues && diag.top_issues.length > 0) {
+          issuesSection.classList.remove('hidden');
+          issuesList.innerHTML = diag.top_issues.map(issue => {
+            const severityClass = {
+              'critical': 'text-red-400',
+              'error': 'text-orange-400',
+              'warning': 'text-amber-400',
+              'info': 'text-slate-400'
+            }[issue.severity] || 'text-slate-400';
+            
+            const severityIcon = {
+              'critical': '🚨',
+              'error': '❌',
+              'warning': '⚠️',
+              'info': 'ℹ️'
+            }[issue.severity] || 'ℹ️';
+            
+            return `
+              <div class="p-2 rounded bg-slate-800/50 text-xs">
+                <div class="flex items-start gap-2">
+                  <span>${severityIcon}</span>
+                  <div>
+                    <div class="${severityClass} font-medium">${issue.title}</div>
+                    <div class="text-slate-400">${issue.description}</div>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          issuesSection.classList.add('hidden');
+        }
+        
+        // Show streams
+        if (diag.streams && diag.streams.length > 0) {
+          streamDetails.classList.remove('hidden');
+          streamsList.innerHTML = diag.streams.map(stream => {
+            const statusIcon = stream.event_count > 0 ? '✅' : (stream.enabled ? '⏳' : '⏸️');
+            const statusClass = stream.event_count > 0 ? 'text-emerald-400' : (stream.enabled ? 'text-amber-400' : 'text-slate-500');
+            const criticalBadge = stream.is_critical ? '<span class="ml-1 px-1 py-0.5 rounded bg-red-900/50 text-red-400 text-[10px]">critical</span>' : '';
+            
+            return `
+              <div class="flex items-center justify-between p-1.5 rounded hover:bg-slate-800/50">
+                <div class="flex items-center gap-2">
+                  <span>${statusIcon}</span>
+                  <span class="${statusClass}">${stream.stream_id}</span>
+                  ${criticalBadge}
+                </div>
+                <span class="text-slate-500">${stream.event_count} events</span>
+              </div>
+            `;
+          }).join('');
+        } else {
+          streamDetails.classList.add('hidden');
+        }
+        
+        // Show probe section if blocked or degraded
+        if (verdict !== 'healthy') {
+          probeSection.classList.remove('hidden');
+        } else {
+          probeSection.classList.add('hidden');
+        }
+        
+        // Show actions
+        if (diag.recommended_actions && diag.recommended_actions.length > 0) {
+          actionsSection.classList.remove('hidden');
+          actionsList.innerHTML = diag.recommended_actions.map(action => {
+            const adminBadge = action.requires_admin ? '<span class="ml-1 px-1 py-0.5 rounded bg-amber-900/50 text-amber-400 text-[10px]">admin</span>' : '';
+            return `
+              <button data-action-id="${action.id}" class="action-detail-btn w-full p-2 rounded bg-slate-800/50 hover:bg-slate-700/50 text-left text-xs">
+                <div class="flex items-center justify-between">
+                  <span class="font-medium text-slate-200">${action.title}</span>
+                  ${adminBadge}
+                </div>
+                <div class="text-slate-400 text-[11px]">${action.summary}</div>
+              </button>
+            `;
+          }).join('');
+          
+          // Add click handlers
+          actionsList.querySelectorAll('.action-detail-btn').forEach(btn => {
+            btn.addEventListener('click', () => loadActionDetails(btn.dataset.actionId));
+          });
+        } else {
+          actionsSection.classList.add('hidden');
+        }
+      }
+      
+      // Load action details
+      async function loadActionDetails(actionId) {
+        try {
+          const response = await fetch(`${API_BASE}/api/selfcheck/actions?id=${encodeURIComponent(actionId)}`);
+          if (!response.ok) return;
+          
+          const data = await response.json();
+          if (data.action) {
+            actionDetailsSection.classList.remove('hidden');
+            // Convert markdown-ish content to HTML (basic)
+            const html = data.action.instructions
+              .replace(/^# (.+)$/gm, '<h1 class="text-lg font-bold text-slate-200 mt-4 mb-2">$1</h1>')
+              .replace(/^## (.+)$/gm, '<h2 class="text-base font-semibold text-slate-300 mt-3 mb-1">$2</h2>')
+              .replace(/^### (.+)$/gm, '<h3 class="text-sm font-medium text-slate-300 mt-2 mb-1">$1</h3>')
+              .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="bg-slate-900 p-2 rounded my-2 overflow-x-auto"><code>$2</code></pre>')
+              .replace(/`([^`]+)`/g, '<code class="bg-slate-900 px-1 rounded">$1</code>')
+              .replace(/^\- (.+)$/gm, '<li class="ml-4">• $1</li>')
+              .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+              .replace(/\n\n/g, '<br/><br/>');
+            actionDetailsContent.innerHTML = html;
+          }
+        } catch (e) {
+          console.error('Failed to load action details:', e);
+        }
+      }
+      
+      // Run probe
+      runProbeBtn?.addEventListener('click', async () => {
+        runProbeBtn.disabled = true;
+        runProbeBtn.textContent = 'Running...';
+        probeStatus.textContent = 'Spawning echo, writing temp file, connecting to localhost...';
+        
+        try {
+          const response = await fetch(`${API_BASE}/api/selfcheck/probe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              do_process_spawn: true,
+              do_temp_file_write: true,
+              do_localhost_connect: true,
+              timeout_ms: 5000,
+              repeats: 1
+            })
+          });
+          
+          if (!response.ok) {
+            throw new Error('Probe failed');
+          }
+          
+          const result = await response.json();
+          
+          // Show result
+          probeResult.classList.remove('hidden');
+          if (result.success && result.probe.success) {
+            probeResultContent.innerHTML = `
+              <div class="text-emerald-400 font-medium mb-2">✅ Probe Completed Successfully</div>
+              <div class="text-slate-300 mb-2">Actions performed:</div>
+              <ul class="space-y-1">
+                ${result.probe.actions_attempted.map(a => `
+                  <li class="flex items-center gap-2">
+                    <span>${a.success ? '✅' : '❌'}</span>
+                    <span>${a.description}</span>
+                  </li>
+                `).join('')}
+              </ul>
+              <div class="mt-2 text-slate-400">Expected streams: ${result.probe.matched_streams.join(', ')}</div>
+              <div class="mt-2 text-amber-400">⏳ Wait a few seconds, then run self-check again to verify events appeared.</div>
+            `;
+            probeStatus.textContent = 'Probe completed! Wait 2-3 seconds for events to appear.';
+            
+            // Auto re-check after delay
+            setTimeout(async () => {
+              probeStatus.textContent = 'Re-checking telemetry...';
+              await runSelfCheck();
+              probeStatus.textContent = '';
+            }, 3000);
+          } else {
+            probeResultContent.innerHTML = `
+              <div class="text-red-400 font-medium mb-2">❌ Probe Failed</div>
+              <div class="text-slate-300">${result.probe?.failure_reasons?.join(', ') || 'Unknown error'}</div>
+            `;
+            probeStatus.textContent = 'Probe failed - check error details';
+          }
+        } catch (e) {
+          probeResult.classList.remove('hidden');
+          probeResultContent.innerHTML = `
+            <div class="text-red-400 font-medium mb-2">❌ Probe Error</div>
+            <div class="text-slate-300">${e.message}</div>
+          `;
+          probeStatus.textContent = 'Error running probe';
+        }
+        
+        runProbeBtn.disabled = false;
+        runProbeBtn.textContent = 'Run Probe Again';
+      });
+      
+      // Check on first run OR expose for manual trigger
+      async function checkLiveSuccess() {
+        const diagnostic = await runSelfCheck();
+        
+        if (diagnostic && diagnostic.verdict !== 'healthy' && diagnostic.app_state?.first_run) {
+          // First run and no telemetry - show the modal
+          showLiveSuccessModal();
+        }
+        
+        return diagnostic;
+      }
+      
+      // Expose functions globally
+      window.showLiveSuccessModal = showLiveSuccessModal;
+      window.runSelfCheck = runSelfCheck;
+      window.checkLiveSuccess = checkLiveSuccess;
+      
+      // Run after wizard completes (hook into first-run flow)
+      // The wizard will call checkLiveSuccess after setup
+    })();
+  </script>
+
+  <!-- Bundle Export/Import Integration -->
+  <script>
+    (function() {
+      const API_BASE = window.location.origin;
+      
+      // Elements
+      const exportBtn = document.getElementById('exportBundleBtn');
+      const importInput = document.getElementById('importBundleInput');
+      const importedBanner = document.getElementById('importedBundleBanner');
+      const importedBundleInfo = document.getElementById('importedBundleInfo');
+      const clearImportedBtn = document.getElementById('clearImportedBtn');
+      
+      // Imported bundle state
+      window.IMPORTED_BUNDLE = null;
+      window.IMPORTED_HAS_RECOMPUTE = false;
+      window.IMPORTED_BUNDLE_ID = null;
+      window.IMPORTED_NAMESPACE = null;
+      
+      function showImportedBanner(bundleId, hypothesisCount, namespace, hasRecompute) {
+        if (importedBanner) {
+          importedBanner.classList.remove('hidden');
+          if (importedBundleInfo) {
+            const recomputeBadge = hasRecompute ? ' <span class="text-emerald-400">[Recompute Available]</span>' : '';
+            importedBundleInfo.innerHTML = `Bundle: ${bundleId} (${hypothesisCount} hypotheses) | NS: ${namespace}${recomputeBadge}`;
+          }
+          window.IMPORTED_HAS_RECOMPUTE = hasRecompute;
+          window.IMPORTED_BUNDLE_ID = bundleId;
+          window.IMPORTED_NAMESPACE = namespace;
+          document.body.style.paddingTop = '40px';
+        }
+      }
+      
+      function hideImportedBanner() {
+        if (importedBanner) {
+          importedBanner.classList.add('hidden');
+          document.body.style.paddingTop = '0';
+          window.IMPORTED_HAS_RECOMPUTE = false;
+          window.IMPORTED_BUNDLE_ID = null;
+          window.IMPORTED_NAMESPACE = null;
+        }
+      }
+      
+      // Export bundle handler - show options dialog
+      exportBtn?.addEventListener('click', async () => {
+        // Create export options dialog
+        const dialog = document.createElement('div');
+        dialog.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50';
+        dialog.innerHTML = `
+          <div class="bg-slate-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h3 class="text-lg font-bold text-slate-100 mb-4">Export Incident Bundle</h3>
+            <div class="space-y-3 mb-6">
+              <label class="flex items-center gap-3 text-slate-300">
+                <input type="checkbox" id="exportRedact" checked class="rounded bg-slate-700 border-slate-600" />
+                <span>Redact sensitive info (recommended)</span>
+              </label>
+              <label class="flex items-center gap-3 text-slate-300">
+                <input type="checkbox" id="exportEvidence" checked class="rounded bg-slate-700 border-slate-600" />
+                <span>Include evidence excerpts</span>
+              </label>
+              <label class="flex items-center gap-3 text-slate-300">
+                <input type="checkbox" id="exportRecompute" class="rounded bg-slate-700 border-slate-600" />
+                <span>Include recompute inputs</span>
+              </label>
+              <p class="text-xs text-slate-500 ml-6">Allows verification of determinism on import</p>
+            </div>
+            <div class="flex gap-3 justify-end">
+              <button id="exportCancel" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-300">Cancel</button>
+              <button id="exportConfirm" class="px-4 py-2 rounded bg-emerald-700 hover:bg-emerald-600 text-emerald-100">Export</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(dialog);
+        
+        const cancelBtn = dialog.querySelector('#exportCancel');
+        const confirmBtn = dialog.querySelector('#exportConfirm');
+        
+        cancelBtn.addEventListener('click', () => dialog.remove());
+        
+        confirmBtn.addEventListener('click', async () => {
+          const redact = dialog.querySelector('#exportRedact').checked;
+          const includeEvidence = dialog.querySelector('#exportEvidence').checked;
+          const includeRecompute = dialog.querySelector('#exportRecompute').checked;
+          dialog.remove();
+          
+          exportBtn.disabled = true;
+          exportBtn.textContent = 'Exporting...';
+          
+          try {
+            const response = await fetch(`${API_BASE}/api/export/bundle`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                include_evidence_excerpts: includeEvidence,
+                redact: redact,
+                include_recompute: includeRecompute
+              })
+            });
+            
+            if (response.ok) {
+              const blob = await response.blob();
+              const contentDisposition = response.headers.get('Content-Disposition');
+              let filename = 'incident_bundle.zip';
+              if (contentDisposition) {
+                const match = contentDisposition.match(/filename="([^"]+)"/);
+                if (match) filename = match[1];
+              }
+              
+              // Download the file
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              window.URL.revokeObjectURL(url);
+              a.remove();
+              
+              console.log('Bundle exported:', filename, { redact, includeEvidence, includeRecompute });
+            } else {
+              const error = await response.json();
+            console.error('Export failed:', error);
+            alert('Export failed: ' + (error.error || 'Unknown error'));
+          }
+        } catch (e) {
+          console.error('Export error:', e);
+          alert('Export failed: ' + e.message);
+        } finally {
+          exportBtn.disabled = false;
+          exportBtn.textContent = '📤 Export Bundle';
+        }
+      });
+      
+      // Import bundle handler
+      importInput?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const response = await fetch(`${API_BASE}/api/import/bundle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: arrayBuffer
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            console.log('Bundle imported:', result);
+            
+            window.IMPORTED_BUNDLE = result.report_bundle;
+            showImportedBanner(result.bundle_id, result.hypothesis_count, result.namespace, result.has_recompute);
+            
+            // Trigger UI update if handler exists
+            if (typeof window.onBundleImported === 'function') {
+              window.onBundleImported(result);
+            }
+            
+            const recomputeMsg = result.has_recompute ? '\n✓ Recompute verification available' : '';
+            alert(`Bundle imported successfully!\n${result.hypothesis_count} hypotheses, ${result.timeline_entry_count} timeline entries\nNamespace: ${result.namespace}${recomputeMsg}`);
+          } else {
+            const error = await response.json();
+            console.error('Import failed:', error);
+            alert('Import failed: ' + (error.error || 'Unknown error'));
+          }
+        } catch (e) {
+          console.error('Import error:', e);
+          alert('Import failed: ' + e.message);
+        }
+        
+        // Reset the input
+        importInput.value = '';
+      });
+      
+      // Clear imported data handler
+      clearImportedBtn?.addEventListener('click', () => {
+        window.IMPORTED_BUNDLE = null;
+        hideImportedBanner();
+        
+        if (typeof window.onBundleCleared === 'function') {
+          window.onBundleCleared();
+        }
+        
+        console.log('Imported bundle cleared');
+      });
+      
+      // Expose export function globally
+      window.exportBundle = async function(options = {}) {
+        try {
+          const response = await fetch(`${API_BASE}/api/export/bundle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              incident_id: options.incidentId,
+              include_evidence_excerpts: options.includeEvidence ?? true,
+              redact: options.redact ?? true,
+              include_recompute: options.includeRecompute ?? false
+            })
+          });
+          
+          if (response.ok) {
+            return await response.blob();
+          } else {
+            throw new Error((await response.json()).error);
+          }
+        } catch (e) {
+          console.error('Export failed:', e);
+          throw e;
+        }
+      };
+      
+      // Expose import function globally
+      window.importBundle = async function(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const response = await fetch(`${API_BASE}/api/import/bundle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: arrayBuffer
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          window.IMPORTED_BUNDLE = result.report_bundle;
+          window.IMPORTED_HAS_RECOMPUTE = result.has_recompute;
+          window.IMPORTED_BUNDLE_ID = result.bundle_id;
+          window.IMPORTED_NAMESPACE = result.namespace;
+          showImportedBanner(result.bundle_id, result.hypothesis_count, result.namespace, result.has_recompute);
+          return result;
+        } else {
+          throw new Error((await response.json()).error);
+        }
+      };
+      
+      // Expose recompute function globally
+      window.recomputeBundle = async function(bundleId, mode = 'best_effort') {
+        try {
+          const response = await fetch(`${API_BASE}/api/import/bundle/recompute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bundle_id: bundleId,
+              mode: mode
+            })
+          });
+          
+          if (response.ok) {
+            return await response.json();
+          } else {
+            throw new Error((await response.json()).error || 'Recompute failed');
+          }
+        } catch (e) {
+          console.error('Recompute failed:', e);
+          throw e;
+        }
+      };
+    })();
+  </script>
+
+  <!-- Desktop App Integration (Tauri) -->
+  <script>
+    (function() {
+      // Only activate if running inside Tauri
+      if (!window.__TAURI__) return;
+
+      const { invoke } = window.__TAURI__.core;
+      const statusBar = document.getElementById('desktopStatusBar');
+      const statusDot = document.getElementById('statusDot');
+      const statusText = document.getElementById('statusText');
+      const statusPort = document.getElementById('statusPort');
+      const statusTelemetry = document.getElementById('statusTelemetry');
+      const openTelemetryBtn = document.getElementById('openTelemetryBtn');
+
+      // Show status bar
+      statusBar.classList.remove('hidden');
+
+      // Open telemetry folder
+      openTelemetryBtn.addEventListener('click', async () => {
+        try {
+          await invoke('open_telemetry_folder');
+        } catch (e) {
+          console.error('Failed to open telemetry folder:', e);
+        }
+      });
+
+      // Poll status
+      async function updateStatus() {
+        try {
+          const status = await invoke('get_status');
+          statusPort.textContent = `Port: ${status.port}`;
+          statusTelemetry.textContent = `Telemetry: ${status.telemetry_root}`;
+          statusTelemetry.title = status.telemetry_root;
+          
+          if (status.running) {
+            statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            statusText.textContent = 'Backend running';
+          } else {
+            statusDot.className = 'w-2 h-2 rounded-full bg-red-500';
+            statusText.textContent = 'Backend stopped';
+          }
+        } catch (e) {
+          statusDot.className = 'w-2 h-2 rounded-full bg-yellow-500';
+          statusText.textContent = 'Status unknown';
+        }
+      }
+
+      updateStatus();
+      setInterval(updateStatus, 5000);
+    })();
+  </script>
+
+  <!-- Capture Control & Throttling Integration -->
+  <script>
+    (function() {
+      const API_BASE = window.location.origin;
+      
+      // Elements
+      const profileSelector = document.getElementById('profileSelector');
+      const profileDescription = document.getElementById('profileDescription');
+      const btnApplyProfile = document.getElementById('btnApplyProfile');
+      const profileBadge = document.getElementById('profileBadge');
+      const throttleBadge = document.getElementById('throttleBadge');
+      const throttleAccepted = document.getElementById('throttleAccepted');
+      const throttleDropped = document.getElementById('throttleDropped');
+      const throttleTokens = document.getElementById('throttleTokens');
+      const btnResetThrottle = document.getElementById('btnResetThrottle');
+      const sensorsList = document.getElementById('sensorsList');
+      const degradedReasons = document.getElementById('degradedReasons');
+      const throttleDegradedBanner = document.getElementById('throttleDegradedBanner');
+      const throttleDegradedDetail = document.getElementById('throttleDegradedDetail');
+      const visibilityBadge = document.getElementById('visibilityBadge');
+      
+      const profileDescriptions = {
+        'core': 'Minimal sensors, safe for dev laptops',
+        'extended': 'Additional sensors, moderate CPU/memory',
+        'forensic': 'All collectors, high resource usage'
+      };
+      
+      // Update profile description when selector changes
+      profileSelector?.addEventListener('change', () => {
+        const selected = profileSelector.value;
+        if (profileDescription) {
+          profileDescription.textContent = profileDescriptions[selected] || '';
+        }
+      });
+      
+      // Apply profile button
+      btnApplyProfile?.addEventListener('click', async () => {
+        const selected = profileSelector?.value;
+        if (!selected) return;
+        
+        try {
+          const response = await fetch(`${API_BASE}/api/capture/profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profile: selected })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            console.log('Profile changed:', result);
+            updateProfileBadge(selected);
+            refreshThrottleVisibility();
+            
+            // Show toast notification
+            if (typeof showToast === 'function') {
+              showToast('Profile changed', result.message);
+            }
+          } else {
+            const err = await response.json();
+            console.error('Failed to change profile:', err);
+          }
+        } catch (e) {
+          console.error('Profile change error:', e);
+        }
+      });
+      
+      // Reset throttle counters
+      btnResetThrottle?.addEventListener('click', async () => {
+        try {
+          const response = await fetch(`${API_BASE}/api/visibility/throttle/reset`, {
+            method: 'POST'
+          });
+          
+          if (response.ok) {
+            console.log('Throttle counters reset');
+            refreshThrottleVisibility();
+          }
+        } catch (e) {
+          console.error('Reset throttle error:', e);
+        }
+      });
+      
+      function updateProfileBadge(profile) {
+        if (profileBadge) {
+          profileBadge.textContent = `profile: ${profile}`;
+          profileBadge.className = 'text-xs px-2 py-0.5 rounded ';
+          if (profile === 'core') {
+            profileBadge.className += 'bg-sky-700/70';
+          } else if (profile === 'extended') {
+            profileBadge.className += 'bg-amber-700/70';
+          } else if (profile === 'forensic') {
+            profileBadge.className += 'bg-rose-700/70';
+          }
+        }
+      }
+      
+      function updateThrottleBadge(degraded, tier0Throttled) {
+        if (throttleBadge) {
+          if (tier0Throttled) {
+            throttleBadge.textContent = 'throttling: CRITICAL';
+            throttleBadge.className = 'text-xs px-2 py-0.5 rounded bg-rose-700 animate-pulse';
+          } else if (degraded) {
+            throttleBadge.textContent = 'throttling: degraded';
+            throttleBadge.className = 'text-xs px-2 py-0.5 rounded bg-amber-700/70';
+          } else {
+            throttleBadge.textContent = 'throttling: ok';
+            throttleBadge.className = 'text-xs px-2 py-0.5 rounded bg-emerald-700/70';
+          }
+        }
+        
+        // Update visibility badge too
+        if (visibilityBadge) {
+          if (tier0Throttled) {
+            visibilityBadge.textContent = 'visibility: DEGRADED';
+            visibilityBadge.className = 'text-xs px-2 py-0.5 rounded bg-rose-700 animate-pulse';
+          } else if (degraded) {
+            visibilityBadge.textContent = 'visibility: reduced';
+            visibilityBadge.className = 'text-xs px-2 py-0.5 rounded bg-amber-700/70';
+          } else {
+            visibilityBadge.textContent = 'visibility: ok';
+            visibilityBadge.className = 'text-xs px-2 py-0.5 rounded bg-emerald-700/70';
+          }
+        }
+      }
+      
+      function updateDegradedBanner(degraded, reasons, tier0Throttled, criticalGap) {
+        if (throttleDegradedBanner) {
+          if (criticalGap || tier0Throttled) {
+            // CRITICAL GAP - loud warning
+            throttleDegradedBanner.classList.remove('hidden');
+            throttleDegradedBanner.className = 'rounded border-2 border-rose-500 bg-rose-900/50 p-2 lg:col-span-3 animate-pulse';
+            if (throttleDegradedDetail) {
+              throttleDegradedDetail.innerHTML = '<strong>⚠️ CRITICAL:</strong> Tier-0 stream throttled; conclusions may be incomplete.';
+            }
+          } else if (degraded) {
+            // Degraded but not critical
+            throttleDegradedBanner.classList.remove('hidden');
+            throttleDegradedBanner.className = 'rounded border border-amber-700/50 bg-amber-900/30 p-2 lg:col-span-3';
+            if (throttleDegradedDetail && reasons.length > 0) {
+              throttleDegradedDetail.textContent = reasons[0];
+            }
+          } else {
+            throttleDegradedBanner.classList.add('hidden');
+          }
+        }
+        
+        if (degradedReasons) {
+          if (criticalGap || tier0Throttled) {
+            degradedReasons.innerHTML = '<div class="text-rose-400 font-bold">⚠️ CRITICAL GAP: Tier-0 throttled</div>' +
+              reasons.map(r => `<div class="text-rose-400">${r}</div>`).join('');
+          } else if (reasons.length > 0) {
+            degradedReasons.innerHTML = reasons.map(r => `<div class="text-rose-400">${r}</div>`).join('');
+          } else {
+            degradedReasons.innerHTML = '<div class="text-emerald-400">No issues detected</div>';
+          }
+        }
+      }
+      
+      async function refreshThrottleVisibility() {
+        try {
+          const response = await fetch(`${API_BASE}/api/visibility/throttle`);
+          if (response.ok) {
+            const data = await response.json();
+            const vis = data.visibility;
+            
+            // Update profile selector and badge
+            if (profileSelector && vis.profile) {
+              profileSelector.value = vis.profile.toLowerCase();
+              updateProfileBadge(vis.profile.toLowerCase());
+            }
+            
+            // Update throttle stats
+            let totalAccepted = 0;
+            let totalDropped = 0;
+            const streams = vis.stream_stats || {};
+            for (const [streamId, stats] of Object.entries(streams)) {
+              totalAccepted += stats.counters?.accepted || 0;
+              totalDropped += stats.counters?.dropped || 0;
+            }
+            
+            if (throttleAccepted) throttleAccepted.textContent = totalAccepted.toLocaleString();
+            if (throttleDropped) throttleDropped.textContent = totalDropped.toLocaleString();
+            if (throttleTokens) throttleTokens.textContent = vis.global_events_available?.toLocaleString() || '--';
+            
+            // Update badges - include critical_gap
+            updateThrottleBadge(vis.degraded, vis.tier0_throttled || vis.critical_gap);
+            updateDegradedBanner(vis.degraded, vis.degraded_reasons || [], vis.tier0_throttled, vis.critical_gap);
+            
+          }
+        } catch (e) {
+          console.error('Failed to fetch throttle visibility:', e);
+        }
+      }
+      
+      async function refreshCaptureConfig() {
+        try {
+          const response = await fetch(`${API_BASE}/api/capture/profile`);
+          if (response.ok) {
+            const data = await response.json();
+            
+            // Update sensors list
+            if (sensorsList) {
+              const sensors = data.enabled_sensors || [];
+              const collectors = data.enabled_collectors || [];
+              sensorsList.innerHTML = 
+                '<div class="text-slate-300 font-medium">Sensors:</div>' +
+                sensors.map(s => `<div class="ml-2">• ${s}</div>`).join('') +
+                (collectors.length > 0 ? '<div class="text-slate-300 font-medium mt-1">Collectors:</div>' +
+                collectors.map(c => `<div class="ml-2">• ${c}</div>`).join('') : '');
+            }
+            
+            // Update profile
+            if (profileSelector && data.profile) {
+              profileSelector.value = data.profile;
+              updateProfileBadge(data.profile);
+              if (profileDescription) {
+                profileDescription.textContent = data.description || profileDescriptions[data.profile] || '';
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch capture config:', e);
+        }
+      }
+      
+      // Initial load
+      refreshCaptureConfig();
+      refreshThrottleVisibility();
+      
+      // Poll throttle visibility every 5 seconds
+      setInterval(refreshThrottleVisibility, 5000);
+      
+      // Expose functions globally
+      window.refreshThrottleVisibility = refreshThrottleVisibility;
+      window.refreshCaptureConfig = refreshCaptureConfig;
+    })();
+  </script>
+</body>
+</html>

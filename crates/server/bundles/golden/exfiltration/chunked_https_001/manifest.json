@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-exfiltration-chunked_https_001",
+    "exported_at": "2025-12-27T13:17:14.091886Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "40837d75a9276e1389ceb838e176bc9fc14a767765f34a6e62c055c332eadc5a",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "replay/report_bundle.json": "4e6bc98998260b5f817df14b96a3a416067de6fc0fc36fbc34ed4e045d1170f7",
+    "recompute/config_snapshot.json": "bf97ac770c4f769732f85695bb4ab09ed277ae8d46091e9b4ca4131ad3100889",
+    "recompute/events.jsonl": "95d5a863b9a9a2ab3843ca947651de13e5143c4141b364eeaec2f46bd510f874"
+  }
+}

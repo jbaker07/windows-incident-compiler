@@ -1,0 +1,16 @@
+{
+  "playbook_fingerprints": [
+    "playbook-lateral_movement-v1"
+  ],
+  "mode": "mission",
+  "preset": "generic",
+  "focus_minutes": 15,
+  "late_arrival_window_secs": 60,
+  "component_versions": {
+    "engine": "0.1.0",
+    "playbooks": "1.0.0"
+  },
+  "capture_profile": "extended",
+  "throttle_config": null,
+  "dynamic_enablements": null
+}

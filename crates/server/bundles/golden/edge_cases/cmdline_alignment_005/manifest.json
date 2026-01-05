@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-edge_cases-cmdline_alignment_005",
+    "exported_at": "2025-12-27T13:17:14.102432Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "73dde2c066ca7c3d88bbabcc6a4107045c5a8da1272c3619c1552c94d91a37d4",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "replay/report_bundle.json": "b2af57b54fc76499bc3719e78cece8292ebd8dddb16fa5b6fa676e01a8541086",
+    "recompute/config_snapshot.json": "6c0c54f2eb93ba3be49b0bcff2613122a08e0d6380af42e49d28b3b1c1441285",
+    "recompute/events.jsonl": "e8919f2c24c8a2733bf2b41d92adca8dbbf5ac33467216249097e721e556d164"
+  }
+}

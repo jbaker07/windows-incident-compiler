@@ -1,0 +1,67 @@
+{
+  "metadata": {
+    "report_id": "golden-credential_access-cmdline_pattern_002",
+    "generated_at": "2025-12-27T13:17:14.081504Z",
+    "incident_id": "GOLDEN-CREDENTIAL_ACCESS-001",
+    "session_id": "golden-session-cmdline_pattern_002",
+    "family": "credential_access",
+    "host_id": "golden-workstation-01",
+    "time_window": null,
+    "summary": "[GOLDEN BUNDLE] credential_access - Command-line pattern beats benign exe",
+    "synthetic": true
+  },
+  "hypotheses": [
+    {
+      "rank": 1,
+      "hypothesis_id": "H-CREDENTIAL_ACCESS-001",
+      "family": "credential_access",
+      "template_id": "TCRED",
+      "confidence": 0.85,
+      "severity": "High",
+      "suppressed": false,
+      "suppression_reason": null,
+      "slots_satisfied": "5/6 slots filled"
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2025-01-15T10:00:00Z",
+      "summary": "mimikatz.exe spawned",
+      "category": "process_exec",
+      "evidence_ptr": "seg_cmdline_pattern_002_001:process_exec:0",
+      "is_late_arrival": false
+    },
+    {
+      "ts": "2025-01-15T10:00:01Z",
+      "summary": "LSASS memory accessed",
+      "category": "process_exec",
+      "evidence_ptr": "seg_cmdline_pattern_002_001:process_exec:1",
+      "is_late_arrival": false
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "C-CREDENTIAL_ACCESS-001",
+      "text": "credential_access activity detected",
+      "certainty": "observed",
+      "claim_type": "credential_access",
+      "evidence_ptrs": [
+        "seg_cmdline_pattern_002_001:process_exec:0",
+        "seg_cmdline_pattern_002_001:process_exec:1"
+      ],
+      "has_conflict": false
+    }
+  ],
+  "visibility": {
+    "overall_health": "unknown",
+    "streams_present": [],
+    "streams_missing": [],
+    "degraded": false,
+    "degraded_reasons": [],
+    "late_arrival_count": 0,
+    "watermark_notes": []
+  },
+  "disambiguators": [],
+  "integrity_notes": [],
+  "evidence_excerpts": {}
+}

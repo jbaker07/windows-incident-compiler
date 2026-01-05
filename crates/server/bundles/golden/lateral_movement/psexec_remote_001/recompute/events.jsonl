@@ -1,0 +1,2 @@
+{"ts":"2025-01-15T10:00:00Z","stream_id":"network_connect","segment_id":"seg_psexec_remote_001_001","record_index":0,"event_type":"smb_connection","payload":{"dst_ip":"10.0.0.50","dst_port":445,"summary":"SMB connection to remote host"}}
+{"ts":"2025-01-15T10:00:01Z","stream_id":"process_exec","segment_id":"seg_psexec_remote_001_001","record_index":1,"event_type":"process_start","payload":{"exe":"psexesvc.exe","summary":"PsExec service created"}}

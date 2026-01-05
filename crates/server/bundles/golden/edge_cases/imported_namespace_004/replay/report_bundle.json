@@ -1,0 +1,66 @@
+{
+  "metadata": {
+    "report_id": "golden-edge_cases-imported_namespace_004",
+    "generated_at": "2025-12-27T13:17:14.100139Z",
+    "incident_id": "GOLDEN-EDGE_CASES-001",
+    "session_id": "golden-session-imported_namespace_004",
+    "family": "edge_cases",
+    "host_id": "golden-workstation-01",
+    "time_window": null,
+    "summary": "[GOLDEN BUNDLE] edge_cases - Imported bundle with namespace isolation banner",
+    "synthetic": true
+  },
+  "hypotheses": [
+    {
+      "rank": 1,
+      "hypothesis_id": "H-EDGE_CASES-001",
+      "family": "edge_cases",
+      "template_id": "TEDGE",
+      "confidence": 0.85,
+      "severity": "High",
+      "suppressed": false,
+      "suppression_reason": null,
+      "slots_satisfied": "5/6 slots filled"
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2025-01-15T10:00:00Z",
+      "summary": "Imported bundle namespace",
+      "category": "imported_bundle",
+      "evidence_ptr": "seg_imported_namespace_004_001:imported_bundle:0",
+      "is_late_arrival": false
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "C-EDGE_CASES-001",
+      "text": "edge_cases activity detected",
+      "certainty": "observed",
+      "claim_type": "edge_cases",
+      "evidence_ptrs": [
+        "seg_imported_namespace_004_001:imported_bundle:0"
+      ],
+      "has_conflict": false
+    }
+  ],
+  "visibility": {
+    "overall_health": "unknown",
+    "streams_present": [],
+    "streams_missing": [],
+    "degraded": false,
+    "degraded_reasons": [],
+    "late_arrival_count": 0,
+    "watermark_notes": []
+  },
+  "disambiguators": [],
+  "integrity_notes": [
+    {
+      "note_type": "imported_bundle",
+      "severity": "info",
+      "description": "This bundle was imported from external source. Namespace: IMPORTED_bundle_001",
+      "affected_evidence": []
+    }
+  ],
+  "evidence_excerpts": {}
+}

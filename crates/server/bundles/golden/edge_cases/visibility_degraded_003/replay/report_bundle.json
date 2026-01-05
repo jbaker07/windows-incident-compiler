@@ -1,0 +1,66 @@
+{
+  "metadata": {
+    "report_id": "golden-edge_cases-visibility_degraded_003",
+    "generated_at": "2025-12-27T13:17:14.098865Z",
+    "incident_id": "GOLDEN-EDGE_CASES-001",
+    "session_id": "golden-session-visibility_degraded_003",
+    "family": "edge_cases",
+    "host_id": "golden-workstation-01",
+    "time_window": null,
+    "summary": "[GOLDEN BUNDLE] edge_cases - Missing critical stream - visibility degraded",
+    "synthetic": true
+  },
+  "hypotheses": [
+    {
+      "rank": 1,
+      "hypothesis_id": "H-EDGE_CASES-001",
+      "family": "edge_cases",
+      "template_id": "TEDGE",
+      "confidence": 0.85,
+      "severity": "High",
+      "suppressed": false,
+      "suppression_reason": null,
+      "slots_satisfied": "5/6 slots filled"
+    }
+  ],
+  "timeline": [
+    {
+      "ts": "2025-01-15T10:00:00Z",
+      "summary": "Process event with missing network stream",
+      "category": "process_exec",
+      "evidence_ptr": "seg_visibility_degraded_003_001:process_exec:0",
+      "is_late_arrival": false
+    }
+  ],
+  "claims": [
+    {
+      "claim_id": "C-EDGE_CASES-001",
+      "text": "edge_cases activity detected",
+      "certainty": "observed",
+      "claim_type": "edge_cases",
+      "evidence_ptrs": [
+        "seg_visibility_degraded_003_001:process_exec:0"
+      ],
+      "has_conflict": false
+    }
+  ],
+  "visibility": {
+    "overall_health": "degraded",
+    "streams_present": [
+      "process_exec",
+      "file_write"
+    ],
+    "streams_missing": [
+      "network_connect"
+    ],
+    "degraded": true,
+    "degraded_reasons": [
+      "Network stream unavailable - visibility degraded"
+    ],
+    "late_arrival_count": 0,
+    "watermark_notes": []
+  },
+  "disambiguators": [],
+  "integrity_notes": [],
+  "evidence_excerpts": {}
+}

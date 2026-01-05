@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "bundle_meta": {
+    "bundle_id": "golden-edge_cases-visibility_degraded_003",
+    "exported_at": "2025-12-27T13:17:14.099672Z",
+    "exported_by": "golden-gen",
+    "redacted": false,
+    "hash_alg": "sha256",
+    "checksum": "ed8ec6205d40c9859d35567a13f0092d0105faac197e23e237f43adb77e0736f",
+    "checksum_scope": "bundle_payload_sans_checksum"
+  },
+  "included_sections": {
+    "replay": true,
+    "recompute": true
+  },
+  "file_hashes": {
+    "recompute/events.jsonl": "dba737372c6f6408f5e8647324ae8cb455630d0a3e6945dcd4a3de06f95df52e",
+    "replay/report_bundle.json": "f44c3cb56a9c7e4320f22bb6163a5c06974807e158e9fca22941ab4b53ce6738",
+    "recompute/config_snapshot.json": "6c0c54f2eb93ba3be49b0bcff2613122a08e0d6380af42e49d28b3b1c1441285"
+  }
+}
