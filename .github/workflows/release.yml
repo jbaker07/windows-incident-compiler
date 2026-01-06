@@ -1,0 +1,174 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-windows:
+    name: Build Windows Release
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Verify formatting
+        run: cargo fmt -- --check
+
+      - name: Clippy check
+        run: cargo clippy --workspace --all-targets -- -D warnings
+        env:
+          RUSTFLAGS: "-D warnings"
+
+      - name: Run tests
+        run: cargo test --workspace --release
+
+      - name: Build release binaries
+        run: cargo build --release
+        env:
+          RUSTFLAGS: "-D warnings"
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          # Create dist directory
+          New-Item -ItemType Directory -Force -Path dist
+
+          # Copy binaries
+          Copy-Item target/release/edr-server.exe dist/
+          Copy-Item target/release/edr-locald.exe dist/
+          Copy-Item target/release/capture_windows_rotating.exe dist/
+
+          # Copy UI assets
+          Copy-Item -Recurse ui dist/
+
+          # Copy docs
+          Copy-Item docs/LICENSING.md dist/
+          Copy-Item README.md dist/
+
+          # Generate SHA256 checksums
+          Get-ChildItem dist/*.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -Append dist/SHA256SUMS.txt -Encoding utf8
+          }
+
+          # Display checksums
+          Write-Host "=== SHA256 Checksums ==="
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: edr-windows-${{ github.ref_name }}
+          path: dist/
+          retention-days: 90
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: edr-windows-${{ github.ref_name }}
+          path: dist/
+
+      - name: Create release archive
+        run: |
+          cd dist
+          zip -r ../edr-windows-${{ github.ref_name }}.zip .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            edr-windows-${{ github.ref_name }}.zip
+            dist/SHA256SUMS.txt
+          body: |
+            ## EDR Release ${{ github.ref_name }}
+
+            ### Included Components
+            - `edr-server.exe` - Main server with web UI
+            - `edr-locald.exe` - Local detection daemon
+            - `capture_windows_rotating.exe` - Windows event capture agent
+            - `ui/` - Web interface assets
+
+            ### Installation
+            1. Extract the archive to your desired location
+            2. Run `edr-server.exe` to start the server
+            3. Access the web UI at http://localhost:3000
+
+            ### Pro Features
+            Pro features (e.g., Diff Mode) require a valid license.
+            See `LICENSING.md` for activation instructions.
+
+            ### Checksums
+            See `SHA256SUMS.txt` for file integrity verification.
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Optional: Internal build with pro feature for testing
+  build-internal:
+    name: Build Internal (Pro Feature)
+    runs-on: windows-latest
+    if: github.repository == 'jbaker07/windows-incident-compiler'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-pro-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build with pro feature
+        run: cargo build --release --features pro
+        env:
+          RUSTFLAGS: "-D warnings"
+
+      - name: Run pro tests
+        run: cargo test --workspace --release --features pro
+
+      - name: Upload internal build
+        uses: actions/upload-artifact@v4
+        with:
+          name: edr-windows-internal-${{ github.ref_name }}
+          path: |
+            target/release/edr-server.exe
+            target/release/edr-locald.exe
+          retention-days: 30
