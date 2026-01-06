@@ -276,9 +276,7 @@ fn test_wizard_flow_sequence() {
     let default_load_verification = false; // Verification is opt-in
     assert!(!default_load_verification);
 
-    let step3_complete = |focus: u32, load_verification: bool| {
-        focus >= 1 && focus <= 1440 && (load_verification || !load_verification)
-    };
+    let step3_complete = |focus: u32, _load_verification: bool| (1..=1440).contains(&focus);
     assert!(step3_complete(15, false)); // Default: no verification
     assert!(step3_complete(60, true)); // Opt-in: load verification
 }

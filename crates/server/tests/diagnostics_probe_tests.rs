@@ -142,7 +142,7 @@ fn test_missing_reason_descriptions() {
         // In actual code, MissingReason::description() would be tested
         // Here we verify the expected behavior
         assert!(
-            expected_substring.len() > 0,
+            !expected_substring.is_empty(),
             "Reason {} should have informative description",
             reason_snake
         );
@@ -216,7 +216,7 @@ fn test_probe_result_structure() {
 
     assert!(parsed["probe_id"].as_str().is_some());
     assert!(parsed["success"].as_bool().unwrap());
-    assert!(parsed["actions_attempted"].as_array().unwrap().len() > 0);
+    assert!(!parsed["actions_attempted"].as_array().unwrap().is_empty());
     assert!(parsed["matched_streams"].as_array().is_some());
 }
 
@@ -256,9 +256,7 @@ fn test_verdict_blocked_on_storage_failure() {
     let storage_ok = false;
     let critical_streams_ok = true;
 
-    let verdict = if !storage_ok {
-        "blocked"
-    } else if !critical_streams_ok {
+    let verdict = if !storage_ok || !critical_streams_ok {
         "blocked"
     } else {
         "healthy"
@@ -288,9 +286,7 @@ fn test_verdict_degraded_on_critical_gap() {
     let storage_ok = true;
     let critical_streams_ok = true;
 
-    let verdict = if !storage_ok {
-        "blocked"
-    } else if !critical_streams_ok {
+    let verdict = if !storage_ok || !critical_streams_ok {
         "blocked"
     } else if critical_gap {
         "degraded"

@@ -300,7 +300,7 @@ mod tests {
 
         let fact = alert.to_fact("host1", 5);
 
-        assert!(fact.fact_id.len() > 0);
+        assert!(!fact.fact_id.is_empty());
         assert!(matches!(fact.scope_key, ScopeKey::Campaign { .. }));
     }
 

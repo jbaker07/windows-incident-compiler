@@ -371,6 +371,8 @@
       <button id="tabDash" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Dashboard</button>
       <button id="tabImport" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">📦 Import Cases</button>
       <button id="tabIntegrations" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Integrations</button>
+      <button id="tabCompare" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">🔀 Compare Runs</button>
+      <button id="tabLicense" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">🔑 License</button>
     </nav>
 
     <section id="screenDash">
@@ -1323,6 +1325,241 @@
           </menu>
         </form>
       </dialog>
+    </section>
+
+    <!-- ============ COMPARE RUNS SECTION (Pro Feature) ============ -->
+    <section id="screenCompare" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <!-- Run Selection Panel -->
+        <div class="lg:col-span-1 space-y-4">
+          <div class="rounded border border-violet-700/50 bg-slate-900/50 p-4">
+            <h3 class="text-sm font-medium text-violet-300 mb-3">🔀 Compare Runs</h3>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Left (Baseline)</label>
+                <select id="diffLeftRun" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm">
+                  <option value="">Select run...</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Right (Compare)</label>
+                <select id="diffRightRun" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm">
+                  <option value="">Select run...</option>
+                </select>
+              </div>
+              <button id="runDiffBtn" class="w-full px-3 py-2 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                Compare
+              </button>
+            </div>
+          </div>
+          
+          <!-- Diff Summary -->
+          <div id="diffSummaryCard" class="hidden rounded border border-slate-700 bg-slate-900/50 p-4">
+            <h4 class="text-sm font-medium text-slate-300 mb-3">Summary</h4>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Added</span>
+                <span id="diffAddedCount" class="text-emerald-400 font-medium">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Removed</span>
+                <span id="diffRemovedCount" class="text-rose-400 font-medium">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Changed</span>
+                <span id="diffChangedCount" class="text-amber-400 font-medium">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Unchanged</span>
+                <span id="diffUnchangedCount" class="text-slate-500">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Diff Results Panel -->
+        <div class="lg:col-span-3">
+          <!-- Pro Feature Banner (shown in core build) -->
+          <div id="diffProBanner" class="hidden rounded border border-amber-700/50 bg-amber-900/20 p-4 mb-4">
+            <div class="flex items-center gap-3">
+              <span class="text-2xl">⭐</span>
+              <div>
+                <h4 class="font-medium text-amber-300">Pro Feature</h4>
+                <p class="text-sm text-amber-200/80">Compare Runs requires a Pro license. Upgrade to unlock signal diff analysis.</p>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Loading State -->
+          <div id="diffLoading" class="hidden flex items-center justify-center py-12">
+            <div class="text-center">
+              <div class="animate-spin w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+              <div class="text-sm text-slate-400">Computing diff...</div>
+            </div>
+          </div>
+          
+          <!-- Empty State -->
+          <div id="diffEmpty" class="rounded border border-slate-700 bg-slate-900/30 p-8 text-center">
+            <div class="text-4xl mb-3">🔀</div>
+            <h4 class="text-base font-medium text-slate-300 mb-2">Compare Detection Runs</h4>
+            <p class="text-sm text-slate-400">Select two runs to compare and see what signals were added, removed, or changed.</p>
+          </div>
+          
+          <!-- Results -->
+          <div id="diffResults" class="hidden space-y-4">
+            <!-- Added Signals -->
+            <div id="diffAddedSection" class="rounded border border-emerald-700/50 bg-slate-900/50 p-4">
+              <h4 class="text-sm font-medium text-emerald-400 mb-3 flex items-center gap-2">
+                <span>➕</span> Added Signals <span id="diffAddedBadge" class="px-1.5 py-0.5 rounded bg-emerald-700/50 text-xs">0</span>
+              </h4>
+              <div id="diffAddedList" class="space-y-2 max-h-[200px] overflow-auto"></div>
+            </div>
+            
+            <!-- Removed Signals -->
+            <div id="diffRemovedSection" class="rounded border border-rose-700/50 bg-slate-900/50 p-4">
+              <h4 class="text-sm font-medium text-rose-400 mb-3 flex items-center gap-2">
+                <span>➖</span> Removed Signals <span id="diffRemovedBadge" class="px-1.5 py-0.5 rounded bg-rose-700/50 text-xs">0</span>
+              </h4>
+              <div id="diffRemovedList" class="space-y-2 max-h-[200px] overflow-auto"></div>
+            </div>
+            
+            <!-- Changed Signals -->
+            <div id="diffChangedSection" class="rounded border border-amber-700/50 bg-slate-900/50 p-4">
+              <h4 class="text-sm font-medium text-amber-400 mb-3 flex items-center gap-2">
+                <span>📝</span> Changed Signals <span id="diffChangedBadge" class="px-1.5 py-0.5 rounded bg-amber-700/50 text-xs">0</span>
+              </h4>
+              <div id="diffChangedList" class="space-y-2 max-h-[300px] overflow-auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LICENSE MANAGEMENT SECTION ============ -->
+    <section id="screenLicense" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- License Status Panel -->
+        <div class="rounded border border-slate-700 bg-slate-900/50">
+          <div class="p-4 border-b border-slate-700">
+            <h3 class="text-lg font-medium text-slate-100 flex items-center gap-2">
+              🔑 License Status
+            </h3>
+          </div>
+          <div class="p-4 space-y-4">
+            <!-- Status Badge -->
+            <div id="licenseStatusBadge" class="flex items-center gap-3 p-3 rounded bg-slate-800">
+              <div id="licenseStatusIcon" class="text-2xl">⏳</div>
+              <div>
+                <div id="licenseStatusText" class="font-medium text-slate-200">Checking...</div>
+                <div id="licenseStatusDetail" class="text-sm text-slate-400"></div>
+              </div>
+            </div>
+            
+            <!-- License Details (shown when valid) -->
+            <div id="licenseDetailsCard" class="hidden rounded border border-emerald-700/50 bg-emerald-900/20 p-4">
+              <h4 class="text-sm font-medium text-emerald-300 mb-3">License Details</h4>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                  <span class="text-slate-400">License ID</span>
+                  <span id="licenseLicenseId" class="text-slate-200 font-mono text-xs">—</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Customer</span>
+                  <span id="licenseCustomer" class="text-slate-200">—</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Edition</span>
+                  <span id="licenseEdition" class="text-emerald-400 font-medium">—</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Expires</span>
+                  <span id="licenseExpires" class="text-slate-200">—</span>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Entitlements List -->
+            <div id="licenseEntitlementsCard" class="hidden rounded border border-slate-700 bg-slate-800/50 p-4">
+              <h4 class="text-sm font-medium text-slate-300 mb-3">Entitlements</h4>
+              <div id="licenseEntitlementsList" class="space-y-1 text-sm">
+                <!-- Entitlements will be populated here -->
+              </div>
+            </div>
+            
+            <!-- Installation ID (always shown) -->
+            <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
+              <h4 class="text-sm font-medium text-slate-300 mb-2">Installation ID</h4>
+              <div class="flex items-center gap-2">
+                <code id="licenseInstallId" class="flex-1 text-xs font-mono bg-slate-900 px-2 py-1.5 rounded text-sky-300 select-all">Loading...</code>
+                <button id="copyInstallIdBtn" class="px-2 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs" title="Copy to clipboard">📋</button>
+              </div>
+              <p class="text-xs text-slate-500 mt-2">This ID is required when purchasing or activating a license.</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Import License Panel -->
+        <div class="rounded border border-slate-700 bg-slate-900/50">
+          <div class="p-4 border-b border-slate-700">
+            <h3 class="text-lg font-medium text-slate-100 flex items-center gap-2">
+              📥 Import License
+            </h3>
+          </div>
+          <div class="p-4 space-y-4">
+            <p class="text-sm text-slate-400">
+              Import your license file to unlock Pro features. The license must be bound to this installation's ID.
+            </p>
+            
+            <!-- File Import Area -->
+            <div id="licenseDropZone" class="border-2 border-dashed border-slate-600 rounded-lg p-6 text-center hover:border-sky-500 transition-colors cursor-pointer">
+              <div class="text-3xl mb-2">📄</div>
+              <div class="text-sm text-slate-300 mb-1">Drop license.json here</div>
+              <div class="text-xs text-slate-500">or click to browse</div>
+              <input type="file" id="licenseFileInput" accept=".json" class="hidden" />
+            </div>
+            
+            <!-- Or paste JSON -->
+            <div class="text-center text-xs text-slate-500">— or paste license content —</div>
+            
+            <textarea id="licensePasteArea" class="w-full h-32 bg-slate-900 border border-slate-700 rounded p-3 text-xs font-mono text-slate-300" placeholder='{"license_id": "...", "signature": "..."}'></textarea>
+            
+            <button id="installLicenseBtn" class="w-full px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+              Install License
+            </button>
+            
+            <!-- Import Result -->
+            <div id="licenseImportResult" class="hidden rounded p-3 text-sm"></div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Pro Features Overview -->
+      <div class="mt-6 rounded border border-slate-700 bg-slate-900/50 p-4">
+        <h3 class="text-lg font-medium text-slate-100 mb-4">⭐ Pro Features</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span id="featureDiffStatus" class="text-lg">🔒</span>
+              <span class="font-medium text-slate-200">Diff Mode</span>
+            </div>
+            <p class="text-xs text-slate-400">Compare signal snapshots between runs to identify new, removed, or changed detections.</p>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span id="featureReportsStatus" class="text-lg">🔒</span>
+              <span class="font-medium text-slate-200">Pro Reports</span>
+            </div>
+            <p class="text-xs text-slate-400">Generate enhanced PDF reports with executive summaries and detailed analysis.</p>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span id="featureTeamStatus" class="text-lg">🔒</span>
+              <span class="font-medium text-slate-200">Team Features</span>
+            </div>
+            <p class="text-xs text-slate-400">Collaborate with team members, share cases, and sync findings (coming soon).</p>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 

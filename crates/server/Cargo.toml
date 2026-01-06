@@ -16,8 +16,13 @@ path = "src/main.rs"
 name = "golden-cli"
 path = "src/bin/golden_cli.rs"
 
+[[bin]]
+name = "license_gen"
+path = "src/bin/license_gen.rs"
+
 [features]
 test-utils = []
+pro = ["edr-core/pro"]
 
 [dependencies]
 edr-core = { path = "../core" }
@@ -59,6 +64,10 @@ zip = { version = "0.6", default-features = false, features = ["deflate"] }
 regex = "1"
 sha2 = "0.10"
 tempfile = "3"
+
+# License generation (for license_gen binary only)
+ed25519-dalek = "2"
+rand = "0.8"
 
 # Platform-specific
 [target.'cfg(unix)'.dependencies]

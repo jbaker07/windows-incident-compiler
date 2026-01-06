@@ -73,10 +73,7 @@ async fn generate_pdf_report_handler(
     let bundle = build_test_bundle(&req, report_id, host_id);
 
     // Render to PDF
-    let renderer = match PdfRenderer::new() {
-        Ok(r) => r,
-        Err(_) => PdfRenderer::default(),
-    };
+    let renderer = PdfRenderer::new().unwrap_or_default();
 
     match renderer.render(&bundle) {
         Ok(pdf_bytes) => {

@@ -45,7 +45,7 @@ fn test_token_bucket_refill() {
     let refilled = (elapsed_ms as f64 * refill_per_ms) as u32;
 
     assert!(
-        refilled >= 4 && refilled <= 6,
+        (4..=6).contains(&refilled),
         "Should refill ~5 tokens in 50ms"
     );
 }

@@ -14,5 +14,9 @@ serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
+# Licensing
+ed25519-dalek = "2"
+dirs = "6.0"
+
 [dev-dependencies]
 sha2 = "0.10"

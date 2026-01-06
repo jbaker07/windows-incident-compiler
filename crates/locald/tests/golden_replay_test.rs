@@ -293,7 +293,7 @@ fn test_determinism_with_timestamp_collision() {
     let t1 = Utc.with_ymd_and_hms(2024, 1, 15, 10, 0, 0).unwrap();
 
     // Create multiple evidence pointers with SAME timestamp (collision scenario)
-    let ptrs = vec![
+    let ptrs = [
         EvidencePtr::new("stream_c", "seg_001", 5).with_timestamp(t1),
         EvidencePtr::new("stream_a", "seg_001", 0).with_timestamp(t1),
         EvidencePtr::new("stream_b", "seg_002", 10).with_timestamp(t1),
@@ -304,15 +304,15 @@ fn test_determinism_with_timestamp_collision() {
     // Sort using EventOrderKey multiple times
     let mut run1: Vec<_> = ptrs
         .iter()
-        .map(|p| EventOrderKey::from_evidence_ptr(p))
+        .map(EventOrderKey::from_evidence_ptr)
         .collect();
     let mut run2: Vec<_> = ptrs
         .iter()
-        .map(|p| EventOrderKey::from_evidence_ptr(p))
+        .map(EventOrderKey::from_evidence_ptr)
         .collect();
     let mut run3: Vec<_> = ptrs
         .iter()
-        .map(|p| EventOrderKey::from_evidence_ptr(p))
+        .map(EventOrderKey::from_evidence_ptr)
         .collect();
 
     run1.sort();

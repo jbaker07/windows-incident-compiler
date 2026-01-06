@@ -28,7 +28,7 @@ fn test_support_bundle_zip_structure_allowlist() {
 
     // Build ZIP to verify structure
     if let Ok(zip_data) = builder.build_zip() {
-        assert!(zip_data.len() > 0);
+        assert!(!zip_data.is_empty());
         // ZIP should be larger than just the data due to headers/compression
         assert!(zip_data.len() > 50, "ZIP file too small, likely corrupted");
     }

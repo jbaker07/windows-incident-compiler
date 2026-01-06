@@ -5,7 +5,9 @@ mod bundle_exchange;
 mod capture_control;
 mod db;
 mod diagnostics;
+mod diff_api;
 mod integration_api;
+mod license_api;
 mod probe;
 mod report;
 mod support_bundle;
@@ -564,6 +566,44 @@ async fn signal_stats(State(state): State<SharedState>) -> impl IntoResponse {
         Ok(stats) => ApiResponse::ok(stats),
         Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
     }
+}
+
+// ============================================================================
+// License API Endpoints
+// ============================================================================
+
+/// GET /api/license/status - Get current license status
+async fn license_status_endpoint() -> impl IntoResponse {
+    license_api::license_status_handler().await
+}
+
+/// POST /api/license/install - Install a license
+async fn license_install_endpoint(
+    Json(request): Json<license_api::InstallLicenseRequest>,
+) -> impl IntoResponse {
+    license_api::install_license_handler(Json(request)).await
+}
+
+/// POST /api/license/reload - Force reload license from disk
+async fn license_reload_endpoint() -> impl IntoResponse {
+    license_api::reload_license_handler().await
+}
+
+// ============================================================================
+// Pro: Diff API Endpoints
+// ============================================================================
+
+/// GET /api/diff - Compare two runs (requires diff_mode entitlement)
+async fn diff_endpoint(
+    State(state): State<SharedState>,
+    Query(params): Query<diff_api::DiffQuery>,
+) -> impl IntoResponse {
+    diff_api::diff_response(&state.db, &params)
+}
+
+/// GET /api/runs - List available runs for diff selection
+async fn list_runs_endpoint(State(state): State<SharedState>) -> impl IntoResponse {
+    diff_api::list_runs_response(&state.db)
 }
 
 // ============================================================================
@@ -2415,6 +2455,13 @@ async fn main() {
         .route("/api/signals/:id", get(get_signal))
         .route("/api/signals/:id/explain", get(get_signal_explanation))
         .route("/api/signals/:id/narrative", get(get_signal_narrative))
+        // License API
+        .route("/api/license/status", get(license_status_endpoint))
+        .route("/api/license/install", post(license_install_endpoint))
+        .route("/api/license/reload", post(license_reload_endpoint))
+        // Pro: Diff API (requires Pro license entitlement)
+        .route("/api/diff", get(diff_endpoint))
+        .route("/api/runs", get(list_runs_endpoint))
         // Narrative Actions API
         .route(
             "/api/narratives/:id/actions",

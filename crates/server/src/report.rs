@@ -948,7 +948,7 @@ mod tests {
 
     #[test]
     fn test_claim_certainty_categorization() {
-        let claims = vec![
+        let claims = [
             ClaimEntry {
                 claim_id: "c1".to_string(),
                 text: "Observed fact".to_string(),

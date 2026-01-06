@@ -574,9 +574,13 @@
   const screenDash  = document.getElementById('screenDash');
   const screenInt   = document.getElementById('screenIntegrations');
   const screenImport = document.getElementById('screenImport');
+  const screenCompare = document.getElementById('screenCompare');
+  const screenLicense = document.getElementById('screenLicense');
   const tabDash     = document.getElementById('tabDash');
   const tabInt      = document.getElementById('tabIntegrations');
   const tabImport   = document.getElementById('tabImport');
+  const tabCompare  = document.getElementById('tabCompare');
+  const tabLicense  = document.getElementById('tabLicense');
 
   // Integrations pane (optional)
   const addDlg      = document.getElementById('addDlg');
@@ -703,10 +707,14 @@
     const onDash = which === 'dash';
     const onInt = which === 'int';
     const onImport = which === 'import';
+    const onCompare = which === 'compare';
+    const onLicense = which === 'license';
     
     screenDash.classList.toggle('hidden', !onDash);
     screenInt.classList.toggle('hidden', !onInt);
     if (screenImport) screenImport.classList.toggle('hidden', !onImport);
+    if (screenCompare) screenCompare.classList.toggle('hidden', !onCompare);
+    if (screenLicense) screenLicense.classList.toggle('hidden', !onLicense);
     
     tabDash.className = onDash
       ? 'px-3 py-1 rounded bg-sky-600 text-white'
@@ -719,13 +727,27 @@
         ? 'px-3 py-1 rounded bg-sky-600 text-white'
         : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
     }
+    if (tabCompare) {
+      tabCompare.className = onCompare
+        ? 'px-3 py-1 rounded bg-sky-600 text-white'
+        : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
+    }
+    if (tabLicense) {
+      tabLicense.className = onLicense
+        ? 'px-3 py-1 rounded bg-sky-600 text-white'
+        : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
+    }
     
     if (onInt) loadIntegrations();
     if (onImport) loadImportedCases();
+    if (onCompare) loadRunsForCompare();
+    if (onLicense) loadLicenseStatus();
   }
   if (tabDash) tabDash.onclick = () => activateTab('dash');
   if (tabInt)  tabInt.onclick  = () => activateTab('int');
   if (tabImport) tabImport.onclick = () => activateTab('import');
+  if (tabCompare) tabCompare.onclick = () => activateTab('compare');
+  if (tabLicense) tabLicense.onclick = () => activateTab('license');
   activateTab('dash');
 
   // ---------- SSE Alerts ----------
@@ -3809,6 +3831,487 @@ window.attachExplainSummary = attachExplainSummary;
   } else {
     initWorkflow();
   }
-})();
 
-})();
+  // ============================================================================
+  // Compare Runs (Pro Feature)
+  // ============================================================================
+  
+  const diffLeftRun = document.getElementById('diffLeftRun');
+  const diffRightRun = document.getElementById('diffRightRun');
+  const runDiffBtn = document.getElementById('runDiffBtn');
+  const diffSummaryCard = document.getElementById('diffSummaryCard');
+  const diffProBanner = document.getElementById('diffProBanner');
+  const diffLoading = document.getElementById('diffLoading');
+  const diffEmpty = document.getElementById('diffEmpty');
+  const diffResults = document.getElementById('diffResults');
+  
+  // Update Compare button state
+  function updateDiffButton() {
+    if (runDiffBtn && diffLeftRun && diffRightRun) {
+      const canCompare = diffLeftRun.value && diffRightRun.value && diffLeftRun.value !== diffRightRun.value;
+      runDiffBtn.disabled = !canCompare;
+    }
+  }
+  
+  if (diffLeftRun) diffLeftRun.addEventListener('change', updateDiffButton);
+  if (diffRightRun) diffRightRun.addEventListener('change', updateDiffButton);
+  
+  // Load available runs for comparison
+  async function loadRunsForCompare() {
+    try {
+      const response = await fetch('/api/runs');
+      if (!response.ok) {
+        console.error('Failed to load runs');
+        return;
+      }
+      const data = await response.json();
+      if (!data.success || !data.data) return;
+      
+      const runs = data.data;
+      const options = runs.map(r => {
+        const date = new Date(r.earliest_ts).toLocaleString();
+        return `<option value="${r.run_id}">${r.run_id} (${r.signal_count} signals, ${date})</option>`;
+      }).join('');
+      
+      const emptyOption = '<option value="">Select run...</option>';
+      if (diffLeftRun) diffLeftRun.innerHTML = emptyOption + options;
+      if (diffRightRun) diffRightRun.innerHTML = emptyOption + options;
+    } catch (err) {
+      console.error('Failed to load runs:', err);
+    }
+  }
+  
+  // Run the diff comparison
+  async function runDiffComparison() {
+    if (!diffLeftRun || !diffRightRun) return;
+    
+    const leftId = diffLeftRun.value;
+    const rightId = diffRightRun.value;
+    if (!leftId || !rightId) return;
+    
+    // Show loading
+    if (diffLoading) diffLoading.classList.remove('hidden');
+    if (diffEmpty) diffEmpty.classList.add('hidden');
+    if (diffResults) diffResults.classList.add('hidden');
+    if (diffProBanner) diffProBanner.classList.add('hidden');
+    if (diffSummaryCard) diffSummaryCard.classList.add('hidden');
+    
+    try {
+      const response = await fetch(`/api/diff?left=${encodeURIComponent(leftId)}&right=${encodeURIComponent(rightId)}`);
+      const data = await response.json();
+      
+      if (diffLoading) diffLoading.classList.add('hidden');
+      
+      // Check for Pro feature gate (license required)
+      if (response.status === 402) {
+        if (diffProBanner) {
+          diffProBanner.classList.remove('hidden');
+          // Update banner with install_id if available
+          const installId = data.install_id;
+          const reason = data.reason || 'No valid license with diff_mode entitlement';
+          diffProBanner.innerHTML = `
+            <div class="flex items-start gap-3">
+              <span class="text-2xl">🔒</span>
+              <div class="flex-1">
+                <h4 class="font-medium text-amber-300">Pro License Required</h4>
+                <p class="text-sm text-amber-200/80 mt-1">${reason}</p>
+                ${installId ? `
+                  <div class="mt-3 p-2 rounded bg-slate-900/50">
+                    <div class="text-xs text-slate-400 mb-1">Your Installation ID:</div>
+                    <code class="text-xs font-mono text-sky-300 select-all">${installId}</code>
+                  </div>
+                  <p class="text-xs text-slate-400 mt-2">Include this ID when purchasing a license.</p>
+                ` : ''}
+                <button onclick="activateTab('license')" class="mt-3 px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-sm font-medium">
+                  Go to License Panel →
+                </button>
+              </div>
+            </div>
+          `;
+        }
+        if (diffEmpty) diffEmpty.classList.add('hidden');
+        return;
+      }
+      
+      if (!data.success) {
+        showToast('Diff failed', data.error || 'Unknown error', 'error');
+        if (diffEmpty) diffEmpty.classList.remove('hidden');
+        return;
+      }
+      
+      // Show results
+      renderDiffResults(data.data);
+    } catch (err) {
+      if (diffLoading) diffLoading.classList.add('hidden');
+      showToast('Diff failed', err.message, 'error');
+      if (diffEmpty) diffEmpty.classList.remove('hidden');
+    }
+  }
+  
+  // Render diff results
+  function renderDiffResults(data) {
+    if (!data || !data.diff) return;
+    
+    const { diff, meta } = data;
+    
+    // Show summary card
+    if (diffSummaryCard) {
+      diffSummaryCard.classList.remove('hidden');
+      const el = (id) => document.getElementById(id);
+      if (el('diffAddedCount')) el('diffAddedCount').textContent = diff.summary.added_count;
+      if (el('diffRemovedCount')) el('diffRemovedCount').textContent = diff.summary.removed_count;
+      if (el('diffChangedCount')) el('diffChangedCount').textContent = diff.summary.changed_count;
+      if (el('diffUnchangedCount')) el('diffUnchangedCount').textContent = diff.summary.unchanged_count;
+    }
+    
+    // Show results container
+    if (diffResults) diffResults.classList.remove('hidden');
+    if (diffEmpty) diffEmpty.classList.add('hidden');
+    
+    // Render added signals
+    const addedList = document.getElementById('diffAddedList');
+    const addedBadge = document.getElementById('diffAddedBadge');
+    if (addedList && addedBadge) {
+      addedBadge.textContent = diff.added.length;
+      addedList.innerHTML = diff.added.length === 0 
+        ? '<div class="text-xs text-slate-500">No signals added</div>'
+        : diff.added.map(s => `
+          <div class="p-2 rounded bg-slate-800/50 border border-emerald-700/30">
+            <div class="flex items-center gap-2">
+              <span class="px-1.5 py-0.5 rounded text-xs ${getSeverityClass(s.severity)}">${s.severity}</span>
+              <span class="text-sm font-medium text-slate-200">${s.signal_type}</span>
+            </div>
+            <div class="text-xs text-slate-400 mt-1">Host: ${s.host}</div>
+          </div>
+        `).join('');
+    }
+    
+    // Render removed signals
+    const removedList = document.getElementById('diffRemovedList');
+    const removedBadge = document.getElementById('diffRemovedBadge');
+    if (removedList && removedBadge) {
+      removedBadge.textContent = diff.removed.length;
+      removedList.innerHTML = diff.removed.length === 0 
+        ? '<div class="text-xs text-slate-500">No signals removed</div>'
+        : diff.removed.map(s => `
+          <div class="p-2 rounded bg-slate-800/50 border border-rose-700/30">
+            <div class="flex items-center gap-2">
+              <span class="px-1.5 py-0.5 rounded text-xs ${getSeverityClass(s.severity)}">${s.severity}</span>
+              <span class="text-sm font-medium text-slate-200">${s.signal_type}</span>
+            </div>
+            <div class="text-xs text-slate-400 mt-1">Host: ${s.host}</div>
+          </div>
+        `).join('');
+    }
+    
+    // Render changed signals
+    const changedList = document.getElementById('diffChangedList');
+    const changedBadge = document.getElementById('diffChangedBadge');
+    if (changedList && changedBadge) {
+      changedBadge.textContent = diff.changed.length;
+      changedList.innerHTML = diff.changed.length === 0 
+        ? '<div class="text-xs text-slate-500">No signals changed</div>'
+        : diff.changed.map(s => `
+          <div class="p-2 rounded bg-slate-800/50 border border-amber-700/30">
+            <div class="text-sm font-medium text-slate-200 mb-2">${s.stable_key}</div>
+            <div class="space-y-1">
+              ${s.changes.map(c => `
+                <div class="flex items-center gap-2 text-xs">
+                  <span class="text-slate-400">${c.field}:</span>
+                  <span class="text-rose-400 line-through">${c.left_value}</span>
+                  <span class="text-slate-500">→</span>
+                  <span class="text-emerald-400">${c.right_value}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('');
+    }
+  }
+  
+  // Helper for severity colors
+  function getSeverityClass(sev) {
+    switch ((sev || '').toLowerCase()) {
+      case 'critical': return 'bg-rose-700';
+      case 'high': return 'bg-orange-700';
+      case 'medium': return 'bg-amber-700';
+      case 'low': return 'bg-emerald-700';
+      default: return 'bg-slate-700';
+    }
+  }
+  
+  // Attach Compare button handler
+  if (runDiffBtn) {
+    runDiffBtn.addEventListener('click', runDiffComparison);
+  }
+
+  // ============================================================================
+  // LICENSE MANAGEMENT
+  // ============================================================================
+
+  // License UI elements
+  const licenseStatusIcon = document.getElementById('licenseStatusIcon');
+  const licenseStatusText = document.getElementById('licenseStatusText');
+  const licenseStatusDetail = document.getElementById('licenseStatusDetail');
+  const licenseDetailsCard = document.getElementById('licenseDetailsCard');
+  const licenseLicenseId = document.getElementById('licenseLicenseId');
+  const licenseCustomer = document.getElementById('licenseCustomer');
+  const licenseEdition = document.getElementById('licenseEdition');
+  const licenseExpires = document.getElementById('licenseExpires');
+  const licenseEntitlementsCard = document.getElementById('licenseEntitlementsCard');
+  const licenseEntitlementsList = document.getElementById('licenseEntitlementsList');
+  const licenseInstallId = document.getElementById('licenseInstallId');
+  const copyInstallIdBtn = document.getElementById('copyInstallIdBtn');
+  const licenseDropZone = document.getElementById('licenseDropZone');
+  const licenseFileInput = document.getElementById('licenseFileInput');
+  const licensePasteArea = document.getElementById('licensePasteArea');
+  const installLicenseBtn = document.getElementById('installLicenseBtn');
+  const licenseImportResult = document.getElementById('licenseImportResult');
+  const featureDiffStatus = document.getElementById('featureDiffStatus');
+  const featureReportsStatus = document.getElementById('featureReportsStatus');
+  const featureTeamStatus = document.getElementById('featureTeamStatus');
+
+  // Track current license state
+  let currentLicenseStatus = null;
+
+  async function loadLicenseStatus() {
+    try {
+      const response = await fetch('/api/license/status');
+      const data = await response.json();
+      currentLicenseStatus = data;
+      renderLicenseStatus(data);
+    } catch (err) {
+      console.error('Failed to load license status:', err);
+      renderLicenseError('Failed to check license status');
+    }
+  }
+
+  function renderLicenseStatus(data) {
+    if (!licenseStatusIcon || !licenseStatusText) return;
+
+    // Update install ID
+    if (licenseInstallId && data.install_id) {
+      licenseInstallId.textContent = data.install_id;
+    }
+
+    // Determine status
+    const status = data.status;
+    const license = data.license;
+
+    // Update status badge
+    switch (status) {
+      case 'valid':
+        licenseStatusIcon.textContent = '✅';
+        licenseStatusText.textContent = 'License Valid';
+        licenseStatusDetail.textContent = license?.edition ? `${license.edition.toUpperCase()} Edition` : 'Active';
+        break;
+      case 'not_installed':
+        licenseStatusIcon.textContent = '🔒';
+        licenseStatusText.textContent = 'No License Installed';
+        licenseStatusDetail.textContent = 'Import a license to unlock Pro features';
+        break;
+      case 'expired':
+        licenseStatusIcon.textContent = '⏰';
+        licenseStatusText.textContent = 'License Expired';
+        licenseStatusDetail.textContent = 'Please renew your license';
+        break;
+      case 'invalid':
+        licenseStatusIcon.textContent = '❌';
+        licenseStatusText.textContent = 'Invalid License';
+        licenseStatusDetail.textContent = 'License verification failed';
+        break;
+      case 'wrong_installation':
+        licenseStatusIcon.textContent = '🔄';
+        licenseStatusText.textContent = 'Wrong Installation';
+        licenseStatusDetail.textContent = 'License bound to different installation';
+        break;
+      case 'not_configured':
+        licenseStatusIcon.textContent = '⚙️';
+        licenseStatusText.textContent = 'Not Configured';
+        licenseStatusDetail.textContent = 'Development build - license system not configured';
+        break;
+      default:
+        licenseStatusIcon.textContent = '❓';
+        licenseStatusText.textContent = 'Unknown Status';
+        licenseStatusDetail.textContent = '';
+    }
+
+    // Show/hide license details card
+    if (licenseDetailsCard) {
+      if (status === 'valid' && license) {
+        licenseDetailsCard.classList.remove('hidden');
+        if (licenseLicenseId) licenseLicenseId.textContent = license.license_id || '—';
+        if (licenseCustomer) licenseCustomer.textContent = license.customer || '—';
+        if (licenseEdition) licenseEdition.textContent = license.edition || '—';
+        if (licenseExpires) {
+          if (license.expires_at) {
+            const expDate = new Date(license.expires_at);
+            licenseExpires.textContent = expDate.toLocaleDateString();
+          } else {
+            licenseExpires.textContent = 'Perpetual';
+          }
+        }
+      } else {
+        licenseDetailsCard.classList.add('hidden');
+      }
+    }
+
+    // Show/hide entitlements
+    if (licenseEntitlementsCard && licenseEntitlementsList) {
+      if (status === 'valid' && license?.entitlements?.length > 0) {
+        licenseEntitlementsCard.classList.remove('hidden');
+        licenseEntitlementsList.innerHTML = license.entitlements.map(ent => `
+          <div class="flex items-center gap-2 text-emerald-400">
+            <span>✓</span>
+            <span>${formatEntitlement(ent)}</span>
+          </div>
+        `).join('');
+      } else {
+        licenseEntitlementsCard.classList.add('hidden');
+      }
+    }
+
+    // Update feature status icons
+    const entitlements = license?.entitlements || [];
+    if (featureDiffStatus) {
+      featureDiffStatus.textContent = entitlements.includes('diff_mode') ? '✅' : '🔒';
+    }
+    if (featureReportsStatus) {
+      featureReportsStatus.textContent = entitlements.includes('pro_reports') ? '✅' : '🔒';
+    }
+    if (featureTeamStatus) {
+      featureTeamStatus.textContent = entitlements.includes('team_features') ? '✅' : '🔒';
+    }
+  }
+
+  function formatEntitlement(ent) {
+    const names = {
+      'diff_mode': 'Diff Mode',
+      'pro_reports': 'Pro Reports',
+      'team_features': 'Team Features'
+    };
+    return names[ent] || ent;
+  }
+
+  function renderLicenseError(message) {
+    if (licenseStatusIcon) licenseStatusIcon.textContent = '⚠️';
+    if (licenseStatusText) licenseStatusText.textContent = 'Error';
+    if (licenseStatusDetail) licenseStatusDetail.textContent = message;
+  }
+
+  // Copy Install ID to clipboard
+  if (copyInstallIdBtn && licenseInstallId) {
+    copyInstallIdBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(licenseInstallId.textContent);
+        copyInstallIdBtn.textContent = '✓';
+        setTimeout(() => { copyInstallIdBtn.textContent = '📋'; }, 1500);
+      } catch (err) {
+        console.error('Failed to copy:', err);
+      }
+    });
+  }
+
+  // File drop zone
+  if (licenseDropZone && licenseFileInput) {
+    licenseDropZone.addEventListener('click', () => licenseFileInput.click());
+    
+    licenseDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      licenseDropZone.classList.add('border-sky-500');
+    });
+    
+    licenseDropZone.addEventListener('dragleave', () => {
+      licenseDropZone.classList.remove('border-sky-500');
+    });
+    
+    licenseDropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      licenseDropZone.classList.remove('border-sky-500');
+      
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        const content = await file.text();
+        if (licensePasteArea) licensePasteArea.value = content;
+      }
+    });
+    
+    licenseFileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const content = await file.text();
+        if (licensePasteArea) licensePasteArea.value = content;
+      }
+    });
+  }
+
+  // Install license button
+  if (installLicenseBtn) {
+    installLicenseBtn.addEventListener('click', async () => {
+      const content = licensePasteArea?.value?.trim();
+      if (!content) {
+        showLicenseResult('error', 'Please paste or drop a license file first');
+        return;
+      }
+
+      // Validate JSON
+      try {
+        JSON.parse(content);
+      } catch (err) {
+        showLicenseResult('error', 'Invalid JSON format');
+        return;
+      }
+
+      installLicenseBtn.disabled = true;
+      installLicenseBtn.textContent = 'Installing...';
+
+      try {
+        const response = await fetch('/api/license/install', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ license_content: content })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+          showLicenseResult('success', 'License installed successfully!');
+          if (licensePasteArea) licensePasteArea.value = '';
+          // Reload status
+          await loadLicenseStatus();
+        } else {
+          showLicenseResult('error', data.error || 'Installation failed');
+        }
+      } catch (err) {
+        showLicenseResult('error', `Error: ${err.message}`);
+      } finally {
+        installLicenseBtn.disabled = false;
+        installLicenseBtn.textContent = 'Install License';
+      }
+    });
+  }
+
+  function showLicenseResult(type, message) {
+    if (!licenseImportResult) return;
+    
+    licenseImportResult.classList.remove('hidden', 'bg-emerald-900/50', 'text-emerald-200', 'bg-rose-900/50', 'text-rose-200');
+    
+    if (type === 'success') {
+      licenseImportResult.classList.add('bg-emerald-900/50', 'text-emerald-200');
+    } else {
+      licenseImportResult.classList.add('bg-rose-900/50', 'text-rose-200');
+    }
+    
+    licenseImportResult.textContent = message;
+    
+    setTimeout(() => {
+      licenseImportResult.classList.add('hidden');
+    }, 5000);
+  }
+
+  // Check license status on page load (for diff gating)
+  loadLicenseStatus();
+
+  // Update diff UI to handle 402 responses
+  const originalRunDiffComparison = runDiffComparison;
+  // Note: The runDiffComparison function already handles errors gracefully
