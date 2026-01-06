@@ -81,10 +81,10 @@ fn test_pipeline_processes_windows_telemetry() {
     );
 
     let input = create_test_event("windows", "process_create", fields);
-    let signals = pipeline.process(input);
+    let _signals = pipeline.process(input);
 
     // Pipeline should process and return signals (possibly empty)
-    assert!(signals.len() >= 0);
+    // Length is always valid for Vec
 }
 
 #[test]
@@ -98,9 +98,9 @@ fn test_pipeline_processes_macos_telemetry() {
     fields.insert("pid".to_string(), serde_json::json!(5678));
 
     let input = create_test_event("macos", "process_exec", fields);
-    let signals = pipeline.process(input);
+    let _signals = pipeline.process(input);
 
-    assert!(signals.len() >= 0);
+    // Length is always valid for Vec
 }
 
 #[test]
@@ -114,9 +114,9 @@ fn test_pipeline_processes_linux_telemetry() {
     fields.insert("pid".to_string(), serde_json::json!(9012));
 
     let input = create_test_event("linux", "process_exec", fields);
-    let signals = pipeline.process(input);
+    let _signals = pipeline.process(input);
 
-    assert!(signals.len() >= 0);
+    // Length is always valid for Vec
 }
 
 // ========== Signal Engine Integration Tests ==========
@@ -146,9 +146,9 @@ fn test_windows_signal_engine_integration() {
         fields,
     };
 
-    let signals = engine.process_event(&event);
+    let _signals = engine.process_event(&event);
     // Engine should process without panicking
-    assert!(signals.len() >= 0);
+    // Length is always valid for Vec
 }
 
 #[test]
@@ -169,8 +169,8 @@ fn test_macos_signal_engine_integration() {
         fields,
     };
 
-    let signals = engine.process_event(&event);
-    assert!(signals.len() >= 0);
+    let _signals = engine.process_event(&event);
+    // Length is always valid for Vec
 }
 
 #[test]
@@ -191,8 +191,8 @@ fn test_linux_signal_engine_integration() {
         fields,
     };
 
-    let signals = engine.process_event(&event);
-    assert!(signals.len() >= 0);
+    let _signals = engine.process_event(&event);
+    // Length is always valid for Vec
 }
 
 // ========== TelemetryInput Parsing Tests ==========
@@ -288,7 +288,7 @@ fn test_pipeline_batch_processing() {
 
     let results = pipeline.process_batch(inputs);
     // process_batch returns Vec<SignalResult>, just check type and length
-    assert!(results.len() == 10 || results.len() == 0);
+    assert!(results.len() == 10 || results.is_empty());
 }
 
 // ========== Evidence Chain Tests ==========
@@ -320,9 +320,9 @@ fn test_evidence_ptr_preserved_through_pipeline() {
     let _ = pipeline.process(input);
 
     // Any signals generated should preserve evidence chain
-    for signal in sink.get_signals() {
+    for _signal in sink.get_signals() {
         // evidence_ptrs is a Vec in SignalResult
-        assert!(signal.evidence_ptrs.len() >= 0 || signal.dropped_evidence_count >= 0);
+        // Evidence chain is always valid
     }
 }
 
@@ -358,8 +358,8 @@ fn test_orchestrator_processes_events() {
         fields: BTreeMap::new(),
     };
 
-    let signals = orchestrator.process_event(&event);
-    assert!(signals.len() >= 0);
+    let _signals = orchestrator.process_event(&event);
+    // Length is always valid for Vec
 }
 
 // ========== Core Event Tests ==========

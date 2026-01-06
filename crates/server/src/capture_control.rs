@@ -1437,7 +1437,7 @@ mod tests {
         let snapshot = controller.create_config_snapshot();
 
         assert_eq!(snapshot.profile, CaptureProfile::Extended);
-        assert!(snapshot.enabled_sensors.len() > 0);
+        assert!(!snapshot.enabled_sensors.is_empty());
 
         // Validate match should pass
         assert!(controller.validate_config_match(&snapshot).is_ok());

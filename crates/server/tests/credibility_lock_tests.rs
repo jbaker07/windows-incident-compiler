@@ -35,7 +35,7 @@ fn validate_namespace_access(incident_id: &str, allow_imported: bool) -> Result<
 /// PROOF: Imported incidents are filtered by default
 #[test]
 fn test_namespace_isolation_filters_imported_by_default() {
-    let incidents = vec![
+    let incidents = [
         "live_incident_001",
         "live_incident_002",
         "imported_bundle_abc_incident_001", // Should be filtered
@@ -98,7 +98,7 @@ fn test_namespace_isolation_error_message_is_actionable() {
 // ============================================================================
 
 /// Safe path join (mirrors ui_server.rs implementation)
-fn safe_join_under(root: &PathBuf, rel: &str) -> Result<PathBuf, String> {
+fn safe_join_under(root: &std::path::Path, rel: &str) -> Result<PathBuf, String> {
     if rel.is_empty() {
         return Err("Empty relative path".to_string());
     }
@@ -469,7 +469,7 @@ fn test_redaction_preserves_system_paths() {
 #[test]
 fn test_e2e_imported_bundle_isolation() {
     // Simulate database state after importing a support bundle
-    let db_incidents = vec![
+    let db_incidents = [
         ("live_001", "suspicious_login", 85),
         ("live_002", "malware_detected", 92),
         ("imported_customer_abc_001", "their_incident", 75), // From imported bundle

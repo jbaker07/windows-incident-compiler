@@ -656,7 +656,7 @@ mod tests {
         let tempdir = TempDir::new().unwrap();
         let root = tempdir.path();
         let segment_root = root.join("segments");
-        fs::create_dir_all(&segment_root.join("stream1")).unwrap();
+        fs::create_dir_all(segment_root.join("stream1")).unwrap();
 
         // Create a valid segment file
         let segment_data = b"test event data";

@@ -979,8 +979,8 @@ mod tests {
         let json = serde_json::to_string(&spec).unwrap();
         let parsed: ProbeSpec = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed.do_process_spawn, false);
-        assert_eq!(parsed.do_temp_file_write, true);
+        assert!(!parsed.do_process_spawn);
+        assert!(parsed.do_temp_file_write);
         assert_eq!(parsed.timeout_ms, 3000);
         assert_eq!(parsed.repeats, 2);
     }

@@ -174,6 +174,6 @@ mod tests {
             .first_seen
             .remote_ips_per_exe
             .get("proc_123")
-            .map_or(false, |ips| ips.contains("192.168.1.1")));
+            .is_some_and(|ips| ips.contains("192.168.1.1")));
     }
 }

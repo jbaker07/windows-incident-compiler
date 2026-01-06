@@ -36,14 +36,23 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       
-      - name: Run clippy
+      - name: Run clippy (core)
         run: cargo clippy --workspace --all-targets -- -D warnings
       
-      - name: Build release
+      - name: Run clippy (pro)
+        run: cargo clippy --workspace --all-targets --features pro -- -D warnings
+      
+      - name: Build release (core)
         run: cargo build --release --workspace
       
-      - name: Run tests
+      - name: Build release (pro)
+        run: cargo build --release --workspace --features pro
+      
+      - name: Run tests (core)
         run: cargo test --workspace
+      
+      - name: Run tests (pro)
+        run: cargo test --workspace --features pro
       
   # Optional: Linux build for cross-platform validation
   build-linux:
