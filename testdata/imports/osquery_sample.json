@@ -1,0 +1,43 @@
+[
+  {
+    "name": "processes",
+    "hostIdentifier": "TESTHOST",
+    "calendarTime": "Mon Jan 01 00:00:00 2024 UTC",
+    "unixTime": 1704067200,
+    "columns": {
+      "pid": "1234",
+      "name": "powershell.exe",
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "cmdline": "powershell.exe -enc ZWNobyAidGVzdCI=",
+      "state": "running",
+      "parent": "5678",
+      "uid": "1000",
+      "user": "testuser"
+    }
+  },
+  {
+    "name": "listening_ports",
+    "hostIdentifier": "TESTHOST",
+    "calendarTime": "Mon Jan 01 00:00:00 2024 UTC",
+    "unixTime": 1704067200,
+    "columns": {
+      "pid": "4",
+      "port": "445",
+      "protocol": "6",
+      "family": "2",
+      "address": "0.0.0.0"
+    }
+  },
+  {
+    "name": "users",
+    "hostIdentifier": "TESTHOST",
+    "calendarTime": "Mon Jan 01 00:00:00 2024 UTC",
+    "unixTime": 1704067200,
+    "columns": {
+      "uid": "1000",
+      "username": "testuser",
+      "description": "Test User Account",
+      "type": "local"
+    }
+  }
+]

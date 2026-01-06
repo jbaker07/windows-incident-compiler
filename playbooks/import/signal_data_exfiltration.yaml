@@ -1,0 +1,166 @@
+---
+# playbooks/import/signal_data_exfiltration.yaml
+# Detection of data exfiltration patterns
+
+id: "import_data_exfiltration_001"
+title: "Data Exfiltration Detection"
+name: "Data Exfiltration Patterns"
+family: "exfiltration"
+version: "1.0"
+description: |
+  Detects potential data exfiltration by analyzing:
+  - Large outbound data transfers
+  - Uploads to cloud storage services
+  - Unusual data volumes to uncommon destinations
+  - POST requests with large bodies
+  
+  Works with Zeek conn/http logs, HAR files, and JSONL.
+
+enabled: true
+confidence_threshold: 0.65
+
+sources:
+  - zeek_conn
+  - zeek_http
+  - har
+  - jsonl_network
+
+input_tags:
+  - network
+  - http_post
+  - large_transfer
+  - connection
+
+mitre:
+  tactics:
+    - exfiltration
+  techniques:
+    - T1041  # Exfiltration Over C2 Channel
+    - T1048  # Exfiltration Over Alternative Protocol
+    - T1567  # Exfiltration Over Web Service
+
+input_facts:
+  required:
+    - network_connection
+
+slots:
+  required:
+    - name: dest_host
+      type: string
+    - name: bytes_sent
+      type: integer
+
+rules:
+  - name: "Large HTTP Upload"
+    description: "Large POST request body (potential exfiltration)"
+    conditions:
+      - field: method
+        equals: "POST"
+      - field: body_size
+        greater_than: 1000000  # > 1MB
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "large_upload"
+          - "exfil_suspect"
+    evidence:
+      - field: url
+        description: "Upload destination"
+      - field: body_size
+        description: "Data size"
+
+  - name: "Cloud Storage Upload"
+    description: "Upload to known cloud storage service"
+    conditions:
+      - field: method
+        equals: "POST|PUT"
+      - field: domain
+        matches: "(?i)(drive\\.google|dropbox|onedrive|box\\.com|s3\\.amazonaws|storage\\.googleapis|blob\\.core\\.windows)"
+    actions:
+      - severity: LOW
+        tags:
+          - "cloud_upload"
+          - "storage_service"
+
+  - name: "Paste Site Upload"
+    description: "Upload to paste/sharing service"
+    conditions:
+      - field: method
+        equals: "POST"
+      - field: domain
+        matches: "(?i)(pastebin|hastebin|ghostbin|privatebin|paste\\.ee|dpaste|sprunge)"
+    actions:
+      - severity: HIGH
+        tags:
+          - "paste_site"
+          - "exfil_suspect"
+
+  - name: "Large Outbound Connection"
+    description: "Connection with large outbound bytes"
+    conditions:
+      - event_type: zeek_conn
+      - field: orig_bytes
+        greater_than: 10000000  # > 10MB
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "large_outbound"
+          - "bulk_transfer"
+    evidence:
+      - field: "id.resp_h"
+        description: "Destination"
+      - field: orig_bytes
+        description: "Bytes sent"
+
+  - name: "Asymmetric Transfer Ratio"
+    description: "Much more data sent than received"
+    conditions:
+      - event_type: zeek_conn
+      - field: orig_bytes
+        greater_than: 100000  # > 100KB sent
+    custom_condition: |
+      orig_bytes > resp_bytes * 10  # 10x more sent than received
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "asymmetric_transfer"
+          - "upload_heavy"
+
+  - name: "File Sharing Service"
+    description: "Activity with file sharing services"
+    conditions:
+      - field: domain
+        matches: "(?i)(wetransfer|mega\\.nz|mediafire|sendspace|file\\.io|transfer\\.sh|gofile)"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "file_sharing"
+          - "exfil_vector"
+
+  - name: "Encoded Data in URL"
+    description: "Base64 or encoded data in GET parameters"
+    conditions:
+      - field: url
+        matches: "[?&][^=]+=([A-Za-z0-9+/]{50,}={0,2})"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "encoded_url"
+          - "data_in_params"
+
+response:
+  - type: "signal"
+    signal_name: "Potential Data Exfiltration"
+    priority: "high"
+    narrative_template: |
+      Potential data exfiltration activity detected.
+      Destination: {dest_host}
+      Data volume: {total_bytes_sent}
+      Method: {exfil_method}
+      Time period: {time_span}
+
+false_positives:
+  - "Legitimate cloud backups"
+  - "File sharing for business purposes"
+  - "Video/media uploads"
+  - "Software uploads and builds"

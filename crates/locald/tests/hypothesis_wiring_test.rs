@@ -7,7 +7,6 @@
 //!
 //! This is a VERIFICATION test - if it compiles and passes, wiring is complete.
 
-use chrono::Utc;
 use edr_locald::{
     // Arbitration types
     ArbitrationEngine,
@@ -27,12 +26,9 @@ use edr_locald::{
     FactType,
     // Determinism types
     GlobalOrderKey,
-    GlobalWatermark,
     HypothesisController,
     HypothesisState,
     HypothesisStatus,
-    // Storage types
-    HypothesisStorage,
     InMemoryStorage,
     Incident,
     LateArrivalAction,
@@ -221,7 +217,7 @@ fn test_scope_key_variants() {
 /// Test that events within grace period are accepted and can update/reopen
 #[test]
 fn test_late_within_grace_reopens_or_updates() {
-    use chrono::{Duration, TimeZone, Utc};
+    use chrono::{Duration, Utc};
 
     // Create controller with custom late arrival policy
     let policy = LateArrivalPolicy {

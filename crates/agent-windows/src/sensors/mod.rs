@@ -6,12 +6,12 @@
 pub mod attack_surface;
 pub mod collect;
 pub mod defender_adapter;
-pub mod primitives;
 pub mod etw_adapter;
 pub mod evtx_collector;
 pub mod lateral_movement_monitor;
 pub mod log_tamper_monitor;
 pub mod powershell_monitor;
+pub mod primitives;
 pub mod registry_monitor;
 pub mod service_monitor;
 pub mod sysmon_adapter;

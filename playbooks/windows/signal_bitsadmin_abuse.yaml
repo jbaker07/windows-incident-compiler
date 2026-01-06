@@ -1,0 +1,103 @@
+---
+# playbooks/windows/signal_bitsadmin_abuse.yaml
+# Detection of bitsadmin.exe abuse for download
+
+id: "windows_bitsadmin_abuse_001"
+title: "BITSAdmin LOLBin Abuse"
+name: "BITSAdmin Abuse Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects abuse of bitsadmin.exe for:
+  - File download bypassing proxies
+  - Persistent download jobs
+  - Evasion of network monitoring
+
+enabled: true
+confidence_threshold: 0.80
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+mitre:
+  tactics:
+    - command_and_control
+    - defense_evasion
+    - persistence
+  techniques:
+    - T1197      # BITS Jobs
+    - T1105      # Ingress Tool Transfer
+
+input_facts:
+  required:
+    - Exec
+
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)bitsadmin\\.exe"
+  optional:
+    - name: transfer_flag
+      type: string
+      pattern: "(?i)/transfer|/addfile"
+    - name: remote_url
+      type: string
+      pattern: "(?i)https?://"
+
+rules:
+  - name: "BITSAdmin Download"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)bitsadmin"
+      - field: cmdline
+        matches: "(?i)/transfer.*https?://"
+    actions:
+      - severity: HIGH
+        tags:
+          - "download"
+          - "lolbin"
+          - "bits"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "BITSAdmin Add File"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)bitsadmin"
+      - field: cmdline
+        matches: "(?i)/addfile"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "bits_job"
+          - "staging"
+
+  - name: "BITSAdmin Create Job"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)bitsadmin"
+      - field: cmdline
+        matches: "(?i)/create"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "bits_persistence"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "BITSAdmin Abuse Detected"
+    priority: "high"
+
+false_positives:
+  - "WSUS and Windows Update operations"
+  - "Some enterprise software using BITS for updates"

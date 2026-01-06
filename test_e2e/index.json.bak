@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "next_seq": 132,
+  "segments": [
+    {
+      "seq": 0,
+      "segment_id": "evtx_000000",
+      "rel_path": "segments/evtx_000000.jsonl",
+      "ts_first": 1767599114207,
+      "ts_last": 1767599128708,
+      "records": 100,
+      "size_bytes": 114757,
+      "sha256_segment": "b8589277ba3e8bd82acd4046f42b73060f3a8c9ce7a06e928797140963077c71"
+    },
+    {
+      "seq": 100,
+      "segment_id": "evtx_000001",
+      "rel_path": "segments/evtx_000001.jsonl",
+      "ts_first": 1767599128864,
+      "ts_last": 1767599133909,
+      "records": 100,
+      "size_bytes": 114757,
+      "sha256_segment": "5646eaec1e5edb9ec54fe8ecf67c4aa1002ecb923f93e5dcd1c97381216eb773"
+    }
+  ],
+  "last_updated_ts": 1767599133909,
+  "index_hash": "29cce065d80ee66e89ed3cfb227d895660915b1c164a4547bce15a94ae68a53d",
+  "prev_index_hash": "b346882da71875e074a69009cafb4541f5d372b83ce93fb4355f109bc202b5d0"
+}

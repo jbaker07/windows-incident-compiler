@@ -1,0 +1,98 @@
+---
+# playbooks/windows/signal_task_persistence.yaml
+# Detection of scheduled task creation for persistence
+# Monitors TaskScheduler/Operational events for suspicious task patterns
+
+name: "Windows Task Scheduler Persistence"
+id: "windows_task_persistence_001"
+version: "1.0"
+description: |
+  Detects creation or modification of scheduled tasks for persistence.
+  Looks for:
+  - Tasks created in unusual locations (\Microsoft\Windows\temp)
+  - Tasks with non-standard executables
+  - Tasks triggered on system start/user logon
+  - Tasks created by non-admin users (escalation indicator)
+
+enabled: true
+confidence_threshold: 0.7
+
+# Input signals from task_scheduler_monitor
+signals:
+  - tag: "windows_scheduler"
+  - tag: "task_create"
+  - tag: "task_modify"
+
+# Correlation rules
+rules:
+  - name: "High-Risk Task Creation"
+    window: 300  # 5 minutes
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "task_create"
+      - tag: "persistence"
+    actions:
+      - severity: HIGH
+        tags:
+          - "persistence"
+          - "scheduled_task"
+          - "initial_access"
+    evidence:
+      - event_type: "task_scheduler"
+        field_mapping:
+          task_name: "TaskName"
+          author: "Author"
+          path: "TaskPath"
+
+  - name: "Task Modification by Non-Admin"
+    window: 300
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "task_modify"
+      - not_tag: "system"
+      - not_tag: "admin"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "privilege_escalation"
+          - "persistence"
+
+# Playbook response
+response:
+  - type: "block_execution"
+    target: "scheduled_task"
+    description: "Suspend newly created task pending review"
+    
+  - type: "audit_log"
+    description: "Log full task details for forensics"
+    fields:
+      - task_name
+      - author
+      - executable_path
+      - trigger_time
+      - run_as_user
+
+  - type: "alert"
+    channel: "siem"
+    title: "Suspicious Scheduled Task Detected"
+    priority: "high"
+
+# Remediation steps
+remediation:
+  steps:
+    - "Review task creation context in Security event log (Event ID 4688)"
+    - "Check parent process of task creation (schtasks.exe, PowerShell, etc.)"
+    - "Verify task executable legitimacy and location"
+    - "If malicious: Delete task via 'schtasks /delete /tn TaskName /f'"
+    - "Perform memory forensics on parent process if suspicious"
+
+# Exceptions/whitelisting
+whitelist:
+  - patterns:
+    - "TaskPath: \\\\Microsoft\\\\Windows\\\\*"
+    - "Author: NT AUTHORITY\\\\SYSTEM"
+  - by_user:
+    - "SYSTEM"
+    - "LOCAL SERVICE"

@@ -1,0 +1,95 @@
+---
+# playbooks/windows/signal_dll_side_loading.yaml
+# Detection of DLL side-loading and search order hijacking
+
+id: "windows_dll_sideload_001"
+title: "DLL Side-Loading Detection"
+name: "DLL Side-Loading Detection"
+family: "persistence"
+version: "2.0"
+description: |
+  Detects DLL side-loading attempts where:
+  - Legitimate executables load malicious DLLs
+  - DLLs loaded from non-standard paths
+  - Known side-loading targets (Teams, OneDrive, etc.)
+
+enabled: true
+confidence_threshold: 0.75
+
+requires:
+  - sysmon
+
+mitre:
+  tactics:
+    - defense_evasion
+    - persistence
+  techniques:
+    - T1574.001  # DLL Search Order Hijacking
+    - T1574.002  # DLL Side-Loading
+
+input_facts:
+  required:
+    - ModuleLoad
+  optional:
+    - Exec
+
+slots:
+  optional:
+    - name: dll_path
+      type: string
+      pattern: "(?i)(\\\\temp\\\\|\\\\appdata\\\\|\\\\public\\\\|\\\\downloads\\\\).*\\.dll"
+    - name: known_target
+      type: string
+      pattern: "(?i)(teams|onedrive|chrome|firefox|slack)\\.exe"
+
+rules:
+  - name: "DLL from Temp Directory"
+    window: 10
+    conditions:
+      - fact_type: ModuleLoad
+      - field: path
+        matches: "(?i)(\\\\temp\\\\|%temp%).*\\.dll"
+    actions:
+      - severity: HIGH
+        tags:
+          - "dll_sideload"
+          - "suspicious_location"
+    evidence:
+      - event_type: "image_load"
+        event_id: 7
+
+  - name: "DLL from User Writable Path"
+    window: 10
+    conditions:
+      - fact_type: ModuleLoad
+      - field: path
+        matches: "(?i)(\\\\users\\\\.*\\\\appdata\\\\|\\\\programdata\\\\)(?!microsoft).*\\.dll"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "user_writable_dll"
+          - "potential_hijack"
+
+  - name: "Unsigned DLL Load"
+    window: 10
+    conditions:
+      - fact_type: ModuleLoad
+      - field: signer
+        equals: null
+      - field: path
+        not_matches: "(?i)\\\\windows\\\\"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "unsigned_dll"
+          - "verification"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "DLL Side-Loading Detected"
+    priority: "high"
+
+false_positives:
+  - "Development environments"
+  - "Portable applications"

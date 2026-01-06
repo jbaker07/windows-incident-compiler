@@ -2,21 +2,24 @@
 // Detects defense evasion activities on Windows
 // Log clearing, audit tampering, security tool disabling
 
-use edr_core::Event;
+// Evasion tool lists and event constants used by conditional detection
+#![allow(dead_code)]
+
 use edr_core::event_keys;
-use std::collections::BTreeMap;
+use edr_core::Event;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 /// Security Event IDs for defense evasion
-const EVENT_LOG_CLEARED: u32 = 1102;    // Security log was cleared
+const EVENT_LOG_CLEARED: u32 = 1102; // Security log was cleared
 const EVENT_AUDIT_POLICY_CHANGE: u32 = 4719; // System audit policy changed
 const EVENT_AUDIT_DISABLED: u32 = 4713; // Kerberos policy changed (can indicate evasion)
 
 /// System Event IDs
-const SYSTEM_LOG_CLEARED: u32 = 104;    // System log was cleared
+const SYSTEM_LOG_CLEARED: u32 = 104; // System log was cleared
 
 /// Sysmon Event IDs
-const SYSMON_FILE_DELETE: u32 = 23;     // FileDelete (archived)
+const SYSMON_FILE_DELETE: u32 = 23; // FileDelete (archived)
 const SYSMON_FILE_DELETE_LOGGED: u32 = 26; // FileDeleteDetected
 
 /// Log files to watch for deletion
@@ -33,23 +36,19 @@ const LOG_TARGETS: &[&str] = &[
 
 /// Tools associated with evasion
 const EVASION_TOOLS: &[&str] = &[
-    "wevtutil",
-    "fsutil",
-    "bcdedit",
-    "auditpol",
-    "reg",
-    "sc",
-    "net",
-    "attrib",
-    "icacls",
+    "wevtutil", "fsutil", "bcdedit", "auditpol", "reg", "sc", "net", "attrib", "icacls",
 ];
 
 /// Detect defense evasion from Security log clearing (Event 1102)
 pub fn detect_defense_evasion_log_clear(base_event: &Event) -> Option<Event> {
-    let event_id = base_event.fields
+    let event_id = base_event
+        .fields
         .get("EventID")
         .or_else(|| base_event.fields.get("windows.event_id"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .map(|v| v as u32)?;
 
     // Check for log clear events
@@ -60,14 +59,16 @@ pub fn detect_defense_evasion_log_clear(base_event: &Event) -> Option<Event> {
         _ => return None,
     };
 
-    let user = base_event.fields
+    let user = base_event
+        .fields
         .get("SubjectUserName")
         .or_else(|| base_event.fields.get("User"))
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let domain = base_event.fields
+    let domain = base_event
+        .fields
         .get("SubjectDomainName")
         .and_then(|v| v.as_str());
 
@@ -77,7 +78,8 @@ pub fn detect_defense_evasion_log_clear(base_event: &Event) -> Option<Event> {
         user.clone()
     };
 
-    let pid = base_event.fields
+    let pid = base_event
+        .fields
         .get(event_keys::PROC_PID)
         .or_else(|| base_event.fields.get("ProcessId"))
         .and_then(|v| v.as_u64())
@@ -89,14 +91,21 @@ pub fn detect_defense_evasion_log_clear(base_event: &Event) -> Option<Event> {
     fields.insert(event_keys::PROC_UID.to_string(), json!(full_user.clone()));
     fields.insert(event_keys::PROC_EUID.to_string(), json!(full_user));
     fields.insert(event_keys::PROC_EXE.to_string(), json!("wevtutil.exe"));
-    fields.insert(event_keys::EVASION_TARGET.to_string(), json!(evasion_target));
+    fields.insert(
+        event_keys::EVASION_TARGET.to_string(),
+        json!(evasion_target),
+    );
     fields.insert(event_keys::EVASION_ACTION.to_string(), json!("clear"));
     fields.insert("cleared_log".to_string(), json!(channel));
 
     Some(Event {
         ts_ms: base_event.ts_ms,
         host: base_event.host.clone(),
-        tags: vec!["windows".to_string(), "defense_evasion".to_string(), "security".to_string()],
+        tags: vec![
+            "windows".to_string(),
+            "defense_evasion".to_string(),
+            "security".to_string(),
+        ],
         proc_key: base_event.proc_key.clone(),
         file_key: None,
         identity_key: base_event.identity_key.clone(),
@@ -107,35 +116,43 @@ pub fn detect_defense_evasion_log_clear(base_event: &Event) -> Option<Event> {
 
 /// Detect defense evasion from audit policy change (Event 4719)
 pub fn detect_defense_evasion_audit_change(base_event: &Event) -> Option<Event> {
-    let event_id = base_event.fields
+    let event_id = base_event
+        .fields
         .get("EventID")
         .or_else(|| base_event.fields.get("windows.event_id"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .map(|v| v as u32)?;
 
     if event_id != EVENT_AUDIT_POLICY_CHANGE {
         return None;
     }
 
-    let user = base_event.fields
+    let user = base_event
+        .fields
         .get("SubjectUserName")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
 
-    let pid = base_event.fields
+    let pid = base_event
+        .fields
         .get(event_keys::PROC_PID)
         .and_then(|v| v.as_u64())
         .map(|v| v as u32)
         .unwrap_or(0);
 
     // Check if audit was disabled
-    let audit_category = base_event.fields
+    let audit_category = base_event
+        .fields
         .get("CategoryId")
         .or_else(|| base_event.fields.get("AuditCategory"))
         .and_then(|v| v.as_str());
 
-    let subcategory = base_event.fields
+    let subcategory = base_event
+        .fields
         .get("SubcategoryId")
         .or_else(|| base_event.fields.get("SubcategoryGuid"))
         .and_then(|v| v.as_str());
@@ -158,7 +175,11 @@ pub fn detect_defense_evasion_audit_change(base_event: &Event) -> Option<Event> 
     Some(Event {
         ts_ms: base_event.ts_ms,
         host: base_event.host.clone(),
-        tags: vec!["windows".to_string(), "defense_evasion".to_string(), "security".to_string()],
+        tags: vec![
+            "windows".to_string(),
+            "defense_evasion".to_string(),
+            "security".to_string(),
+        ],
         proc_key: base_event.proc_key.clone(),
         file_key: None,
         identity_key: base_event.identity_key.clone(),
@@ -169,7 +190,8 @@ pub fn detect_defense_evasion_audit_change(base_event: &Event) -> Option<Event> 
 
 /// Detect defense evasion from exec (wevtutil clear, auditpol /set, etc.)
 pub fn detect_defense_evasion_from_exec(base_event: &Event) -> Option<Event> {
-    let image = base_event.fields
+    let image = base_event
+        .fields
         .get(event_keys::PROC_EXE)
         .or_else(|| base_event.fields.get("Image"))
         .and_then(|v| v.as_str())?;
@@ -180,7 +202,8 @@ pub fn detect_defense_evasion_from_exec(base_event: &Event) -> Option<Event> {
         .and_then(|n| n.to_str())
         .unwrap_or("");
 
-    let cmd_line = base_event.fields
+    let cmd_line = base_event
+        .fields
         .get(event_keys::PROC_ARGV)
         .or_else(|| base_event.fields.get("CommandLine"))
         .and_then(|v| v.as_str())
@@ -190,13 +213,18 @@ pub fn detect_defense_evasion_from_exec(base_event: &Event) -> Option<Event> {
     // Detect evasion command
     let (evasion_target, evasion_action) = detect_evasion_command(image_base, &cmd_line)?;
 
-    let pid = base_event.fields
+    let pid = base_event
+        .fields
         .get(event_keys::PROC_PID)
         .or_else(|| base_event.fields.get("ProcessId"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .map(|v| v as u32)?;
 
-    let user = base_event.fields
+    let user = base_event
+        .fields
         .get(event_keys::PROC_UID)
         .or_else(|| base_event.fields.get("User"))
         .and_then(|v| v.as_str())
@@ -208,8 +236,14 @@ pub fn detect_defense_evasion_from_exec(base_event: &Event) -> Option<Event> {
     fields.insert(event_keys::PROC_UID.to_string(), json!(user.clone()));
     fields.insert(event_keys::PROC_EUID.to_string(), json!(user));
     fields.insert(event_keys::PROC_EXE.to_string(), json!(image));
-    fields.insert(event_keys::EVASION_TARGET.to_string(), json!(evasion_target));
-    fields.insert(event_keys::EVASION_ACTION.to_string(), json!(evasion_action));
+    fields.insert(
+        event_keys::EVASION_TARGET.to_string(),
+        json!(evasion_target),
+    );
+    fields.insert(
+        event_keys::EVASION_ACTION.to_string(),
+        json!(evasion_action),
+    );
 
     if !cmd_line.is_empty() {
         fields.insert(event_keys::PROC_ARGV.to_string(), json!(cmd_line));
@@ -218,7 +252,11 @@ pub fn detect_defense_evasion_from_exec(base_event: &Event) -> Option<Event> {
     Some(Event {
         ts_ms: base_event.ts_ms,
         host: base_event.host.clone(),
-        tags: vec!["windows".to_string(), "defense_evasion".to_string(), "sysmon".to_string()],
+        tags: vec![
+            "windows".to_string(),
+            "defense_evasion".to_string(),
+            "sysmon".to_string(),
+        ],
         proc_key: base_event.proc_key.clone(),
         file_key: None,
         identity_key: base_event.identity_key.clone(),
@@ -229,10 +267,14 @@ pub fn detect_defense_evasion_from_exec(base_event: &Event) -> Option<Event> {
 
 /// Detect defense evasion from log file deletion (Sysmon 23, 26)
 pub fn detect_defense_evasion_file_delete(base_event: &Event) -> Option<Event> {
-    let event_id = base_event.fields
+    let event_id = base_event
+        .fields
         .get("EventID")
         .or_else(|| base_event.fields.get("windows.event_id"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .map(|v| v as u32)?;
 
     // Sysmon file delete events
@@ -240,33 +282,42 @@ pub fn detect_defense_evasion_file_delete(base_event: &Event) -> Option<Event> {
         return None;
     }
 
-    let target_filename = base_event.fields
+    let target_filename = base_event
+        .fields
         .get("TargetFilename")
         .or_else(|| base_event.fields.get(event_keys::FILE_PATH))
         .and_then(|v| v.as_str())?;
 
     // Check if deleted file is a log target
     let is_log_target = LOG_TARGETS.iter().any(|pattern| {
-        target_filename.to_lowercase().contains(&pattern.to_lowercase())
+        target_filename
+            .to_lowercase()
+            .contains(&pattern.to_lowercase())
     });
 
     if !is_log_target {
         return None;
     }
 
-    let pid = base_event.fields
+    let pid = base_event
+        .fields
         .get(event_keys::PROC_PID)
         .or_else(|| base_event.fields.get("ProcessId"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .map(|v| v as u32)?;
 
-    let image = base_event.fields
+    let image = base_event
+        .fields
         .get(event_keys::PROC_EXE)
         .or_else(|| base_event.fields.get("Image"))
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
 
-    let user = base_event.fields
+    let user = base_event
+        .fields
         .get(event_keys::PROC_UID)
         .or_else(|| base_event.fields.get("User"))
         .and_then(|v| v.as_str())
@@ -285,7 +336,11 @@ pub fn detect_defense_evasion_file_delete(base_event: &Event) -> Option<Event> {
     Some(Event {
         ts_ms: base_event.ts_ms,
         host: base_event.host.clone(),
-        tags: vec!["windows".to_string(), "defense_evasion".to_string(), "sysmon".to_string()],
+        tags: vec![
+            "windows".to_string(),
+            "defense_evasion".to_string(),
+            "sysmon".to_string(),
+        ],
         proc_key: base_event.proc_key.clone(),
         file_key: base_event.file_key.clone(),
         identity_key: base_event.identity_key.clone(),
@@ -303,7 +358,9 @@ fn detect_evasion_command(exe: &str, cmd_line: &str) -> Option<(&'static str, &'
             None
         }
         "auditpol.exe" | "auditpol" => {
-            if cmd_line.contains("/set") && (cmd_line.contains("/success:disable") || cmd_line.contains("/failure:disable")) {
+            if cmd_line.contains("/set")
+                && (cmd_line.contains("/success:disable") || cmd_line.contains("/failure:disable"))
+            {
                 return Some(("audit", "disable"));
             }
             if cmd_line.contains("clear") || cmd_line.contains("/remove") {
@@ -341,8 +398,11 @@ fn detect_evasion_command(exe: &str, cmd_line: &str) -> Option<(&'static str, &'
             // Disable security services
             if cmd_line.contains("config") && cmd_line.contains("start= disabled") {
                 let cmd_lower = cmd_line.to_lowercase();
-                if cmd_lower.contains("windefend") || cmd_lower.contains("mpssvc") || 
-                   cmd_lower.contains("seclogon") || cmd_lower.contains("wscsvc") {
+                if cmd_lower.contains("windefend")
+                    || cmd_lower.contains("mpssvc")
+                    || cmd_lower.contains("seclogon")
+                    || cmd_lower.contains("wscsvc")
+                {
                     return Some(("security_tool", "disable"));
                 }
             }
@@ -368,7 +428,9 @@ fn detect_evasion_command(exe: &str, cmd_line: &str) -> Option<(&'static str, &'
             if cmd_lower.contains("clear-eventlog") {
                 return Some(("log", "clear"));
             }
-            if cmd_lower.contains("set-mppreference") && cmd_lower.contains("disablerealtimemonitoring") {
+            if cmd_lower.contains("set-mppreference")
+                && cmd_lower.contains("disablerealtimemonitoring")
+            {
                 return Some(("security_tool", "disable"));
             }
             if cmd_lower.contains("remove-item") && cmd_lower.contains("evtx") {

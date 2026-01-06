@@ -1,0 +1,25 @@
+Windows Event Log Sample - Test Data
+=====================================
+Timestamp: 2024-01-01T00:00:00Z
+Host: TESTHOST
+
+Event 1: Process Creation (Event ID 4688)
+-----------------------------------------
+User: TESTHOST\testuser
+Process: powershell.exe
+Command: powershell.exe -ExecutionPolicy Bypass
+Parent: cmd.exe
+
+Event 2: Network Connection (Event ID 5156)
+-------------------------------------------
+Source: 192.168.1.100:49152
+Destination: 10.0.0.1:443
+Application: chrome.exe
+
+Event 3: Logon Success (Event ID 4624)
+--------------------------------------
+User: TESTHOST\administrator
+Logon Type: 10 (RemoteInteractive)
+Source IP: 192.168.1.50
+
+--- End of Sample ---

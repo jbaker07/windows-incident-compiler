@@ -392,7 +392,7 @@ impl Exporter {
                     entry.description
                 ));
             }
-            md.push_str("\n");
+            md.push('\n');
         }
 
         // Impact
@@ -452,7 +452,7 @@ impl Exporter {
                     .collect::<Vec<_>>()
                     .join(" "),
             );
-            md.push_str("\n");
+            md.push('\n');
         }
 
         md

@@ -1,0 +1,206 @@
+---
+# playbooks/windows/signal_lateral_movement.yaml
+# Detection of lateral movement activity (RDP, SMB, Kerberos, WMI, PSExec)
+# Monitors Security event logs: 4624, 4769, 5140; Sysmon EventID 1
+
+name: "Windows Lateral Movement Detection"
+id: "windows_lateral_movement_001"
+version: "1.0"
+description: |
+  Detects lateral movement indicators within Windows environments.
+  Focus areas:
+  - Remote logons via RDP/Network logon types
+  - Administrative share access (C$, IPC$, ADMIN$)
+  - Kerberos service tickets (pass-the-hash/ticket indicators)
+  - Remote code execution patterns (psexesvc, WMI providers)
+  - Suspicious process creation on non-origin systems
+  - Cross-system authentication patterns
+
+enabled: true
+confidence_threshold: 0.7
+
+# Input signals from lateral_movement_monitor
+signals:
+  - tag: "windows_lateral_movement"
+  - tag: "remote_logon"
+  - tag: "share_access"
+  - tag: "kerberos_ticket"
+  - tag: "remote_execution"
+
+# Correlation rules
+rules:
+  - name: "Remote RDP Logon"
+    window: 300
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "remote_logon"
+      - logon_type: ["3", "10"]  # Network or RDP logon
+      - not_source_ip: ["127.0.0.1", "::1"]
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "lateral_movement"
+          - "rdp_access"
+    evidence:
+      - event_type: "logon"
+        event_id: 4624
+        field_mapping:
+          source_ip: "SourceNetworkAddress"
+          target_user: "TargetUserName"
+          logon_type: "LogonType"
+          workstation: "SourceWorkstationName"
+
+  - name: "Administrative Share Access"
+    window: 300
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "share_access"
+      - or:
+          - share: "*\\C$"
+          - share: "*\\IPC$"
+          - share: "*\\ADMIN$"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lateral_movement"
+          - "admin_share_access"
+    evidence:
+      - event_type: "network_access"
+        event_id: 5140
+        field_mapping:
+          source_ip: "SourceAddress"
+          share_name: "ShareName"
+          access_mask: "AccessMask"
+
+  - name: "Kerberos Ticket Request (PTH Indicator)"
+    window: 60
+    aggregation: count
+    threshold: 5  # Multiple ticket requests in short time
+    conditions:
+      - tag: "kerberos_ticket"
+      - event_id: 4769
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "pass_the_ticket"
+          - "credential_theft"
+    evidence:
+      - event_type: "kerberos"
+        event_id: 4769
+        field_mapping:
+          service_name: "ServiceName"
+          account_name: "AccountName"
+          failure_code: "FailureCode"
+
+  - name: "Remote Code Execution via PSExec"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "remote_execution"
+      - or:
+          - process: "*psexesvc*"
+          - process: "*WmiPrvSE*"
+          - process: "*svchost*"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "lateral_movement"
+          - "remote_code_execution"
+    evidence:
+      - event_type: "process_creation"
+        event_id: 1
+        field_mapping:
+          executable: "Image"
+          parent_process: "ParentImage"
+          command_line: "CommandLine"
+
+  - name: "Privilege Escalation via RDP"
+    window: 300
+    aggregation: sequence
+    threshold: 2
+    conditions:
+      - event_id: 4624
+        logon_type: "10"
+        privilege_level: "user"
+      - then:
+        event_id: 4688
+        process: "*powershell*|*cmd*|*cscript*"
+        privilege_level: "admin"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "lateral_movement"
+          - "privilege_escalation"
+
+# Playbook response
+response:
+  - type: "terminate_session"
+    target: "rdp_session"
+    action: "disconnect"
+    description: "Disconnect suspicious RDP session"
+    
+  - type: "block_ip"
+    target: "source_ip"
+    action: "firewall_block"
+    description: "Block source IP at firewall/network edge"
+    duration: "24h"
+
+  - type: "reset_credentials"
+    target: "compromised_account"
+    action: "force_password_change"
+    description: "Force password reset for potentially compromised account"
+    priority: "high"
+
+  - type: "audit_log"
+    description: "Extract full logon and process creation history"
+    fields:
+      - source_ip
+      - source_hostname
+      - target_user
+      - logon_type
+      - logon_time
+      - processes_created
+      - network_connections
+
+  - type: "alert"
+    channel: ["siem", "soc", "ir_team"]
+    title: "Suspicious Lateral Movement Detected"
+    priority: "high"
+
+# Remediation steps
+remediation:
+  steps:
+    - "Verify legitimacy of remote logon with user/manager"
+    - "Check logon source (hostname) - resolve IP to asset"
+    - "Review process creation events (4688) immediately after logon"
+    - "Check for credential dumping (mimikatz, ntdsutil patterns)"
+    - "Examine network connections from target system in same timeframe"
+    - "Review file access events on high-value shares (C$, IPC$)"
+    - "Scan source system for malware/compromise"
+    - "If compromised: Isolate both source and target systems"
+    - "Perform incident response forensics on both endpoints"
+    - "Review account logon history for other suspicious activities"
+
+# Exceptions/whitelisting
+whitelist:
+  - source_ips:
+    - "192.168.1.0/24"  # Admin network
+    - "10.0.0.0/8"      # Corporate network
+  - admin_accounts:
+    - "DOMAIN\\Admin"
+    - "DOMAIN\\ServiceAccount"
+  - expected_connections:
+    - from: "AdminWorkstation"
+      to: "*"
+    - from: "*"
+      to: "FileServer01"
+      share: "\\\\FileServer01\\Backup"
+
+# Correlation settings
+correlation:
+  time_window: 300  # 5 minutes
+  min_confidence: 0.7
+  require_sequence_evidence: true

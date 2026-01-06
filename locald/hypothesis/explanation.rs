@@ -6,9 +6,8 @@ use super::arbitration::ArbitrationResponse;
 use super::canonical_event::EvidencePtr;
 use super::disambiguator::Disambiguator;
 use super::hypothesis_state::HypothesisState;
-use super::incident::Incident;
 use super::ordering::EventOrderKey;
-use super::promotion::{ConfidenceSeverityBreakdown, Severity};
+use super::promotion::ConfidenceSeverityBreakdown;
 use super::scope_keys::ScopeKey;
 use super::session::{AnalystAction, Assertion, FocusWindow, SessionMode, VerificationStatus};
 use chrono::{DateTime, Utc};
@@ -653,7 +652,7 @@ impl ExplanationBuilder {
         // Sort timeline by canonical 4-tuple (ts, stream_id, segment_id, record_index) for determinism
         self.response
             .timeline
-            .sort_by(|a, b| a.canonical_order_key().cmp(&b.canonical_order_key()));
+            .sort_by_key(|a| a.canonical_order_key());
 
         // Deduplicate disambiguators
         let mut seen = std::collections::HashSet::new();

@@ -1,9 +1,10 @@
 //! Comprehensive tests for capture control, throttling, and visibility integration
 
+#![allow(dead_code)] // Test scaffolding may define unused structures
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
 
 // Re-export types for testing (would normally be mod capture_control;)
 // These tests validate the specification from the original requirements
@@ -12,7 +13,7 @@ use std::time::Duration;
 #[test]
 fn test_token_bucket_basic_rate_limiting() {
     // Simulating token bucket: 10 events/sec with burst of 20
-    let rate_per_sec = 10u32;
+    let _rate_per_sec = 10u32;
     let burst = 20u32;
 
     // Should allow full burst immediately
@@ -333,7 +334,7 @@ fn test_profile_from_string() {
 fn test_global_rate_limits() {
     // Global limit: 500 events/sec
     let global_limit = 500;
-    let window_events = 0;
+    let _window_events = 0;
 
     // Events from multiple streams should count against global
     let stream_a_events = 200;

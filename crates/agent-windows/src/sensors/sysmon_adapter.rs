@@ -1,7 +1,7 @@
 // windows/sensors/sysmon_adapter.rs
 // Sysmon event adaptation - convert Sysmon events to canonical Event format
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use std::collections::BTreeMap;
 
 /// Sysmon Event IDs:

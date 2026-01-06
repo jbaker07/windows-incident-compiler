@@ -48,6 +48,9 @@ dirs = "6.0"
 # Error handling
 thiserror = "1"  # Ship hardening: write isolation errors
 
+# Hashing
+md5 = "0.7"
+
 # PDF generation (pure Rust, no external dependencies)
 genpdf = "0.2"
 

@@ -1,0 +1,148 @@
+---
+# playbooks/windows/signal_encoded_powershell.yaml
+# Detection of encoded/obfuscated PowerShell execution
+
+id: "windows_encoded_powershell_001"
+title: "Encoded PowerShell Execution"
+name: "Encoded PowerShell Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects encoded or obfuscated PowerShell commands commonly used in:
+  - Initial access via malicious documents/scripts
+  - Download cradles (IEX/DownloadString)
+  - Fileless malware execution
+  - Empire/Cobalt Strike payloads
+
+enabled: true
+confidence_threshold: 0.85
+
+# Capability requirements
+requires:
+  - security_log
+  - audit_proc_creation
+
+# Optional capabilities that improve detection
+enhances_with:
+  - powershell_logging
+  - sysmon
+
+# MITRE ATT&CK mapping
+mitre:
+  tactics:
+    - execution
+    - defense_evasion
+  techniques:
+    - T1059.001  # PowerShell
+    - T1027      # Obfuscated Files/Information
+    - T1140      # Deobfuscate/Decode Files
+
+# Input fact types
+input_facts:
+  required:
+    - Exec
+  optional:
+    - ScriptExec
+
+# Slot definitions for matching
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)powershell\\.exe|pwsh\\.exe"
+    - name: encoded_flag
+      type: string
+      pattern: "(?i)-enc|-encodedcommand|-e\\s+[A-Za-z0-9+/=]{20,}"
+  optional:
+    - name: bypass_flag
+      type: string
+      pattern: "(?i)-ep\\s*bypass|-executionpolicy\\s*bypass"
+    - name: hidden_flag
+      type: string
+      pattern: "(?i)-w\\s*hidden|-windowstyle\\s*hidden"
+    - name: noprofile_flag
+      type: string
+      pattern: "(?i)-nop|-noprofile"
+
+# Detection rules
+rules:
+  - name: "Base64 Encoded Command"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)powershell|pwsh"
+      - field: cmdline
+        matches: "(?i)-enc(odedcommand)?\\s+[A-Za-z0-9+/=]{50,}"
+    actions:
+      - severity: HIGH
+        tags:
+          - "encoded_powershell"
+          - "obfuscation"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+        field_mapping:
+          process: "NewProcessName"
+          cmdline: "CommandLine"
+          parent: "ParentProcessName"
+
+  - name: "Download Cradle Pattern"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)powershell|pwsh"
+      - field: cmdline
+        matches: "(?i)(iex|invoke-expression).*(downloadstring|webclient|webrequest|bitstransfer)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "download_cradle"
+          - "initial_access"
+          - "dropper"
+
+  - name: "Multi-Stage Evasion"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)-nop.*-w\\s*hidden.*-enc"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "staged_payload"
+          - "fileless"
+
+  - name: "Reflection Load (Fileless)"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)\\[reflection\\.assembly\\]::load|\\[system\\.reflection"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "fileless_malware"
+          - "memory_only"
+
+# Response actions
+response:
+  - type: "suspend_process"
+    target: "process"
+    description: "Suspend suspicious PowerShell process"
+    
+  - type: "capture_memory"
+    target: "process"
+    description: "Capture process memory for analysis"
+    
+  - type: "alert"
+    channel: "siem"
+    title: "Encoded PowerShell Detected"
+    priority: "critical"
+
+# False positive notes
+false_positives:
+  - "Some legitimate deployment scripts use -EncodedCommand"
+  - "SCCM/ConfigMgr deployments may use encoded commands"
+  - "Validate parent process context before blocking"

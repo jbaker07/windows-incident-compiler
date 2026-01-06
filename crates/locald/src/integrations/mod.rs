@@ -23,8 +23,8 @@ pub use export::{ExportSink, ExportedIncident, IncidentExporter};
 pub use ingest::{IngestSource, VendorAlertIngester};
 pub use metrics::{IntegrationMetrics, MetricsReport};
 pub use profile::{
-    CapabilitiesMatrix, CapabilitySource, DerivedScopeKey, Fidelity, HealthStatus,
-    IntegrationMode, IntegrationProfile, IntegrationProfileStore, IntegrationType,
-    JoinKeySupport, MappedEvent, SourceType,
+    CapabilitiesMatrix, CapabilitySource, DerivedScopeKey, Fidelity, HealthStatus, IntegrationMode,
+    IntegrationProfile, IntegrationProfileStore, IntegrationType, JoinKeySupport, MappedEvent,
+    SourceType,
 };
 pub use vendor_alert::VendorAlertFact;

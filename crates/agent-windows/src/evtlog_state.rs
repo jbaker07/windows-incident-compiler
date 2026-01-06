@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelReadState {
@@ -23,6 +23,12 @@ pub struct EventLogReadState {
     pub version: u32,
     pub last_updated: DateTime<Utc>,
     pub channels: BTreeMap<String, ChannelReadState>,
+}
+
+impl Default for EventLogReadState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventLogReadState {

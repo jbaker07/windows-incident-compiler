@@ -6,7 +6,7 @@
 //! - Duplicate detection
 //! - Export/ingest success rates
 
-use crate::hypothesis::{Fact, Incident, IncidentStatus};
+use crate::hypothesis::{Fact, Incident};
 use crate::integrations::export::ExportResult;
 use crate::integrations::ingest::IngestStats;
 use chrono::{DateTime, Utc};
@@ -137,18 +137,16 @@ impl IntegrationMetrics {
 
         // Calculate per-incident metrics
         let per_incident: Vec<IncidentMetrics> = if self.per_incident_breakdown {
-            incidents.iter().map(|i| self.calculate_incident_metrics(i)).collect()
+            incidents
+                .iter()
+                .map(|i| self.calculate_incident_metrics(i))
+                .collect()
         } else {
             Vec::new()
         };
 
         // Calculate summary
-        let summary = self.calculate_summary(
-            incidents,
-            facts,
-            raw_event_count,
-            &per_incident,
-        );
+        let summary = self.calculate_summary(incidents, facts, raw_event_count, &per_incident);
 
         // Export metrics
         let export_metrics = export_result
@@ -263,11 +261,7 @@ impl IntegrationMetrics {
             components.lineage_score,
         ];
 
-        weights
-            .iter()
-            .zip(scores.iter())
-            .map(|(w, s)| w * s)
-            .sum()
+        weights.iter().zip(scores.iter()).map(|(w, s)| w * s).sum()
     }
 
     /// Calculate summary metrics
@@ -366,17 +360,20 @@ impl IntegrationMetrics {
         let json = serde_json::to_string_pretty(report)
             .map_err(|e| format!("Failed to serialize report: {}", e))?;
 
-        let mut file = File::create(&json_path)
-            .map_err(|e| format!("Failed to create report file: {}", e))?;
+        let mut file =
+            File::create(&json_path).map_err(|e| format!("Failed to create report file: {}", e))?;
         file.write_all(json.as_bytes())
             .map_err(|e| format!("Failed to write report: {}", e))?;
 
         // Write human-readable summary
-        let summary_path = self.output_path.join(format!("run_{}_summary.txt", report.run_id));
+        let summary_path = self
+            .output_path
+            .join(format!("run_{}_summary.txt", report.run_id));
         let summary = self.format_summary(report);
         let mut summary_file = File::create(&summary_path)
             .map_err(|e| format!("Failed to create summary file: {}", e))?;
-        summary_file.write_all(summary.as_bytes())
+        summary_file
+            .write_all(summary.as_bytes())
             .map_err(|e| format!("Failed to write summary: {}", e))?;
 
         Ok(json_path)
@@ -386,39 +383,89 @@ impl IntegrationMetrics {
     fn format_summary(&self, report: &MetricsReport) -> String {
         let mut s = String::new();
         s.push_str("═══════════════════════════════════════════════════════════════\n");
-        s.push_str(&format!("  INTEGRATION METRICS REPORT - Run: {}\n", report.run_id));
+        s.push_str(&format!(
+            "  INTEGRATION METRICS REPORT - Run: {}\n",
+            report.run_id
+        ));
         s.push_str(&format!("  Generated: {}\n", report.generated_at));
         s.push_str("═══════════════════════════════════════════════════════════════\n\n");
 
         s.push_str("📊 SUMMARY\n");
         s.push_str("───────────────────────────────────────────────────────────────\n");
-        s.push_str(&format!("  Total Incidents:        {}\n", report.summary.total_incidents));
-        s.push_str(&format!("  Average EQS:            {:.2}%\n", report.summary.avg_eqs * 100.0));
-        s.push_str(&format!("  EQS Range:              {:.2}% - {:.2}%\n",
+        s.push_str(&format!(
+            "  Total Incidents:        {}\n",
+            report.summary.total_incidents
+        ));
+        s.push_str(&format!(
+            "  Average EQS:            {:.2}%\n",
+            report.summary.avg_eqs * 100.0
+        ));
+        s.push_str(&format!(
+            "  EQS Range:              {:.2}% - {:.2}%\n",
             report.summary.min_eqs * 100.0,
-            report.summary.max_eqs * 100.0));
-        s.push_str(&format!("  Events→Facts Ratio:     {:.1}:1\n", report.summary.events_to_facts_ratio));
-        s.push_str(&format!("  Facts→Incidents Ratio:  {:.1}:1\n", report.summary.facts_to_incidents_ratio));
-        s.push_str(&format!("  Duplicate Rate:         {:.2}%\n", report.summary.duplicate_rate * 100.0));
-        s.push_str("\n");
+            report.summary.max_eqs * 100.0
+        ));
+        s.push_str(&format!(
+            "  Events→Facts Ratio:     {:.1}:1\n",
+            report.summary.events_to_facts_ratio
+        ));
+        s.push_str(&format!(
+            "  Facts→Incidents Ratio:  {:.1}:1\n",
+            report.summary.facts_to_incidents_ratio
+        ));
+        s.push_str(&format!(
+            "  Duplicate Rate:         {:.2}%\n",
+            report.summary.duplicate_rate * 100.0
+        ));
+        s.push('\n');
 
         s.push_str("📤 EXPORT METRICS\n");
         s.push_str("───────────────────────────────────────────────────────────────\n");
-        s.push_str(&format!("  Incidents Exported:     {}\n", report.export_metrics.incidents_exported));
-        s.push_str(&format!("  Incidents Skipped:      {}\n", report.export_metrics.incidents_skipped));
-        s.push_str(&format!("  Output Path:            {}\n", report.export_metrics.output_path));
-        s.push_str(&format!("  Export Hash:            {}\n", &report.export_metrics.export_hash[..16.min(report.export_metrics.export_hash.len())]));
-        s.push_str("\n");
+        s.push_str(&format!(
+            "  Incidents Exported:     {}\n",
+            report.export_metrics.incidents_exported
+        ));
+        s.push_str(&format!(
+            "  Incidents Skipped:      {}\n",
+            report.export_metrics.incidents_skipped
+        ));
+        s.push_str(&format!(
+            "  Output Path:            {}\n",
+            report.export_metrics.output_path
+        ));
+        s.push_str(&format!(
+            "  Export Hash:            {}\n",
+            &report.export_metrics.export_hash[..16.min(report.export_metrics.export_hash.len())]
+        ));
+        s.push('\n');
 
         s.push_str("📥 INGEST METRICS\n");
         s.push_str("───────────────────────────────────────────────────────────────\n");
-        s.push_str(&format!("  Events Read:            {}\n", report.ingest_metrics.events_read));
-        s.push_str(&format!("  Events Parsed:          {}\n", report.ingest_metrics.events_parsed));
-        s.push_str(&format!("  Parse Errors:           {}\n", report.ingest_metrics.parse_errors));
-        s.push_str(&format!("  Facts Created:          {}\n", report.ingest_metrics.facts_created));
-        s.push_str(&format!("  Facts Joined:           {}\n", report.ingest_metrics.facts_joined));
-        s.push_str(&format!("  Join Rate:              {:.2}%\n", report.ingest_metrics.join_rate * 100.0));
-        s.push_str("\n");
+        s.push_str(&format!(
+            "  Events Read:            {}\n",
+            report.ingest_metrics.events_read
+        ));
+        s.push_str(&format!(
+            "  Events Parsed:          {}\n",
+            report.ingest_metrics.events_parsed
+        ));
+        s.push_str(&format!(
+            "  Parse Errors:           {}\n",
+            report.ingest_metrics.parse_errors
+        ));
+        s.push_str(&format!(
+            "  Facts Created:          {}\n",
+            report.ingest_metrics.facts_created
+        ));
+        s.push_str(&format!(
+            "  Facts Joined:           {}\n",
+            report.ingest_metrics.facts_joined
+        ));
+        s.push_str(&format!(
+            "  Join Rate:              {:.2}%\n",
+            report.ingest_metrics.join_rate * 100.0
+        ));
+        s.push('\n');
 
         if !report.summary.by_family.is_empty() {
             s.push_str("📁 INCIDENTS BY FAMILY\n");
@@ -426,7 +473,7 @@ impl IntegrationMetrics {
             for (family, count) in &report.summary.by_family {
                 s.push_str(&format!("  {:<25} {}\n", family, count));
             }
-            s.push_str("\n");
+            s.push('\n');
         }
 
         s.push_str("═══════════════════════════════════════════════════════════════\n");
@@ -456,7 +503,9 @@ fn rand_bytes() -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hypothesis::{Incident, IncidentStatus, ScopeKey, Severity, TimelineEntry, TimelineEntryKind};
+    use crate::hypothesis::{
+        Incident, IncidentStatus, ScopeKey, Severity, TimelineEntry, TimelineEntryKind,
+    };
     use std::collections::HashSet;
     use tempfile::tempdir;
 
@@ -465,7 +514,7 @@ mod tests {
             key: format!("proc_{}", id),
         };
         let ts = Utc::now();
-        
+
         // Create incident directly with struct initialization
         Incident {
             incident_id: id.to_string(),

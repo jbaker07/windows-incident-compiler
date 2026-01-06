@@ -3,17 +3,15 @@
 //! Ingests alerts/events from external sources (Wazuh, Zeek, Suricata)
 //! and converts them to VendorAlertFact for enrichment via soft joins.
 
-use crate::hypothesis::{Fact, ScopeKey};
-use crate::integrations::config::{IngestSourceConfig, IngestSourceType, JoinStrategy};
-use crate::integrations::vendor_alert::{
-    FileHint, IpDirection, IpIndicator, ProcessHint, VendorAlertFact,
-};
-use chrono::{DateTime, TimeZone, Utc};
+use crate::hypothesis::Fact;
+use crate::integrations::config::{IngestSourceConfig, IngestSourceType};
+use crate::integrations::vendor_alert::{IpDirection, IpIndicator, ProcessHint, VendorAlertFact};
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Ingest source trait
 pub trait IngestSource: Send {
@@ -235,7 +233,10 @@ fn parse_generic_json(json: &Value, vendor: &str, source_id: &str) -> Option<Ven
                 ip: ip.to_string(),
                 port,
                 direction,
-                protocol: json.get("proto").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                protocol: json
+                    .get("proto")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
             });
         }
     }
@@ -310,7 +311,11 @@ fn parse_wazuh_alert(json: &Value, source_id: &str) -> Option<VendorAlertFact> {
         });
 
     // IP from agent
-    if let Some(ip) = json.get("agent").and_then(|a| a.get("ip")).and_then(|v| v.as_str()) {
+    if let Some(ip) = json
+        .get("agent")
+        .and_then(|a| a.get("ip"))
+        .and_then(|v| v.as_str())
+    {
         alert.ip_indicators.push(IpIndicator {
             ip: ip.to_string(),
             port: None,
@@ -389,13 +394,21 @@ fn parse_zeek_eve(json: &Value, source_id: &str) -> Option<VendorAlertFact> {
     let event_id = json
         .get("uid")
         .or_else(|| json.get("flow_id"))
-        .and_then(|v| v.as_str().map(|s| s.to_string()).or_else(|| v.as_u64().map(|n| n.to_string())));
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        });
 
     let mut alert = VendorAlertFact::new("zeek", source_id, ts);
     alert.original_event_id = event_id;
 
     // Source IP
-    if let Some(orig_h) = json.get("id.orig_h").or_else(|| json.get("src_ip")).and_then(|v| v.as_str()) {
+    if let Some(orig_h) = json
+        .get("id.orig_h")
+        .or_else(|| json.get("src_ip"))
+        .and_then(|v| v.as_str())
+    {
         let port = json
             .get("id.orig_p")
             .or_else(|| json.get("src_port"))
@@ -406,12 +419,19 @@ fn parse_zeek_eve(json: &Value, source_id: &str) -> Option<VendorAlertFact> {
             ip: orig_h.to_string(),
             port,
             direction: IpDirection::Source,
-            protocol: json.get("proto").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            protocol: json
+                .get("proto")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
         });
     }
 
     // Destination IP
-    if let Some(resp_h) = json.get("id.resp_h").or_else(|| json.get("dest_ip")).and_then(|v| v.as_str()) {
+    if let Some(resp_h) = json
+        .get("id.resp_h")
+        .or_else(|| json.get("dest_ip"))
+        .and_then(|v| v.as_str())
+    {
         let port = json
             .get("id.resp_p")
             .or_else(|| json.get("dest_port"))
@@ -422,7 +442,10 @@ fn parse_zeek_eve(json: &Value, source_id: &str) -> Option<VendorAlertFact> {
             ip: resp_h.to_string(),
             port,
             direction: IpDirection::Destination,
-            protocol: json.get("proto").and_then(|v| v.as_str()).map(|s| s.to_string()),
+            protocol: json
+                .get("proto")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
         });
     }
 
@@ -467,9 +490,9 @@ pub struct JsonlFileSource {
 }
 
 impl JsonlFileSource {
-    pub fn new(path: &PathBuf, vendor: &str, source_id: &str) -> Result<Self, String> {
+    pub fn new(path: &Path, vendor: &str, source_id: &str) -> Result<Self, String> {
         Ok(Self {
-            path: path.clone(),
+            path: path.to_path_buf(),
             vendor: vendor.to_string(),
             source_id: source_id.to_string(),
             reader: None,
@@ -521,7 +544,8 @@ impl IngestSource for JsonlFileSource {
                         match serde_json::from_str::<Value>(trimmed) {
                             Ok(json) => {
                                 self.stats.events_parsed += 1;
-                                if let Some(alert) = parse_generic_json(&json, &vendor, &source_id) {
+                                if let Some(alert) = parse_generic_json(&json, &vendor, &source_id)
+                                {
                                     self.stats.facts_created += 1;
                                     alerts.push(alert);
                                 }
@@ -556,7 +580,7 @@ pub struct WazuhAlertsSource {
 }
 
 impl WazuhAlertsSource {
-    pub fn new(path: &PathBuf) -> Result<Self, String> {
+    pub fn new(path: &Path) -> Result<Self, String> {
         Ok(Self {
             inner: JsonlFileSource::new(path, "wazuh", "wazuh_alerts")?,
         })
@@ -622,7 +646,7 @@ pub struct ZeekEveSource {
 }
 
 impl ZeekEveSource {
-    pub fn new(path: &PathBuf) -> Result<Self, String> {
+    pub fn new(path: &Path) -> Result<Self, String> {
         Ok(Self {
             inner: JsonlFileSource::new(path, "zeek", "zeek_eve")?,
         })
@@ -682,6 +706,7 @@ impl IngestSource for ZeekEveSource {
 // ============================================================================
 
 /// Syslog UDP source (for CEF/LEEF/plain syslog)
+#[allow(dead_code)]
 pub struct SyslogUdpSource {
     addr: String,
     vendor: String,
@@ -713,6 +738,7 @@ impl IngestSource for SyslogUdpSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::integrations::config::{IngestSourceConfig, IngestSourceType, JoinStrategy};
     use std::io::Write;
     use tempfile::NamedTempFile;
 

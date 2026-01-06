@@ -63,20 +63,15 @@ impl CaptureProfile {
 }
 
 /// Stream priority class for throttling decisions
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum StreamPriority {
     /// Critical streams (Tier-0): least throttled, essential for core hypotheses
     Tier0,
     /// Normal priority streams
+    #[default]
     Normal,
     /// Low priority / high volume streams: throttled aggressively under load
     Background,
-}
-
-impl Default for StreamPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 /// Configuration for what's enabled in each profile
@@ -253,32 +248,29 @@ impl ProfileConfig {
 
     /// Get throttle config for a stream, with fallback to default
     pub fn get_stream_throttle(&self, stream_id: &str) -> StreamThrottleConfig {
-        self.stream_throttles
-            .get(stream_id)
-            .cloned()
-            .unwrap_or_else(|| {
-                // Default config based on profile
-                match self.profile {
-                    CaptureProfile::Core => StreamThrottleConfig {
-                        priority: StreamPriority::Background,
-                        rate_per_sec: 10,
-                        burst: 20,
-                        max_queue: 100,
-                    },
-                    CaptureProfile::Extended => StreamThrottleConfig {
-                        priority: StreamPriority::Background,
-                        rate_per_sec: 25,
-                        burst: 50,
-                        max_queue: 200,
-                    },
-                    CaptureProfile::Forensic => StreamThrottleConfig {
-                        priority: StreamPriority::Normal,
-                        rate_per_sec: 100,
-                        burst: 200,
-                        max_queue: 500,
-                    },
-                }
-            })
+        self.stream_throttles.get(stream_id).cloned().unwrap_or({
+            // Default config based on profile
+            match self.profile {
+                CaptureProfile::Core => StreamThrottleConfig {
+                    priority: StreamPriority::Background,
+                    rate_per_sec: 10,
+                    burst: 20,
+                    max_queue: 100,
+                },
+                CaptureProfile::Extended => StreamThrottleConfig {
+                    priority: StreamPriority::Background,
+                    rate_per_sec: 25,
+                    burst: 50,
+                    max_queue: 200,
+                },
+                CaptureProfile::Forensic => StreamThrottleConfig {
+                    priority: StreamPriority::Normal,
+                    rate_per_sec: 100,
+                    burst: 200,
+                    max_queue: 500,
+                },
+            }
+        })
     }
 }
 
@@ -339,6 +331,7 @@ pub enum DropReason {
     SystemOverload,
 }
 
+#[allow(dead_code)]
 impl DropReason {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -495,10 +488,12 @@ impl StreamCounters {
         self.dropped_in_window.fetch_add(1, Ordering::Relaxed);
     }
 
+    #[allow(dead_code)]
     pub fn record_sample(&self) {
         self.sampled.fetch_add(1, Ordering::Relaxed);
     }
 
+    #[allow(dead_code)]
     pub fn record_queue(&self) {
         self.queued.fetch_add(1, Ordering::Relaxed);
     }
@@ -906,7 +901,7 @@ impl ThrottleController {
 
     /// Check if we should emit a throttle summary (fixed 30s window boundary)
     /// This ensures deterministic summary generation for replay/recompute
-    fn maybe_emit_summary(&self, stream_id: &str, stream: &StreamState) {
+    fn maybe_emit_summary(&self, _stream_id: &str, _stream: &StreamState) {
         let now_ms = TokenBucket::now_ms();
         let window_boundary =
             (now_ms / (SUMMARY_WINDOW_SECS as u64 * 1000)) * (SUMMARY_WINDOW_SECS as u64 * 1000);
@@ -935,9 +930,9 @@ impl ThrottleController {
     /// Emit throttle summaries for a completed window
     fn emit_window_summaries(&self, window_start_ms: u64, window_end_ms: u64) {
         let window_start =
-            DateTime::from_timestamp_millis(window_start_ms as i64).unwrap_or_else(|| Utc::now());
+            DateTime::from_timestamp_millis(window_start_ms as i64).unwrap_or_else(Utc::now);
         let window_end =
-            DateTime::from_timestamp_millis(window_end_ms as i64).unwrap_or_else(|| Utc::now());
+            DateTime::from_timestamp_millis(window_end_ms as i64).unwrap_or_else(Utc::now);
 
         let streams = self.streams.read().unwrap();
         let mut summaries = self.pending_summaries.write().unwrap();
@@ -961,33 +956,39 @@ impl ThrottleController {
     }
 
     /// Get and clear pending summaries (for timeline integration)
+    #[allow(dead_code)]
     pub fn take_pending_summaries(&self) -> Vec<TelemetryThrottledSummary> {
         let mut summaries = self.pending_summaries.write().unwrap();
         std::mem::take(&mut *summaries)
     }
 
     /// Check if there's a critical visibility gap (Tier-0 throttled)
+    #[allow(dead_code)]
     pub fn has_critical_gap(&self) -> bool {
         self.critical_gap.load(Ordering::Relaxed)
     }
 
     /// Get audit log for bundle export (for recompute determinism)
+    #[allow(dead_code)]
     pub fn get_audit_log(&self) -> Vec<ThrottleAuditEntry> {
         self.audit_log.read().unwrap().clone()
     }
 
     /// Clear audit log
+    #[allow(dead_code)]
     pub fn clear_audit_log(&self) {
         self.audit_log.write().unwrap().clear();
     }
 
     /// Check if a sensor is enabled in current profile
+    #[allow(dead_code)]
     pub fn is_sensor_enabled(&self, sensor_id: &str) -> bool {
         let config = self.config.read().unwrap();
         config.enabled_sensors.contains(&sensor_id.to_string())
     }
 
     /// Check if a collector is enabled in current profile
+    #[allow(dead_code)]
     pub fn is_collector_enabled(&self, collector_id: &str) -> bool {
         let config = self.config.read().unwrap();
         config
@@ -996,6 +997,7 @@ impl ThrottleController {
     }
 
     /// Check if a heavy feature is enabled in current profile
+    #[allow(dead_code)]
     pub fn is_heavy_feature_enabled(&self, feature_id: &str) -> bool {
         let config = self.config.read().unwrap();
         config.heavy_features.contains(&feature_id.to_string())
@@ -1096,6 +1098,7 @@ impl ThrottleController {
 
     /// Validate that current config matches a snapshot (for strict recompute)
     /// Strict mode fails on ANY mismatch that could affect what events exist.
+    #[allow(dead_code)]
     pub fn validate_config_match(
         &self,
         snapshot: &ThrottleConfigSnapshot,
@@ -1175,6 +1178,7 @@ impl ThrottleController {
     }
 
     /// Validate for best-effort recompute (warnings only, doesn't fail)
+    #[allow(dead_code)]
     pub fn validate_config_best_effort(&self, snapshot: &ThrottleConfigSnapshot) -> Vec<String> {
         match self.validate_config_match(snapshot) {
             Ok(()) => Vec::new(),
@@ -1210,6 +1214,7 @@ pub struct TelemetryThrottledSummary {
     pub window_seq: u32,
 }
 
+#[allow(dead_code)]
 impl TelemetryThrottledSummary {
     pub fn event_type() -> &'static str {
         "telemetry_throttled_summary"
@@ -1520,7 +1525,7 @@ mod tests {
             .map(|i| {
                 let c = Arc::clone(&controller);
                 std::thread::spawn(move || {
-                    for j in 0..100 {
+                    for _j in 0..100 {
                         c.before_store(&format!("stream_{}", i), 10);
                     }
                 })

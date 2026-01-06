@@ -3,6 +3,560 @@
 (() => {
   "use strict";
 
+  // ============================================================================
+  // TAURI DESKTOP INTEGRATION
+  // ============================================================================
+  // This section provides Tauri desktop app integration when running inside Tauri.
+  // When running in browser (dev mode), these functions are no-ops or use fallbacks.
+
+  const isTauri = !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+  let tauriInvoke = null;
+  let tauriListen = null;
+
+  // Initialize Tauri APIs if available
+  if (isTauri) {
+    // Tauri v2 API
+    const tauri = window.__TAURI__;
+    if (tauri?.core?.invoke) {
+      tauriInvoke = tauri.core.invoke;
+    }
+    if (tauri?.event?.listen) {
+      tauriListen = tauri.event.listen;
+    }
+  }
+
+  // Desktop app state
+  const desktopState = {
+    isRunning: false,
+    isAdmin: false,
+    limitedMode: false,
+    lastStatus: null,
+    statusPollInterval: null,
+    lastMetrics: null,
+  };
+
+  // Expose desktop API globally for onclick handlers
+  window.__edrDesktop = {
+    startRun,
+    stopRun,
+    openTelemetryFolder,
+    openLogsFolder,
+    showMetrics,
+    runE2ECheck,
+    generateActivity,
+  };
+
+  // Initialize desktop UI on load
+  document.addEventListener('DOMContentLoaded', initDesktopUI);
+
+  async function initDesktopUI() {
+    if (!isTauri) {
+      console.log('[Desktop] Not running in Tauri, desktop controls hidden');
+      return;
+    }
+
+    console.log('[Desktop] Initializing Tauri desktop UI');
+
+    // Show the run control panel
+    const runPanel = document.getElementById('runControlPanel');
+    if (runPanel) runPanel.classList.remove('hidden');
+
+    // Check admin status
+    try {
+      desktopState.isAdmin = await tauriInvoke('is_admin');
+      updateAdminBadge();
+    } catch (e) {
+      console.error('[Desktop] Failed to check admin status:', e);
+    }
+
+    // Load available playbooks
+    await loadPlaybooks();
+
+    // Get initial status
+    await refreshStatus();
+
+    // Start polling for status
+    desktopState.statusPollInterval = setInterval(refreshStatus, 3000);
+
+    // Listen for run-complete event from Tauri
+    if (tauriListen) {
+      tauriListen('run-complete', () => {
+        console.log('[Desktop] Run complete event received');
+        desktopState.isRunning = false;
+        updateRunUI();
+        showNotification('Run Complete', 'Capture has finished. Check metrics for results.');
+      });
+    }
+
+    // Wire up modal close buttons
+    document.getElementById('closeMetricsModal')?.addEventListener('click', () => {
+      document.getElementById('metricsModal')?.close();
+    });
+    document.getElementById('closeE2EModal')?.addEventListener('click', () => {
+      document.getElementById('e2eCheckModal')?.close();
+    });
+    document.getElementById('btnOpenMetricsFolder')?.addEventListener('click', async () => {
+      if (tauriInvoke) await tauriInvoke('open_metrics_folder');
+    });
+    document.getElementById('btnRunE2EAgain')?.addEventListener('click', runE2ECheck);
+  }
+
+  function updateAdminBadge() {
+    const badge = document.getElementById('adminBadge');
+    const banner = document.getElementById('adminWarningBanner');
+    
+    if (desktopState.isAdmin) {
+      if (badge) {
+        badge.textContent = 'Admin';
+        badge.className = 'px-2 py-1 rounded text-xs bg-emerald-700 text-emerald-200';
+      }
+      if (banner) banner.classList.add('hidden');
+    } else {
+      if (badge) {
+        badge.textContent = 'Limited';
+        badge.className = 'px-2 py-1 rounded text-xs bg-amber-700 text-amber-200';
+      }
+      if (banner) banner.classList.remove('hidden');
+    }
+  }
+
+  async function loadPlaybooks() {
+    if (!tauriInvoke) return;
+    
+    const container = document.getElementById('playbookSelector');
+    if (!container) return;
+
+    try {
+      const playbooks = await tauriInvoke('get_available_playbooks');
+      
+      if (!playbooks || playbooks.length === 0) {
+        container.innerHTML = '<span class="text-xs text-slate-500">No playbooks found (all will be used)</span>';
+        return;
+      }
+
+      container.innerHTML = playbooks.map(pb => `
+        <label class="flex items-center gap-1 px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 cursor-pointer text-xs">
+          <input type="checkbox" class="playbook-checkbox rounded border-slate-600" value="${pb}" />
+          <span>${pb}</span>
+        </label>
+      `).join('');
+    } catch (e) {
+      console.error('[Desktop] Failed to load playbooks:', e);
+      container.innerHTML = '<span class="text-xs text-red-400">Failed to load playbooks</span>';
+    }
+  }
+
+  async function startRun() {
+    if (!tauriInvoke) return;
+    if (desktopState.isRunning) return;
+
+    const durationSelect = document.getElementById('runDuration');
+    const duration = parseInt(durationSelect?.value || '10', 10);
+
+    // Get selected playbooks
+    const checkboxes = document.querySelectorAll('.playbook-checkbox:checked');
+    const selectedPlaybooks = Array.from(checkboxes).map(cb => cb.value);
+
+    const btnStart = document.getElementById('btnStartRun');
+    const btnStop = document.getElementById('btnStopRun');
+    const errorBox = document.getElementById('runErrorBox');
+
+    try {
+      if (btnStart) btnStart.disabled = true;
+      if (errorBox) errorBox.classList.add('hidden');
+
+      console.log('[Desktop] Starting run:', { duration, selectedPlaybooks });
+      
+      await tauriInvoke('start_run', {
+        durationMinutes: duration,
+        selectedPlaybooks: selectedPlaybooks.length > 0 ? selectedPlaybooks : null,
+      });
+
+      desktopState.isRunning = true;
+      updateRunUI();
+      
+    } catch (e) {
+      console.error('[Desktop] Failed to start run:', e);
+      if (errorBox) {
+        errorBox.textContent = `Failed to start: ${e}`;
+        errorBox.classList.remove('hidden');
+      }
+    } finally {
+      if (btnStart) btnStart.disabled = false;
+    }
+  }
+
+  async function stopRun() {
+    if (!tauriInvoke) return;
+    if (!desktopState.isRunning) return;
+
+    const btnStop = document.getElementById('btnStopRun');
+    const errorBox = document.getElementById('runErrorBox');
+
+    try {
+      if (btnStop) btnStop.disabled = true;
+      if (errorBox) errorBox.classList.add('hidden');
+
+      console.log('[Desktop] Stopping run');
+      await tauriInvoke('stop_all');
+      
+      desktopState.isRunning = false;
+      updateRunUI();
+      
+    } catch (e) {
+      console.error('[Desktop] Failed to stop run:', e);
+      if (errorBox) {
+        errorBox.textContent = `Failed to stop: ${e}`;
+        errorBox.classList.remove('hidden');
+      }
+    } finally {
+      if (btnStop) btnStop.disabled = false;
+    }
+  }
+
+  async function refreshStatus() {
+    if (!tauriInvoke) return;
+
+    try {
+      const status = await tauriInvoke('get_status');
+      desktopState.lastStatus = status;
+      desktopState.isRunning = status.running;
+      desktopState.limitedMode = status.limited_mode;
+
+      // Update UI elements
+      const segmentsEl = document.getElementById('runSegments');
+      const signalsEl = document.getElementById('runSignals');
+      const remainingEl = document.getElementById('runRemaining');
+      const errorBox = document.getElementById('runErrorBox');
+
+      if (segmentsEl) segmentsEl.textContent = status.segments_count ?? '--';
+      if (signalsEl) signalsEl.textContent = status.signals_count ?? '--';
+      
+      if (remainingEl) {
+        if (status.run_remaining_seconds != null) {
+          const mins = Math.floor(status.run_remaining_seconds / 60);
+          const secs = status.run_remaining_seconds % 60;
+          remainingEl.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
+        } else {
+          remainingEl.textContent = '--';
+        }
+      }
+
+      // Show crash error if detected
+      if (status.crashed_process && status.last_error && errorBox) {
+        errorBox.innerHTML = `<strong>${status.crashed_process} crashed:</strong><br><pre class="mt-1 text-xs overflow-auto max-h-20">${status.last_error}</pre>`;
+        errorBox.classList.remove('hidden');
+      } else if (errorBox && !desktopState.isRunning) {
+        // Clear error when not running (unless just crashed)
+        // Keep error visible if it was a crash
+      }
+
+      updateRunUI();
+    } catch (e) {
+      console.error('[Desktop] Failed to refresh status:', e);
+    }
+  }
+
+  function updateRunUI() {
+    const icon = document.getElementById('runStatusIcon');
+    const text = document.getElementById('runStatusText');
+    const sub = document.getElementById('runStatusSub');
+    const btnStart = document.getElementById('btnStartRun');
+    const btnStop = document.getElementById('btnStopRun');
+    const status = desktopState.lastStatus;
+
+    if (desktopState.isRunning) {
+      if (icon) icon.textContent = '🟢';
+      if (text) text.textContent = 'Stack Running';
+      if (sub) sub.textContent = status?.run_id || 'Capturing telemetry...';
+      if (btnStart) btnStart.classList.add('hidden');
+      if (btnStop) btnStop.classList.remove('hidden');
+    } else if (status?.crashed_process) {
+      if (icon) icon.textContent = '🔴';
+      if (text) text.textContent = 'Stack Crashed';
+      if (sub) sub.textContent = `${status.crashed_process} exited unexpectedly`;
+      if (btnStart) btnStart.classList.remove('hidden');
+      if (btnStop) btnStop.classList.add('hidden');
+    } else {
+      if (icon) icon.textContent = '⏹️';
+      if (text) text.textContent = 'Stack Stopped';
+      if (sub) sub.textContent = 'Ready to start capture';
+      if (btnStart) btnStart.classList.remove('hidden');
+      if (btnStop) btnStop.classList.add('hidden');
+    }
+  }
+
+  async function openTelemetryFolder() {
+    if (!tauriInvoke) return;
+    try {
+      await tauriInvoke('open_telemetry_folder');
+    } catch (e) {
+      console.error('[Desktop] Failed to open telemetry folder:', e);
+    }
+  }
+
+  async function openLogsFolder() {
+    if (!tauriInvoke) return;
+    try {
+      await tauriInvoke('open_logs_folder');
+    } catch (e) {
+      console.error('[Desktop] Failed to open logs folder:', e);
+    }
+  }
+
+  async function showMetrics() {
+    const modal = document.getElementById('metricsModal');
+    const content = document.getElementById('metricsContent');
+    if (!modal || !content) return;
+
+    modal.showModal();
+
+    if (!desktopState.lastStatus) {
+      content.innerHTML = '<div class="text-slate-400 text-center py-4">No status available</div>';
+      return;
+    }
+
+    const s = desktopState.lastStatus;
+    content.innerHTML = `
+      <div class="grid grid-cols-2 gap-4 text-sm">
+        <div class="bg-slate-800 rounded p-3">
+          <div class="text-slate-400 text-xs mb-1">Run ID</div>
+          <div class="font-mono text-slate-200">${s.run_id || '--'}</div>
+        </div>
+        <div class="bg-slate-800 rounded p-3">
+          <div class="text-slate-400 text-xs mb-1">Admin Mode</div>
+          <div class="${s.is_admin ? 'text-emerald-400' : 'text-amber-400'}">${s.is_admin ? 'Yes' : 'No (Limited)'}</div>
+        </div>
+        <div class="bg-slate-800 rounded p-3">
+          <div class="text-slate-400 text-xs mb-1">Segments</div>
+          <div class="text-2xl font-bold text-slate-100">${s.segments_count}</div>
+        </div>
+        <div class="bg-slate-800 rounded p-3">
+          <div class="text-slate-400 text-xs mb-1">Signals</div>
+          <div class="text-2xl font-bold text-emerald-400">${s.signals_count}</div>
+        </div>
+        <div class="bg-slate-800 rounded p-3 col-span-2">
+          <div class="text-slate-400 text-xs mb-1">Telemetry Root</div>
+          <div class="font-mono text-xs text-slate-300 break-all">${s.telemetry_root}</div>
+        </div>
+        <div class="bg-slate-800 rounded p-3 col-span-2">
+          <div class="text-slate-400 text-xs mb-1">API</div>
+          <div class="font-mono text-xs text-sky-400">${s.api_base_url}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function runE2ECheck() {
+    const modal = document.getElementById('e2eCheckModal');
+    const content = document.getElementById('e2eCheckList');
+    const summary = document.getElementById('e2eCheckSummary');
+    if (!modal || !content) return;
+
+    modal.showModal();
+    content.innerHTML = '<div class="text-slate-400 text-center py-4">Running checks...</div>';
+    if (summary) summary.classList.add('hidden');
+
+    const checks = [];
+    const API_BASE = 'http://127.0.0.1:3000';
+
+    // Check 1: Segments exist
+    try {
+      if (desktopState.lastStatus?.segments_count > 0) {
+        checks.push({ name: 'Segments exist', pass: true, detail: `${desktopState.lastStatus.segments_count} segments found` });
+      } else {
+        checks.push({ name: 'Segments exist', pass: false, detail: 'No segments found' });
+      }
+    } catch (e) {
+      checks.push({ name: 'Segments exist', pass: false, detail: e.message });
+    }
+
+    // Check 2: API Health
+    try {
+      const resp = await fetch(`${API_BASE}/api/health`, { timeout: 5000 });
+      checks.push({ name: 'API /health', pass: resp.ok, detail: resp.ok ? 'Server responding' : `Status ${resp.status}` });
+    } catch (e) {
+      checks.push({ name: 'API /health', pass: false, detail: e.message || 'Connection failed' });
+    }
+
+    // Check 3: Signals endpoint
+    try {
+      const resp = await fetch(`${API_BASE}/api/signals`);
+      const data = await resp.json();
+      const count = data.data?.length ?? 0;
+      checks.push({ name: 'API /signals', pass: resp.ok, detail: `${count} signals` });
+    } catch (e) {
+      checks.push({ name: 'API /signals', pass: false, detail: e.message });
+    }
+
+    // Check 4: Explain endpoint (if signals exist)
+    if (desktopState.lastStatus?.signals_count > 0) {
+      try {
+        const sigResp = await fetch(`${API_BASE}/api/signals?limit=1`);
+        const sigData = await sigResp.json();
+        const firstSig = sigData.data?.[0];
+        if (firstSig?.signal_id) {
+          const expResp = await fetch(`${API_BASE}/api/signals/${firstSig.signal_id}/explain`);
+          checks.push({ name: 'Explain endpoint', pass: expResp.ok, detail: expResp.ok ? 'Working' : `Status ${expResp.status}` });
+        } else {
+          checks.push({ name: 'Explain endpoint', pass: true, detail: 'No signals to explain' });
+        }
+      } catch (e) {
+        checks.push({ name: 'Explain endpoint', pass: false, detail: e.message });
+      }
+    } else {
+      checks.push({ name: 'Explain endpoint', pass: true, detail: 'Skipped (no signals)' });
+    }
+
+    // Render results
+    const passed = checks.filter(c => c.pass).length;
+    const total = checks.length;
+
+    content.innerHTML = checks.map(c => `
+      <div class="flex items-center gap-3 p-2 rounded ${c.pass ? 'bg-emerald-900/30' : 'bg-red-900/30'}">
+        <span class="text-lg">${c.pass ? '✅' : '❌'}</span>
+        <div class="flex-1">
+          <div class="font-medium text-sm">${c.name}</div>
+          <div class="text-xs text-slate-400">${c.detail}</div>
+        </div>
+      </div>
+    `).join('');
+
+    if (summary) {
+      summary.classList.remove('hidden');
+      summary.className = `mt-4 p-3 rounded text-sm ${passed === total ? 'bg-emerald-900/50 text-emerald-200' : 'bg-amber-900/50 text-amber-200'}`;
+      summary.textContent = `${passed}/${total} checks passed`;
+    }
+  }
+
+  /**
+   * Generate safe test activity to trigger playbook detections.
+   * These are REAL OS activities that produce legitimate Windows telemetry:
+   * - Benign PowerShell command (echo)
+   * - Scheduled task query (schtasks)
+   * - Temp file creation
+   * - Registry read (non-destructive)
+   * - Network check (localhost)
+   * 
+   * Admin vs non-admin: Some activities require admin (service query).
+   * Gracefully degrades in non-admin mode.
+   */
+  async function generateActivity() {
+    if (!tauriInvoke) {
+      console.warn('[Desktop] generateActivity called but Tauri not available');
+      return;
+    }
+
+    const statusBox = document.getElementById('activityStatusBox');
+    if (statusBox) {
+      statusBox.classList.remove('hidden');
+      statusBox.innerHTML = '🔄 Generating test activity...';
+    }
+
+    const results = [];
+    const isAdmin = desktopState.isAdmin;
+
+    try {
+      // Activity 1: PowerShell echo (LOLBin activity for signal_lolbin_abuse)
+      results.push(await runActivityCommand(
+        'powershell.exe',
+        ['-NoProfile', '-Command', 'Write-Host "EDR-TEST-ACTIVITY"'],
+        'PowerShell echo'
+      ));
+
+      // Activity 2: Query scheduled tasks (schtasks - another LOLBin)
+      results.push(await runActivityCommand(
+        'schtasks.exe',
+        ['/Query', '/TN', '\\Microsoft\\Windows\\Shell\\CreateObjectTask'],
+        'Scheduled task query'
+      ));
+
+      // Activity 3: WMIC query (LOLBin)
+      results.push(await runActivityCommand(
+        'wmic.exe',
+        ['os', 'get', 'caption'],
+        'WMIC OS query'
+      ));
+
+      // Activity 4: Query services (may trigger service persistence playbook)
+      if (isAdmin) {
+        results.push(await runActivityCommand(
+          'sc.exe',
+          ['query', 'wuauserv'],
+          'Service query (admin)'
+        ));
+      }
+
+      // Activity 5: Certutil URL decode (benign, triggers certutil LOLBin detection)
+      results.push(await runActivityCommand(
+        'certutil.exe',
+        ['-hashfile', 'C:\\Windows\\System32\\cmd.exe', 'MD5'],
+        'Certutil hash'
+      ));
+
+      // Activity 6: Registry query (non-destructive, may trigger registry playbook)
+      results.push(await runActivityCommand(
+        'reg.exe',
+        ['query', 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run'],
+        'Registry Run key query'
+      ));
+
+      // Summary
+      const succeeded = results.filter(r => r.success).length;
+      const total = results.length;
+
+      if (statusBox) {
+        const summary = results.map(r => 
+          `<div class="flex items-center gap-2">
+            <span>${r.success ? '✅' : '⚠️'}</span>
+            <span>${r.name}</span>
+          </div>`
+        ).join('');
+
+        statusBox.innerHTML = `
+          <div class="font-medium mb-2">🧪 Activity Generated: ${succeeded}/${total} commands</div>
+          <div class="text-xs space-y-1">${summary}</div>
+          <div class="text-xs text-amber-300 mt-2">
+            Note: Detection depends on playbook configuration and Windows event channel availability.
+            ${!isAdmin ? '<br>⚠️ Running without admin - some event channels may be unavailable.' : ''}
+          </div>
+        `;
+
+        // Hide after 10 seconds
+        setTimeout(() => {
+          statusBox.classList.add('hidden');
+        }, 10000);
+      }
+
+    } catch (e) {
+      console.error('[Desktop] Activity generation failed:', e);
+      if (statusBox) {
+        statusBox.innerHTML = `<span class="text-red-300">❌ Activity generation failed: ${e}</span>`;
+      }
+    }
+  }
+
+  async function runActivityCommand(exe, args, name) {
+    try {
+      // Use Tauri shell plugin to run command
+      const result = await tauriInvoke('run_activity_command', { exe, args });
+      return { name, success: true, output: result };
+    } catch (e) {
+      console.warn(`[Desktop] Activity ${name} failed:`, e);
+      return { name, success: false, error: String(e) };
+    }
+  }
+
+  function showNotification(title, body) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, { body });
+    }
+  }
+
+  // ============================================================================
+  // END TAURI DESKTOP INTEGRATION
+  // ============================================================================
+
   // ---------- DOM ----------
   const rowsEl      = document.getElementById('rows');
   const detailEl    = document.getElementById('detail');
@@ -19,8 +573,10 @@
   // Tabs / screens (optional)
   const screenDash  = document.getElementById('screenDash');
   const screenInt   = document.getElementById('screenIntegrations');
+  const screenImport = document.getElementById('screenImport');
   const tabDash     = document.getElementById('tabDash');
   const tabInt      = document.getElementById('tabIntegrations');
+  const tabImport   = document.getElementById('tabImport');
 
   // Integrations pane (optional)
   const addDlg      = document.getElementById('addDlg');
@@ -145,18 +701,31 @@
   function activateTab(which) {
     if (!screenDash || !screenInt || !tabDash || !tabInt) return;
     const onDash = which === 'dash';
+    const onInt = which === 'int';
+    const onImport = which === 'import';
+    
     screenDash.classList.toggle('hidden', !onDash);
-    screenInt.classList.toggle('hidden', onDash);
+    screenInt.classList.toggle('hidden', !onInt);
+    if (screenImport) screenImport.classList.toggle('hidden', !onImport);
+    
     tabDash.className = onDash
       ? 'px-3 py-1 rounded bg-sky-600 text-white'
       : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
-    tabInt.className = !onDash
+    tabInt.className = onInt
       ? 'px-3 py-1 rounded bg-sky-600 text-white'
       : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
-    if (!onDash) loadIntegrations();
+    if (tabImport) {
+      tabImport.className = onImport
+        ? 'px-3 py-1 rounded bg-sky-600 text-white'
+        : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
+    }
+    
+    if (onInt) loadIntegrations();
+    if (onImport) loadImportedCases();
   }
   if (tabDash) tabDash.onclick = () => activateTab('dash');
   if (tabInt)  tabInt.onclick  = () => activateTab('int');
+  if (tabImport) tabImport.onclick = () => activateTab('import');
   activateTab('dash');
 
   // ---------- SSE Alerts ----------
@@ -223,6 +792,627 @@
       incListEl.appendChild(li);
     }
   }
+
+  // ---------- Signals Panel (Playbook-based) ----------
+  const signalsList = document.getElementById('signalsList');
+  const signalsEmpty = document.getElementById('signalsEmpty');
+  const refreshSignalsBtn = document.getElementById('refreshSignalsBtn');
+  const explainModal = document.getElementById('explainModal');
+
+  async function loadSignals() {
+    if (!signalsList) return;
+    try {
+      const r = await fetch('/api/signals?limit=50');
+      const result = await r.json();
+      if (!result.success || !result.data) return;
+      
+      const signals = result.data;
+      signalsList.textContent = '';
+      
+      if (signals.length === 0) {
+        if (signalsEmpty) signalsEmpty.classList.remove('hidden');
+        return;
+      }
+      if (signalsEmpty) signalsEmpty.classList.add('hidden');
+      
+      for (const sig of signals) {
+        const li = el('li', 'py-2 flex items-start justify-between gap-2');
+        
+        // Left side: signal info
+        const left = el('div', 'min-w-0 flex-1');
+        const sevColor = 
+          sig.severity === 'Critical' ? 'bg-rose-700/80' :
+          sig.severity === 'High' ? 'bg-amber-600/80' :
+          sig.severity === 'Medium' ? 'bg-yellow-600/80' :
+          'bg-emerald-700/80';
+        
+        const head = el('div', 'font-medium truncate flex items-center gap-2');
+        const sev = el('span', `inline-block px-2 py-0.5 rounded text-xs ${sevColor}`, sig.severity);
+        head.appendChild(sev);
+        head.appendChild(document.createTextNode(sig.signal_type || 'unknown'));
+        
+        const sub = el('div', 'text-xs text-slate-400 mt-0.5',
+          `${sig.signal_id.slice(0, 16)}... · ${sig.host} · ${new Date(sig.ts).toLocaleString()}`);
+        
+        left.appendChild(head);
+        left.appendChild(sub);
+        
+        // Evidence count
+        const evCount = Array.isArray(sig.evidence_ptrs) ? sig.evidence_ptrs.length : 0;
+        const evBadge = el('span', 'text-xs text-slate-500', `${evCount} evidence`);
+        left.appendChild(evBadge);
+        
+        // Right side: Explain button + Narrative button
+        const right = el('div', 'flex items-center gap-1');
+        const explainBtn = el('button', 
+          'px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs font-medium',
+          '🔍 Explain');
+        explainBtn.onclick = (e) => {
+          e.stopPropagation();
+          showExplanation(sig.signal_id);
+        };
+        right.appendChild(explainBtn);
+        
+        // Narrative button
+        const narrativeBtn = el('button',
+          'px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium',
+          '📜 Narrative');
+        narrativeBtn.onclick = (e) => {
+          e.stopPropagation();
+          showNarrative(sig.signal_id);
+        };
+        right.appendChild(narrativeBtn);
+        
+        li.appendChild(left);
+        li.appendChild(right);
+        signalsList.appendChild(li);
+      }
+    } catch (err) {
+      console.error('Failed to load signals:', err);
+    }
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function showExplanation(signalId) {
+    if (!explainModal) return;
+    
+    // Show modal
+    explainModal.showModal();
+    document.getElementById('explainModalTitle').textContent = 'Loading...';
+    document.getElementById('explainModalSubtitle').textContent = signalId;
+    document.getElementById('explainSummary').textContent = '';
+    document.getElementById('explainSlotsBody').innerHTML = '';
+    document.getElementById('explainEvidence').innerHTML = '';
+    document.getElementById('explainEntitiesBundle').innerHTML = '';
+    document.getElementById('explainLimitations').classList.add('hidden');
+    
+    try {
+      const r = await fetch(`/api/signals/${signalId}/explain`);
+      const result = await r.json();
+      
+      if (!result.success || !result.data) {
+        document.getElementById('explainModalTitle').textContent = 'Explanation Not Found';
+        document.getElementById('explainSummary').textContent = result.error || 'No explanation available for this signal.';
+        return;
+      }
+      
+      const exp = result.data;
+      
+      // Title
+      document.getElementById('explainModalTitle').textContent = exp.playbook_title || exp.playbook_id;
+      document.getElementById('explainModalSubtitle').textContent = `${exp.family} · ${signalId}`;
+      
+      // Summary
+      document.getElementById('explainSummary').textContent = exp.summary || 'No summary available.';
+      
+      // Slots table
+      const slotsBody = document.getElementById('explainSlotsBody');
+      slotsBody.innerHTML = '';
+      for (const slot of (exp.slots || [])) {
+        const tr = document.createElement('tr');
+        
+        const statusColor = 
+          slot.status === 'filled' ? 'text-emerald-400' :
+          slot.status === 'partial' ? 'text-amber-400' :
+          slot.status === 'expired' ? 'text-slate-500' :
+          'text-rose-400';
+        
+        tr.innerHTML = `
+          <td class="py-1 px-2">${escapeHtml(slot.name)}</td>
+          <td class="py-1 px-2">${slot.required ? '✓' : ''}</td>
+          <td class="py-1 px-2 ${statusColor}">${slot.status}</td>
+          <td class="py-1 px-2 text-slate-400 truncate max-w-[150px]" title="${escapeHtml(slot.predicate_desc)}">${escapeHtml(slot.predicate_desc)}</td>
+          <td class="py-1 px-2">${(slot.matched_facts || []).length}</td>
+        `;
+        slotsBody.appendChild(tr);
+      }
+      
+      // Evidence
+      const evidenceEl = document.getElementById('explainEvidence');
+      evidenceEl.innerHTML = '';
+      for (const ev of (exp.evidence || [])) {
+        const div = document.createElement('div');
+        div.className = 'p-2 bg-slate-800/50 rounded';
+        const ptr = ev.ptr;
+        div.innerHTML = `
+          <div class="text-sky-400">${ptr.stream_id}:${ptr.segment_id}:${ptr.record_index}</div>
+          <div class="text-slate-500 text-[10px]">${ev.source} · ${new Date(ev.ts_ms).toLocaleString()}</div>
+          ${ev.excerpt ? `<div class="text-slate-300 mt-1 text-[10px] break-all">${escapeHtml(ev.excerpt)}</div>` : ''}
+        `;
+        evidenceEl.appendChild(div);
+      }
+      if ((exp.evidence || []).length === 0) {
+        evidenceEl.innerHTML = '<div class="text-slate-500">No evidence excerpts available</div>';
+      }
+      
+      // Entities
+      const entitiesEl = document.getElementById('explainEntitiesBundle');
+      entitiesEl.innerHTML = '';
+      const entities = exp.entities || {};
+      const entityTypes = [
+        ['proc_keys', 'Processes'],
+        ['file_keys', 'Files'],
+        ['identity_keys', 'Users'],
+        ['net_keys', 'Network'],
+        ['registry_keys', 'Registry']
+      ];
+      for (const [key, label] of entityTypes) {
+        const vals = entities[key] || [];
+        if (vals.length > 0) {
+          const div = document.createElement('div');
+          div.innerHTML = `
+            <div class="text-slate-400 text-[10px]">${label}</div>
+            <div class="text-slate-200">${vals.slice(0,3).map(v => escapeHtml(v.slice(0,30))).join(', ')}${vals.length > 3 ? '...' : ''}</div>
+          `;
+          entitiesEl.appendChild(div);
+        }
+      }
+      
+      // Limitations
+      const limitations = exp.limitations || [];
+      if (limitations.length > 0) {
+        document.getElementById('explainLimitations').classList.remove('hidden');
+        const limList = document.getElementById('explainLimitationsList');
+        limList.innerHTML = limitations.map(l => `<li>${escapeHtml(l)}</li>`).join('');
+      }
+      
+      // Counters
+      const counters = exp.counters || {};
+      document.getElementById('counterReqFilled').textContent = counters.required_slots_filled ?? 0;
+      document.getElementById('counterReqTotal').textContent = counters.required_slots_total ?? 0;
+      document.getElementById('counterOptFilled').textContent = counters.optional_slots_filled ?? 0;
+      document.getElementById('counterOptTotal').textContent = counters.optional_slots_total ?? 0;
+      document.getElementById('counterFacts').textContent = counters.facts_emitted ?? 0;
+      
+    } catch (err) {
+      console.error('Failed to load explanation:', err);
+      document.getElementById('explainModalTitle').textContent = 'Error';
+      document.getElementById('explainSummary').textContent = 'Failed to load explanation: ' + err.message;
+    }
+  }
+
+  // ========== Narrative Modal ==========
+  const narrativeModal = document.getElementById('narrativeModal');
+  let currentNarrativeSignalId = null;
+  let currentNarrative = null;
+
+  async function showNarrative(signalId) {
+    if (!narrativeModal) return;
+    
+    currentNarrativeSignalId = signalId;
+    narrativeModal.showModal();
+    document.getElementById('narrativeModalTitle').textContent = '📜 Loading...';
+    document.getElementById('narrativeModalSubtitle').textContent = signalId;
+    document.getElementById('narrativeSentences').innerHTML = '<div class="text-slate-400">Loading narrative...</div>';
+    
+    try {
+      const r = await fetch(`/api/signals/${signalId}/narrative`);
+      const result = await r.json();
+      
+      if (!result.success || !result.data) {
+        document.getElementById('narrativeModalTitle').textContent = '📜 Narrative Not Available';
+        document.getElementById('narrativeSentences').innerHTML = `<div class="text-rose-400">${result.error || 'Could not generate narrative'}</div>`;
+        return;
+      }
+      
+      currentNarrative = result.data;
+      renderNarrative(currentNarrative);
+      
+    } catch (err) {
+      console.error('Failed to load narrative:', err);
+      document.getElementById('narrativeModalTitle').textContent = '📜 Error';
+      document.getElementById('narrativeSentences').innerHTML = `<div class="text-rose-400">Failed to load narrative: ${err.message}</div>`;
+    }
+  }
+
+  function renderNarrative(narrative) {
+    // Title & mode
+    document.getElementById('narrativeModalTitle').textContent = '📜 Signal Narrative';
+    document.getElementById('narrativeModalSubtitle').textContent = `${narrative.signal_id} · v${narrative.version}`;
+    
+    const mode = narrative.mode_context?.mode || 'Discovery';
+    const modeTag = document.getElementById('narrativeModeTag');
+    modeTag.textContent = mode;
+    modeTag.className = mode === 'Mission' 
+      ? 'px-2 py-0.5 text-xs rounded bg-sky-600/20 text-sky-400'
+      : 'px-2 py-0.5 text-xs rounded bg-emerald-600/20 text-emerald-400';
+    
+    // Validation badge
+    const validationBadge = document.getElementById('narrativeValidation');
+    const isValid = validateNarrativeClient(narrative);
+    validationBadge.textContent = isValid ? '✓ Valid' : '⚠ Issues';
+    validationBadge.className = isValid 
+      ? 'text-xs px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400'
+      : 'text-xs px-2 py-0.5 rounded bg-amber-600/20 text-amber-400';
+    
+    // Render sentences
+    const sentencesEl = document.getElementById('narrativeSentences');
+    sentencesEl.innerHTML = '';
+    
+    for (const sentence of (narrative.sentences || [])) {
+      const div = document.createElement('div');
+      div.className = 'p-3 rounded border border-slate-700 hover:border-slate-500 cursor-pointer transition-colors';
+      div.dataset.sentenceId = sentence.sentence_id;
+      
+      const typeColors = {
+        'Observation': 'text-emerald-400',
+        'Inference': 'text-amber-400',
+        'Context': 'text-slate-400',
+        'Summary': 'text-sky-400'
+      };
+      const typeColor = typeColors[sentence.sentence_type] || 'text-slate-300';
+      
+      // Type badge
+      const typeBadge = sentence.sentence_type === 'Inference' && sentence.inference_label
+        ? `<span class="text-xs ${typeColor} font-medium">${sentence.sentence_type}:${sentence.inference_label}</span>`
+        : `<span class="text-xs ${typeColor} font-medium">${sentence.sentence_type}</span>`;
+      
+      // Evidence count
+      const receipts = sentence.receipts || {};
+      const evCount = (receipts.evidence_ptrs || []).length;
+      const factCount = (receipts.supporting_facts || []).length;
+      
+      // Build receipt indicators
+      let receiptIndicators = '';
+      if (evCount > 0) {
+        receiptIndicators += `<button class="receipt-btn px-1.5 py-0.5 rounded bg-sky-700/50 hover:bg-sky-600/70 text-[10px]" data-type="evidence" data-sentence="${sentence.sentence_id}">📄 ${evCount} evidence</button>`;
+      }
+      if (factCount > 0) {
+        receiptIndicators += `<button class="receipt-btn px-1.5 py-0.5 rounded bg-amber-700/50 hover:bg-amber-600/70 text-[10px]" data-type="facts" data-sentence="${sentence.sentence_id}">🔗 ${factCount} facts</button>`;
+      }
+      
+      // Confidence
+      const conf = sentence.confidence ?? 1.0;
+      const confColor = conf >= 0.8 ? 'text-emerald-400' : conf >= 0.5 ? 'text-amber-400' : 'text-rose-400';
+      
+      div.innerHTML = `
+        <div class="flex items-center justify-between mb-1">
+          ${typeBadge}
+          <span class="${confColor} text-[10px]">${(conf * 100).toFixed(0)}% conf</span>
+        </div>
+        <div class="text-sm text-slate-200 mb-2">${escapeHtml(sentence.text)}</div>
+        <div class="flex items-center gap-2">
+          ${receiptIndicators}
+        </div>
+      `;
+      
+      sentencesEl.appendChild(div);
+    }
+    
+    // Wire receipt buttons
+    sentencesEl.querySelectorAll('.receipt-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const sentenceId = btn.dataset.sentence;
+        const type = btn.dataset.type;
+        const sentence = narrative.sentences.find(s => s.sentence_id === sentenceId);
+        if (sentence) {
+          showEvidenceReceipt(btn, sentence.receipts, type);
+        }
+      };
+    });
+    
+    // Render arbitration
+    renderArbitration(narrative.arbitration);
+    
+    // Render disambiguation
+    renderDisambiguation(narrative.disambiguation);
+  }
+
+  function validateNarrativeClient(narrative) {
+    // Check observations have evidence
+    for (const s of (narrative.sentences || [])) {
+      if (s.sentence_type === 'Observation') {
+        const evPtrs = s.receipts?.evidence_ptrs || [];
+        if (evPtrs.length === 0) return false;
+      }
+      if (s.sentence_type === 'Inference') {
+        const facts = s.receipts?.supporting_facts || [];
+        const slots = s.receipts?.supporting_slots || [];
+        if (facts.length === 0 && slots.length === 0) return false;
+      }
+    }
+    return true;
+  }
+
+  function showEvidenceReceipt(anchorEl, receipts, type) {
+    const tooltip = document.getElementById('evidenceReceiptTooltip');
+    if (!tooltip) return;
+    
+    const content = document.getElementById('receiptContent');
+    content.innerHTML = '';
+    
+    if (type === 'evidence') {
+      const ptrs = receipts.evidence_ptrs || [];
+      const excerpts = receipts.excerpts || [];
+      
+      for (let i = 0; i < ptrs.length; i++) {
+        const ptr = ptrs[i];
+        const excerpt = excerpts[i] || '';
+        const div = document.createElement('div');
+        div.className = 'p-2 bg-slate-900 rounded border border-slate-700';
+        div.innerHTML = `
+          <div class="text-sky-400 font-mono text-[10px]">${ptr.stream_id || ''}:${ptr.segment_id || ''}:${ptr.record_index || ''}</div>
+          ${ptr.source ? `<div class="text-slate-500 text-[10px]">${ptr.source}</div>` : ''}
+          ${excerpt ? `<div class="text-slate-300 mt-1 break-all">${escapeHtml(excerpt)}</div>` : ''}
+        `;
+        content.appendChild(div);
+      }
+      
+      if (ptrs.length === 0) {
+        content.innerHTML = '<div class="text-slate-400">No evidence pointers</div>';
+      }
+    } else if (type === 'facts') {
+      const facts = receipts.supporting_facts || [];
+      const slots = receipts.supporting_slots || [];
+      
+      for (const fact of facts) {
+        const div = document.createElement('div');
+        div.className = 'p-2 bg-slate-900 rounded border border-slate-700';
+        div.innerHTML = `
+          <div class="text-amber-400 text-[10px]">Fact: ${escapeHtml(fact.fact_type || fact)}</div>
+          ${fact.summary ? `<div class="text-slate-300 mt-1">${escapeHtml(fact.summary)}</div>` : ''}
+        `;
+        content.appendChild(div);
+      }
+      
+      if (slots.length > 0) {
+        const slotsDiv = document.createElement('div');
+        slotsDiv.className = 'p-2 bg-slate-900 rounded border border-slate-700';
+        slotsDiv.innerHTML = `
+          <div class="text-purple-400 text-[10px]">Supporting slots</div>
+          <div class="text-slate-300">${slots.join(', ')}</div>
+        `;
+        content.appendChild(slotsDiv);
+      }
+      
+      if (facts.length === 0 && slots.length === 0) {
+        content.innerHTML = '<div class="text-slate-400">No supporting facts or slots</div>';
+      }
+    }
+    
+    // Position tooltip near anchor
+    const rect = anchorEl.getBoundingClientRect();
+    tooltip.style.left = `${rect.left}px`;
+    tooltip.style.top = `${rect.bottom + 5}px`;
+    tooltip.classList.remove('hidden');
+    
+    // Close on click outside
+    const closeHandler = (e) => {
+      if (!tooltip.contains(e.target) && e.target !== anchorEl) {
+        tooltip.classList.add('hidden');
+        document.removeEventListener('click', closeHandler);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 0);
+  }
+
+  function renderArbitration(arb) {
+    if (!arb) {
+      document.getElementById('arbitrationSection').innerHTML = '<div class="text-slate-400">No arbitration data</div>';
+      return;
+    }
+    
+    // Winner
+    const winner = arb.winner;
+    if (winner) {
+      document.getElementById('arbWinnerName').textContent = winner.hypothesis_name || 'Unknown';
+      const slots = winner.slot_status || {};
+      document.getElementById('arbWinnerSlots').textContent = `${slots.filled_count || 0}/${slots.total_count || 0} filled`;
+      
+      const winReasons = document.getElementById('arbWinReasons');
+      winReasons.innerHTML = '';
+      for (const reason of (arb.win_reasons || ['Higher confidence'])) {
+        const li = document.createElement('li');
+        li.textContent = reason;
+        winReasons.appendChild(li);
+      }
+    }
+    
+    // Runner up
+    const runnerUp = arb.runner_up;
+    const runnerUpSection = document.getElementById('arbRunnerUpSection');
+    if (runnerUp) {
+      runnerUpSection.classList.remove('hidden');
+      document.getElementById('arbRunnerUpName').textContent = runnerUp.hypothesis_name || 'Unknown';
+      const slots = runnerUp.slot_status || {};
+      document.getElementById('arbRunnerUpSlots').textContent = `${slots.filled_count || 0}/${slots.total_count || 0} filled`;
+      
+      const lossReasons = document.getElementById('arbRunnerUpLoss');
+      lossReasons.innerHTML = '';
+      for (const reason of (arb.runner_up_loss_reasons || ['Lower slot fill'])) {
+        const li = document.createElement('li');
+        li.textContent = reason;
+        lossReasons.appendChild(li);
+      }
+    } else {
+      runnerUpSection.classList.add('hidden');
+    }
+    
+    // Third
+    const third = arb.third;
+    const thirdSection = document.getElementById('arbThirdSection');
+    if (third) {
+      thirdSection.classList.remove('hidden');
+      document.getElementById('arbThirdName').textContent = third.hypothesis_name || 'Unknown';
+      
+      const lossReasons = document.getElementById('arbThirdLoss');
+      lossReasons.innerHTML = '';
+      for (const reason of (arb.third_loss_reasons || ['Further from threshold'])) {
+        const li = document.createElement('li');
+        li.textContent = reason;
+        lossReasons.appendChild(li);
+      }
+    } else {
+      thirdSection.classList.add('hidden');
+    }
+  }
+
+  function renderDisambiguation(disamb) {
+    if (!disamb) {
+      document.getElementById('disambiguationSection').classList.add('hidden');
+      return;
+    }
+    
+    document.getElementById('disambiguationSection').classList.remove('hidden');
+    
+    // Ambiguity score
+    const scoreEl = document.getElementById('ambiguityScore');
+    const score = disamb.ambiguity_score || 0;
+    if (score < 0.3) {
+      scoreEl.textContent = 'Low ambiguity';
+      scoreEl.className = 'text-xs px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-300';
+    } else if (score < 0.6) {
+      scoreEl.textContent = 'Moderate ambiguity';
+      scoreEl.className = 'text-xs px-2 py-0.5 rounded bg-amber-600/20 text-amber-300';
+    } else {
+      scoreEl.textContent = 'High ambiguity';
+      scoreEl.className = 'text-xs px-2 py-0.5 rounded bg-rose-600/20 text-rose-300';
+    }
+    
+    // Questions
+    const questionsEl = document.getElementById('disambiguationQuestions');
+    questionsEl.innerHTML = '';
+    for (const q of (disamb.questions || [])) {
+      const div = document.createElement('div');
+      div.className = 'p-2 rounded bg-slate-700/50';
+      div.innerHTML = `
+        <div class="text-sm text-slate-200 mb-1">❓ ${escapeHtml(q.text)}</div>
+        <div class="text-xs text-slate-400">${escapeHtml(q.reason)}</div>
+      `;
+      questionsEl.appendChild(div);
+    }
+    
+    // Pivot actions
+    const pivotEl = document.getElementById('pivotActions');
+    pivotEl.innerHTML = '';
+    for (const p of (disamb.pivot_actions || [])) {
+      const div = document.createElement('div');
+      div.className = 'p-2 rounded bg-sky-900/30 border border-sky-700/50';
+      div.innerHTML = `
+        <div class="text-sm text-sky-300 mb-1">🔄 ${escapeHtml(p.description)}</div>
+        <div class="text-xs text-slate-400">Target: ${p.target_slot || 'general'} · Impact: ${p.estimated_impact || 'unknown'}</div>
+      `;
+      pivotEl.appendChild(div);
+    }
+    
+    // Capability suggestions
+    const capEl = document.getElementById('capabilitySuggestions');
+    capEl.innerHTML = '';
+    if ((disamb.capability_suggestions || []).length > 0) {
+      capEl.innerHTML = '<div class="text-xs text-slate-400 mb-2">💡 Missing capabilities:</div>';
+      for (const cap of disamb.capability_suggestions) {
+        const div = document.createElement('div');
+        div.className = 'p-2 rounded bg-purple-900/30 border border-purple-700/50 mb-1';
+        div.innerHTML = `
+          <div class="text-sm text-purple-300">${escapeHtml(cap.capability_name)}</div>
+          <div class="text-xs text-slate-400">${escapeHtml(cap.reason)}</div>
+        `;
+        capEl.appendChild(div);
+      }
+    }
+  }
+
+  // Wire up narrative UI
+  if (narrativeModal) {
+    document.getElementById('closeNarrativeModal').onclick = () => narrativeModal.close();
+    document.getElementById('narrativeDoneBtn').onclick = () => narrativeModal.close();
+    narrativeModal.onclick = (e) => {
+      if (e.target === narrativeModal) narrativeModal.close();
+    };
+    
+    // User action buttons
+    document.getElementById('btnPinSentence')?.addEventListener('click', async () => {
+      const selected = document.querySelector('#narrativeSentences [data-selected]');
+      if (selected && currentNarrative) {
+        await saveNarrativeAction('pin', selected.dataset.sentenceId);
+      }
+    });
+    
+    document.getElementById('btnHideSentence')?.addEventListener('click', async () => {
+      const selected = document.querySelector('#narrativeSentences [data-selected]');
+      if (selected && currentNarrative) {
+        await saveNarrativeAction('hide', selected.dataset.sentenceId);
+      }
+    });
+    
+    document.getElementById('btnVerifyEvidence')?.addEventListener('click', async () => {
+      if (currentNarrative) {
+        await saveNarrativeAction('verify', null, 'User verified evidence');
+        alert('Evidence marked as verified');
+      }
+    });
+    
+    document.getElementById('btnExportNarrative')?.addEventListener('click', () => {
+      if (currentNarrative) {
+        const blob = new Blob([JSON.stringify(currentNarrative, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `narrative_${currentNarrative.signal_id}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    });
+  }
+
+  async function saveNarrativeAction(actionType, sentenceId, notes) {
+    if (!currentNarrative) return;
+    
+    try {
+      await fetch(`/api/narratives/${currentNarrative.narrative_id}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sentence_id: sentenceId,
+          action_type: actionType,
+          notes: notes
+        })
+      });
+    } catch (err) {
+      console.error('Failed to save narrative action:', err);
+    }
+  }
+
+  // Wire up UI
+  if (refreshSignalsBtn) {
+    refreshSignalsBtn.onclick = loadSignals;
+  }
+  if (explainModal) {
+    document.getElementById('closeExplainModal').onclick = () => explainModal.close();
+    document.getElementById('explainDoneBtn').onclick = () => explainModal.close();
+    explainModal.onclick = (e) => {
+      if (e.target === explainModal) explainModal.close();
+    };
+  }
+
+  // Load signals on startup and every 30s
+  loadSignals();
+  setInterval(loadSignals, 30000);
 
   // ---------- Metrics poll ----------
   async function pollMetrics() {
@@ -1697,6 +2887,921 @@ window.attachExplainSummary = attachExplainSummary;
   
   // Poll visibility every 10 seconds
   setInterval(refreshVisibility, 10000);
+  
+  // ---------- Run Metrics Panel ----------
+  const metricsEmpty = document.getElementById('metricsEmpty');
+  const metricsContent = document.getElementById('metricsContent');
+  const btnRefreshMetrics = document.getElementById('btnRefreshMetrics');
+  const btnLoadMetricsFile = document.getElementById('btnLoadMetricsFile');
+  const metricsFileInput = document.getElementById('metricsFileInput');
+  
+  // Metrics display elements
+  const metricsRunId = document.getElementById('metricsRunId');
+  const metricsTimestamp = document.getElementById('metricsTimestamp');
+  const metricsDuration = document.getElementById('metricsDuration');
+  const metricsStatus = document.getElementById('metricsStatus');
+  const metricsSignals = document.getElementById('metricsSignals');
+  const metricsExplained = document.getElementById('metricsExplained');
+  const metricsPlaybooksHit = document.getElementById('metricsPlaybooksHit');
+  const metricsFalsePos = document.getElementById('metricsFalsePos');
+  const metricsEvents = document.getElementById('metricsEvents');
+  const metricsSegments = document.getElementById('metricsSegments');
+  const metricsChannels = document.getElementById('metricsChannels');
+  const metricsEps = document.getElementById('metricsEps');
+  const metricsDetails = document.getElementById('metricsDetails');
+  
+  // Verdict elements
+  const verdictTelemetry = document.getElementById('verdictTelemetry');
+  const verdictDetections = document.getElementById('verdictDetections');
+  const verdictExplain = document.getElementById('verdictExplain');
+  const verdictNoFake = document.getElementById('verdictNoFake');
+  
+  function setVerdict(el, pass, label) {
+    if (!el) return;
+    const icon = pass ? '✅' : '❌';
+    const color = pass ? 'text-emerald-400' : 'text-rose-400';
+    el.innerHTML = `<span class="w-4">${icon}</span><span class="${color}">${label}</span>`;
+  }
+  
+  function renderMetrics(data) {
+    if (!metricsContent || !metricsEmpty) return;
+    
+    metricsEmpty.classList.add('hidden');
+    metricsContent.classList.remove('hidden');
+    
+    // Summary
+    if (metricsRunId) metricsRunId.textContent = data.run_id || data.runId || '--';
+    if (metricsTimestamp) metricsTimestamp.textContent = data.timestamp || data.start_time || '--';
+    if (metricsDuration) metricsDuration.textContent = data.duration_ms ? `${data.duration_ms}ms` : (data.duration || '--');
+    if (metricsStatus) {
+      const status = data.status || data.result || 'unknown';
+      metricsStatus.textContent = status;
+      metricsStatus.className = status === 'pass' || status === 'success' ? 'text-emerald-400' : 
+                                status === 'fail' || status === 'error' ? 'text-rose-400' : 'text-amber-400';
+    }
+    
+    // Detections
+    const detections = data.detections || data.detection_stats || {};
+    if (metricsSignals) metricsSignals.textContent = detections.signals_count ?? data.signals_count ?? 0;
+    if (metricsExplained) metricsExplained.textContent = detections.explained_count ?? data.explained_count ?? 0;
+    if (metricsPlaybooksHit) metricsPlaybooksHit.textContent = detections.playbooks_hit ?? data.playbooks_hit ?? 0;
+    if (metricsFalsePos) metricsFalsePos.textContent = detections.false_positives ?? data.false_positives ?? 0;
+    
+    // Telemetry
+    const telemetry = data.telemetry || data.telemetry_stats || {};
+    if (metricsEvents) metricsEvents.textContent = telemetry.events_count ?? data.events_count ?? 0;
+    if (metricsSegments) metricsSegments.textContent = telemetry.segments_count ?? data.segments_count ?? 0;
+    if (metricsChannels) metricsChannels.textContent = telemetry.channels_count ?? data.channels?.length ?? 0;
+    if (metricsEps) metricsEps.textContent = telemetry.eps ?? data.eps ?? '--';
+    
+    // Verdicts
+    const verdicts = data.verdicts || data.checks || {};
+    const eventsOk = (telemetry.events_count ?? data.events_count ?? 0) > 0;
+    const detectionsOk = (detections.signals_count ?? data.signals_count ?? 0) > 0;
+    const explainOk = (detections.explained_count ?? data.explained_count ?? 0) > 0;
+    const noFake = verdicts.no_fake_detections !== false && (detections.false_positives ?? data.false_positives ?? 0) === 0;
+    
+    setVerdict(verdictTelemetry, verdicts.telemetry_flowing ?? eventsOk, 'Telemetry flowing');
+    setVerdict(verdictDetections, verdicts.detections_fired ?? detectionsOk, 'Detections fired');
+    setVerdict(verdictExplain, verdicts.explanations_valid ?? explainOk, 'Explanations valid');
+    setVerdict(verdictNoFake, noFake, 'No fake detections');
+    
+    // Details (raw JSON)
+    if (metricsDetails) {
+      metricsDetails.textContent = JSON.stringify(data, null, 2);
+    }
+  }
+  
+  // Load from file picker
+  if (btnLoadMetricsFile && metricsFileInput) {
+    btnLoadMetricsFile.onclick = () => metricsFileInput.click();
+    metricsFileInput.onchange = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        renderMetrics(data);
+        showToast(`✅ Loaded metrics: ${file.name}`, 'success');
+      } catch (err) {
+        showToast(`❌ Failed to parse metrics file: ${err.message}`, 'error');
+      }
+    };
+  }
+  
+  // Refresh from server (try to fetch latest metrics)
+  if (btnRefreshMetrics) {
+    btnRefreshMetrics.onclick = async () => {
+      try {
+        // Try /api/eval/metrics endpoint first
+        let resp = await fetch('/api/eval/metrics');
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && (data.run_id || data.runId || data.timestamp)) {
+            renderMetrics(data);
+            showToast('✅ Metrics refreshed from server', 'success');
+            return;
+          }
+        }
+        // Fall back to /api/signals/stats for basic metrics
+        resp = await fetch('/api/signals/stats');
+        if (resp.ok) {
+          const stats = await resp.json();
+          if (stats.data) {
+            renderMetrics({
+              run_id: 'live',
+              timestamp: new Date().toISOString(),
+              signals_count: stats.data.total || 0,
+              playbooks_hit: stats.data.by_playbook ? Object.keys(stats.data.by_playbook).length : 0,
+              status: 'live'
+            });
+            showToast('✅ Live stats refreshed', 'success');
+            return;
+          }
+        }
+        showToast('ℹ️ No metrics available - run eval_windows.ps1 first', 'info');
+      } catch (err) {
+        showToast(`❌ Failed to refresh metrics: ${err.message}`, 'error');
+      }
+    };
+  }
+  
+  // ---------- Pivot & Search Controls ----------
+  const pivotSearchInput = document.getElementById('pivotSearchInput');
+  const btnSearchEvents = document.getElementById('btnSearchEvents');
+  const btnSearchSignals = document.getElementById('btnSearchSignals');
+  const btnSearchFacts = document.getElementById('btnSearchFacts');
+  const pivotEntityType = document.getElementById('pivotEntityType');
+  const pivotEntityValue = document.getElementById('pivotEntityValue');
+  const btnPivotEntity = document.getElementById('btnPivotEntity');
+  const pivotResults = document.getElementById('pivotResults');
+  
+  async function doSearch(type) {
+    const query = pivotSearchInput?.value?.trim();
+    if (!query) {
+      showToast('Enter a search term', 'info');
+      return;
+    }
+    
+    if (!pivotResults) return;
+    pivotResults.textContent = 'Searching...';
+    
+    try {
+      let endpoint = '/api/signals';
+      let params = new URLSearchParams();
+      
+      if (type === 'events') {
+        // For events, we search via telemetry or just show a message
+        pivotResults.innerHTML = `<div class="text-slate-400">Event search for "${query}" - check Timeline panel</div>`;
+        return;
+      } else if (type === 'signals') {
+        params.set('query', query);
+        params.set('limit', '20');
+      } else if (type === 'facts') {
+        endpoint = '/api/facts/search';
+        params.set('q', query);
+        params.set('limit', '20');
+      }
+      
+      const resp = await fetch(`${endpoint}?${params}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        const items = data.data || data.signals || data.facts || [];
+        
+        if (items.length === 0) {
+          pivotResults.innerHTML = `<div class="text-slate-400">No results for "${query}"</div>`;
+        } else {
+          pivotResults.innerHTML = items.slice(0, 10).map(item => {
+            const id = item.id || item.signal_id || '--';
+            const label = item.playbook_id || item.label || item.type || 'signal';
+            return `<div class="truncate"><span class="text-cyan-400">${id.substring(0,8)}</span> ${label}</div>`;
+          }).join('');
+          if (items.length > 10) {
+            pivotResults.innerHTML += `<div class="text-slate-500">... and ${items.length - 10} more</div>`;
+          }
+        }
+      } else {
+        pivotResults.innerHTML = `<div class="text-rose-400">Search failed: ${resp.status}</div>`;
+      }
+    } catch (err) {
+      pivotResults.innerHTML = `<div class="text-rose-400">Error: ${err.message}</div>`;
+    }
+  }
+  
+  if (btnSearchEvents) btnSearchEvents.onclick = () => doSearch('events');
+  if (btnSearchSignals) btnSearchSignals.onclick = () => doSearch('signals');
+  if (btnSearchFacts) btnSearchFacts.onclick = () => doSearch('facts');
+  
+  // Pivot by entity
+  if (btnPivotEntity) {
+    btnPivotEntity.onclick = async () => {
+      const entityType = pivotEntityType?.value;
+      const entityValue = pivotEntityValue?.value?.trim();
+      
+      if (!entityType || !entityValue) {
+        showToast('Select entity type and enter value', 'info');
+        return;
+      }
+      
+      if (!pivotResults) return;
+      pivotResults.textContent = 'Pivoting...';
+      
+      try {
+        const params = new URLSearchParams();
+        params.set('entity_type', entityType);
+        params.set('entity_value', entityValue);
+        params.set('limit', '20');
+        
+        const resp = await fetch(`/api/signals?${params}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          const items = data.data || data.signals || [];
+          
+          if (items.length === 0) {
+            pivotResults.innerHTML = `<div class="text-slate-400">No ${entityType} matches for "${entityValue}"</div>`;
+          } else {
+            pivotResults.innerHTML = items.slice(0, 10).map(item => {
+              const id = item.id || item.signal_id || '--';
+              const label = item.playbook_id || item.label || 'signal';
+              const ts = item.ts ? new Date(item.ts * 1000).toLocaleTimeString() : '';
+              return `<div class="truncate"><span class="text-cyan-400">${id.substring(0,8)}</span> ${label} <span class="text-slate-500">${ts}</span></div>`;
+            }).join('');
+          }
+        } else {
+          pivotResults.innerHTML = `<div class="text-rose-400">Pivot failed: ${resp.status}</div>`;
+        }
+      } catch (err) {
+        pivotResults.innerHTML = `<div class="text-rose-400">Error: ${err.message}</div>`;
+      }
+    };
+  }
+  
+  // ============================================================================
+  // IMPORT CASES FUNCTIONALITY
+  // ============================================================================
+  
+  // Import state
+  let importedCases = [];
+  let selectedCaseId = null;
+  let selectedCase = null;
+  
+  // DOM elements for import
+  const importDropZone = document.getElementById('importDropZone');
+  const importFilePicker = document.getElementById('importFilePicker');
+  const importFolderPicker = document.getElementById('importFolderPicker');
+  const importFolderBtn = document.getElementById('importFolderBtn');
+  const importProgress = document.getElementById('importProgress');
+  const importProgressBar = document.getElementById('importProgressBar');
+  const importProgressPercent = document.getElementById('importProgressPercent');
+  const importProgressStatus = document.getElementById('importProgressStatus');
+  const casesList = document.getElementById('casesList');
+  const caseHeader = document.getElementById('caseHeader');
+  const caseTabs = document.getElementById('caseTabs');
+  const caseEmptyState = document.getElementById('caseEmptyState');
+  
+  // Case detail elements
+  const caseTitle = document.getElementById('caseTitle');
+  const caseFileCount = document.getElementById('caseFileCount');
+  const caseEventCount = document.getElementById('caseEventCount');
+  const caseSignalCount = document.getElementById('caseSignalCount');
+  const caseTimeRange = document.getElementById('caseTimeRange');
+  
+  // Case views
+  const caseTimelineView = document.getElementById('caseTimelineView');
+  const caseSignalsView = document.getElementById('caseSignalsView');
+  const caseEntitiesView = document.getElementById('caseEntitiesView');
+  const caseManifestView = document.getElementById('caseManifestView');
+  const caseNarrativeView = document.getElementById('caseNarrativeView');
+  
+  // Case sub-tabs
+  const caseTabTimeline = document.getElementById('caseTabTimeline');
+  const caseTabSignals = document.getElementById('caseTabSignals');
+  const caseTabEntities = document.getElementById('caseTabEntities');
+  const caseTabManifest = document.getElementById('caseTabManifest');
+  const caseTabNarrative = document.getElementById('caseTabNarrative');
+  
+  // Drag and drop handlers
+  if (importDropZone) {
+    importDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      importDropZone.classList.add('border-violet-500', 'bg-violet-500/10');
+    });
+    
+    importDropZone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      importDropZone.classList.remove('border-violet-500', 'bg-violet-500/10');
+    });
+    
+    importDropZone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      importDropZone.classList.remove('border-violet-500', 'bg-violet-500/10');
+      
+      const items = e.dataTransfer.items;
+      if (items && items.length > 0) {
+        // Check for folder
+        const item = items[0];
+        if (item.webkitGetAsEntry) {
+          const entry = item.webkitGetAsEntry();
+          if (entry && entry.isDirectory) {
+            await importFolder(entry);
+            return;
+          }
+        }
+        
+        // Handle files
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          await importFiles(files);
+        }
+      }
+    });
+  }
+  
+  // File picker handlers
+  if (importFilePicker) {
+    importFilePicker.addEventListener('change', async (e) => {
+      const files = e.target.files;
+      if (files && files.length > 0) {
+        await importFiles(files);
+      }
+      importFilePicker.value = '';
+    });
+  }
+  
+  if (importFolderBtn && importFolderPicker) {
+    importFolderBtn.addEventListener('click', () => {
+      importFolderPicker.click();
+    });
+    
+    importFolderPicker.addEventListener('change', async (e) => {
+      const files = e.target.files;
+      if (files && files.length > 0) {
+        await importFiles(files);
+      }
+      importFolderPicker.value = '';
+    });
+  }
+  
+  // Import files function
+  async function importFiles(files) {
+    showImportProgress();
+    updateImportProgress(10, 'Preparing files...');
+    
+    try {
+      // Create FormData with files
+      const formData = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+      }
+      
+      updateImportProgress(30, 'Uploading files...');
+      
+      const response = await fetch('/api/import/bundle', {
+        method: 'POST',
+        body: formData
+      });
+      
+      updateImportProgress(60, 'Processing...');
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || 'Import failed');
+      }
+      
+      const result = await response.json();
+      
+      updateImportProgress(80, 'Analyzing events...');
+      
+      // Add to cases list
+      importedCases.unshift(result);
+      
+      updateImportProgress(100, 'Complete!');
+      
+      setTimeout(() => {
+        hideImportProgress();
+        renderCasesList();
+        selectCase(result.bundle_id);
+        showToast('Import successful', `${result.files_count} files, ${result.events_count} events`);
+      }, 500);
+      
+    } catch (err) {
+      hideImportProgress();
+      showToast('Import failed', err.message, 'error');
+      console.error('Import error:', err);
+    }
+  }
+  
+  // Import folder (from drag-drop DirectoryEntry)
+  async function importFolder(entry) {
+    showImportProgress();
+    updateImportProgress(10, 'Reading folder...');
+    
+    try {
+      const files = [];
+      await readDirectoryRecursive(entry, files);
+      
+      if (files.length === 0) {
+        throw new Error('No files found in folder');
+      }
+      
+      updateImportProgress(20, `Found ${files.length} files...`);
+      await importFiles(files);
+      
+    } catch (err) {
+      hideImportProgress();
+      showToast('Import failed', err.message, 'error');
+      console.error('Folder import error:', err);
+    }
+  }
+  
+  // Recursively read directory entries
+  async function readDirectoryRecursive(entry, files, path = '') {
+    return new Promise((resolve, reject) => {
+      if (entry.isFile) {
+        entry.file(file => {
+          // Add path info
+          file.relativePath = path + file.name;
+          files.push(file);
+          resolve();
+        }, reject);
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        reader.readEntries(async (entries) => {
+          for (const e of entries) {
+            await readDirectoryRecursive(e, files, path + entry.name + '/');
+          }
+          resolve();
+        }, reject);
+      } else {
+        resolve();
+      }
+    });
+  }
+  
+  // Progress UI functions
+  function showImportProgress() {
+    if (importProgress) importProgress.classList.remove('hidden');
+  }
+  
+  function hideImportProgress() {
+    if (importProgress) importProgress.classList.add('hidden');
+  }
+  
+  function updateImportProgress(percent, status) {
+    if (importProgressBar) importProgressBar.style.width = `${percent}%`;
+    if (importProgressPercent) importProgressPercent.textContent = `${percent}%`;
+    if (importProgressStatus) importProgressStatus.textContent = status;
+  }
+  
+  // Load imported cases from server
+  async function loadImportedCases() {
+    try {
+      const response = await fetch('/api/import/cases');
+      if (response.ok) {
+        importedCases = await response.json();
+        renderCasesList();
+      }
+    } catch (err) {
+      console.error('Failed to load cases:', err);
+    }
+  }
+  
+  // Render cases list
+  function renderCasesList() {
+    if (!casesList) return;
+    
+    if (importedCases.length === 0) {
+      casesList.innerHTML = `
+        <div class="p-4 text-center text-xs text-slate-500">
+          No cases imported yet.<br/>
+          Import a bundle to get started.
+        </div>
+      `;
+      return;
+    }
+    
+    casesList.innerHTML = importedCases.map(c => `
+      <div class="case-item p-3 border-b border-slate-700 hover:bg-slate-800/50 cursor-pointer ${c.bundle_id === selectedCaseId ? 'bg-slate-800' : ''}" 
+           data-case-id="${c.bundle_id}">
+        <div class="flex items-center justify-between mb-1">
+          <div class="font-medium text-sm text-slate-200 truncate">${c.name || c.bundle_id}</div>
+          <div class="text-xs px-1.5 py-0.5 rounded ${c.signals_count > 0 ? 'bg-amber-700' : 'bg-slate-700'}">${c.signals_count || 0}</div>
+        </div>
+        <div class="flex items-center gap-2 text-xs text-slate-400">
+          <span>${c.files_count || 0} files</span>
+          <span>•</span>
+          <span>${c.events_count || 0} events</span>
+        </div>
+        <div class="text-xs text-slate-500 mt-1">${c.imported_at ? new Date(c.imported_at).toLocaleString() : '--'}</div>
+      </div>
+    `).join('');
+    
+    // Add click handlers
+    casesList.querySelectorAll('.case-item').forEach(item => {
+      item.addEventListener('click', () => {
+        selectCase(item.dataset.caseId);
+      });
+    });
+  }
+  
+  // Select a case
+  async function selectCase(caseId) {
+    selectedCaseId = caseId;
+    selectedCase = importedCases.find(c => c.bundle_id === caseId);
+    
+    if (!selectedCase) {
+      // Try to fetch from server
+      try {
+        const response = await fetch(`/api/import/cases/${caseId}`);
+        if (response.ok) {
+          selectedCase = await response.json();
+        }
+      } catch (err) {
+        console.error('Failed to load case:', err);
+      }
+    }
+    
+    renderCasesList();
+    renderCaseHeader();
+    showCaseTab('timeline');
+  }
+  
+  // Render case header
+  function renderCaseHeader() {
+    if (!selectedCase) {
+      if (caseHeader) caseHeader.classList.add('hidden');
+      if (caseTabs) caseTabs.classList.add('hidden');
+      if (caseEmptyState) caseEmptyState.classList.remove('hidden');
+      return;
+    }
+    
+    if (caseHeader) caseHeader.classList.remove('hidden');
+    if (caseTabs) caseTabs.classList.remove('hidden');
+    if (caseEmptyState) caseEmptyState.classList.add('hidden');
+    
+    if (caseTitle) caseTitle.textContent = `Case: ${selectedCase.name || selectedCase.bundle_id}`;
+    if (caseFileCount) caseFileCount.textContent = `${selectedCase.files_count || 0} files`;
+    if (caseEventCount) caseEventCount.textContent = `${selectedCase.events_count || 0} events`;
+    if (caseSignalCount) caseSignalCount.textContent = `${selectedCase.signals_count || 0} signals`;
+    if (caseTimeRange) caseTimeRange.textContent = selectedCase.time_range || '--';
+  }
+  
+  // Show case sub-tab
+  function showCaseTab(tab) {
+    // Hide all views
+    [caseTimelineView, caseSignalsView, caseEntitiesView, caseManifestView, caseNarrativeView].forEach(v => {
+      if (v) v.classList.add('hidden');
+    });
+    
+    // Update tab styles
+    [caseTabTimeline, caseTabSignals, caseTabEntities, caseTabManifest, caseTabNarrative].forEach(t => {
+      if (t) t.className = 'px-3 py-1 rounded bg-slate-800 text-slate-200';
+    });
+    
+    // Show selected view
+    switch (tab) {
+      case 'timeline':
+        if (caseTimelineView) caseTimelineView.classList.remove('hidden');
+        if (caseTabTimeline) caseTabTimeline.className = 'px-3 py-1 rounded bg-sky-600 text-white';
+        loadCaseTimeline();
+        break;
+      case 'signals':
+        if (caseSignalsView) caseSignalsView.classList.remove('hidden');
+        if (caseTabSignals) caseTabSignals.className = 'px-3 py-1 rounded bg-sky-600 text-white';
+        loadCaseSignals();
+        break;
+      case 'entities':
+        if (caseEntitiesView) caseEntitiesView.classList.remove('hidden');
+        if (caseTabEntities) caseTabEntities.className = 'px-3 py-1 rounded bg-sky-600 text-white';
+        loadCaseEntities();
+        break;
+      case 'manifest':
+        if (caseManifestView) caseManifestView.classList.remove('hidden');
+        if (caseTabManifest) caseTabManifest.className = 'px-3 py-1 rounded bg-sky-600 text-white';
+        loadCaseManifest();
+        break;
+      case 'narrative':
+        if (caseNarrativeView) caseNarrativeView.classList.remove('hidden');
+        if (caseTabNarrative) caseTabNarrative.className = 'px-3 py-1 rounded bg-sky-600 text-white';
+        break;
+    }
+  }
+  
+  // Tab click handlers
+  if (caseTabTimeline) caseTabTimeline.onclick = () => showCaseTab('timeline');
+  if (caseTabSignals) caseTabSignals.onclick = () => showCaseTab('signals');
+  if (caseTabEntities) caseTabEntities.onclick = () => showCaseTab('entities');
+  if (caseTabManifest) caseTabManifest.onclick = () => showCaseTab('manifest');
+  if (caseTabNarrative) caseTabNarrative.onclick = () => showCaseTab('narrative');
+  
+  // Load case timeline
+  async function loadCaseTimeline() {
+    if (!selectedCaseId) return;
+    const content = document.getElementById('timelineContent');
+    if (!content) return;
+    
+    content.innerHTML = '<div class="text-center text-xs text-slate-500 py-4">Loading timeline...</div>';
+    
+    try {
+      const response = await fetch(`/api/import/cases/${selectedCaseId}/timeline`);
+      if (!response.ok) throw new Error('Failed to load timeline');
+      
+      const events = await response.json();
+      
+      if (events.length === 0) {
+        content.innerHTML = '<div class="text-center text-xs text-slate-500 py-4">No events found</div>';
+        return;
+      }
+      
+      content.innerHTML = events.map(e => `
+        <div class="p-2 border-b border-slate-800 hover:bg-slate-800/50">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-500">${e.timestamp ? new Date(e.timestamp).toLocaleString() : '--'}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded bg-slate-700">${e.event_type || 'event'}</span>
+            </div>
+            <div class="flex gap-1">
+              ${(e.tags || []).slice(0, 3).map(t => `<span class="text-xs px-1 rounded bg-violet-700/50">${t}</span>`).join('')}
+            </div>
+          </div>
+          <div class="text-xs text-slate-300 mt-1 truncate">${summarizeEvent(e)}</div>
+          <div class="text-xs text-slate-500 mt-1">
+            <span class="font-mono">${e.source_file || '--'}</span>
+            ${e.source_line ? `<span class="ml-1">:${e.source_line}</span>` : ''}
+          </div>
+        </div>
+      `).join('');
+      
+    } catch (err) {
+      content.innerHTML = `<div class="text-center text-xs text-rose-400 py-4">Error: ${err.message}</div>`;
+    }
+  }
+  
+  // Load case signals
+  async function loadCaseSignals() {
+    if (!selectedCaseId) return;
+    const content = document.getElementById('signalsContent');
+    if (!content) return;
+    
+    content.innerHTML = '<div class="text-center text-xs text-slate-500 py-4">Loading signals...</div>';
+    
+    try {
+      const response = await fetch(`/api/import/cases/${selectedCaseId}/signals`);
+      if (!response.ok) throw new Error('Failed to load signals');
+      
+      const signals = await response.json();
+      
+      if (signals.length === 0) {
+        content.innerHTML = '<div class="text-center text-xs text-slate-500 py-4">No signals generated</div>';
+        return;
+      }
+      
+      content.innerHTML = signals.map(s => `
+        <div class="p-3 border-b border-slate-700 hover:bg-slate-800/50">
+          <div class="flex items-center justify-between mb-1">
+            <div class="flex items-center gap-2">
+              <span class="text-xs px-1.5 py-0.5 rounded ${severityBadgeClass(s.severity)}">${s.severity || 'info'}</span>
+              <span class="font-medium text-sm text-slate-200">${s.title || s.playbook_id || 'Signal'}</span>
+            </div>
+            <span class="text-xs text-slate-500">${s.timestamp ? new Date(s.timestamp).toLocaleString() : '--'}</span>
+          </div>
+          <div class="text-xs text-slate-400 mb-2">${s.description || '--'}</div>
+          <div class="flex gap-1 flex-wrap">
+            ${(s.tags || []).map(t => `<span class="text-xs px-1 rounded bg-slate-700">${t}</span>`).join('')}
+          </div>
+          ${s.evidence_ptr ? `
+            <div class="text-xs text-slate-500 mt-2 font-mono">
+              Evidence: ${s.evidence_ptr.rel_path}${s.evidence_ptr.line_no ? `:${s.evidence_ptr.line_no}` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+      
+    } catch (err) {
+      content.innerHTML = `<div class="text-center text-xs text-rose-400 py-4">Error: ${err.message}</div>`;
+    }
+  }
+  
+  // Load case entities
+  async function loadCaseEntities() {
+    if (!selectedCaseId) return;
+    
+    try {
+      const response = await fetch(`/api/import/cases/${selectedCaseId}/entities`);
+      if (!response.ok) throw new Error('Failed to load entities');
+      
+      const entities = await response.json();
+      
+      const domainsEl = document.getElementById('entitiesDomains');
+      const ipsEl = document.getElementById('entitiesIPs');
+      const urlsEl = document.getElementById('entitiesURLs');
+      const hashesEl = document.getElementById('entitiesHashes');
+      
+      if (domainsEl) {
+        domainsEl.innerHTML = (entities.domains || []).length > 0
+          ? entities.domains.map(d => `<div class="text-slate-200">${d}</div>`).join('')
+          : '<div class="text-slate-500">None</div>';
+      }
+      if (ipsEl) {
+        ipsEl.innerHTML = (entities.ips || []).length > 0
+          ? entities.ips.map(ip => `<div class="text-slate-200 font-mono">${ip}</div>`).join('')
+          : '<div class="text-slate-500">None</div>';
+      }
+      if (urlsEl) {
+        urlsEl.innerHTML = (entities.urls || []).length > 0
+          ? entities.urls.slice(0, 20).map(u => `<div class="text-slate-200 truncate" title="${u}">${u}</div>`).join('')
+          : '<div class="text-slate-500">None</div>';
+      }
+      if (hashesEl) {
+        hashesEl.innerHTML = (entities.hashes || []).length > 0
+          ? entities.hashes.map(h => `<div class="text-slate-200 font-mono text-xs">${h}</div>`).join('')
+          : '<div class="text-slate-500">None</div>';
+      }
+      
+    } catch (err) {
+      console.error('Failed to load entities:', err);
+    }
+  }
+  
+  // Load case manifest
+  async function loadCaseManifest() {
+    if (!selectedCaseId) return;
+    const content = document.getElementById('manifestContent');
+    if (!content) return;
+    
+    try {
+      const response = await fetch(`/api/import/cases/${selectedCaseId}/manifest`);
+      if (!response.ok) throw new Error('Failed to load manifest');
+      
+      const manifest = await response.json();
+      
+      content.innerHTML = (manifest.files || []).map(f => `
+        <tr class="hover:bg-slate-800/50">
+          <td class="px-3 py-2 text-slate-200 truncate max-w-[200px]" title="${f.rel_path}">${f.rel_path}</td>
+          <td class="px-3 py-2 text-slate-400">${f.kind || '--'}</td>
+          <td class="px-3 py-2 text-slate-400">${formatBytes(f.size_bytes)}</td>
+          <td class="px-3 py-2 text-slate-500 font-mono truncate max-w-[100px]" title="${f.sha256}">${f.sha256?.substring(0, 16) || '--'}...</td>
+          <td class="px-3 py-2">
+            <span class="px-1.5 py-0.5 rounded text-xs ${f.parsed ? 'bg-emerald-700' : 'bg-slate-700'}">${f.parsed ? '✓' : '-'}</span>
+          </td>
+          <td class="px-3 py-2 text-slate-400">${f.events_extracted || 0}</td>
+        </tr>
+      `).join('');
+      
+    } catch (err) {
+      content.innerHTML = `<tr><td colspan="6" class="text-center text-rose-400 py-4">Error: ${err.message}</td></tr>`;
+    }
+  }
+  
+  // Helper: summarize event
+  function summarizeEvent(e) {
+    const fields = e.fields || {};
+    if (fields.url) return fields.url;
+    if (fields.query) return `DNS: ${fields.query}`;
+    if (fields.domain) return fields.domain;
+    if (fields.method && fields.url) return `${fields.method} ${fields.url}`;
+    if (e.event_type === 'zeek_conn') {
+      return `${fields['id.orig_h'] || '--'} → ${fields['id.resp_h'] || '--'}:${fields['id.resp_p'] || '--'}`;
+    }
+    return e.event_type || 'Event';
+  }
+  
+  // Helper: severity badge class
+  function severityBadgeClass(sev) {
+    switch ((sev || '').toLowerCase()) {
+      case 'critical': return 'bg-rose-700';
+      case 'high': return 'bg-rose-600';
+      case 'medium': return 'bg-amber-600';
+      case 'low': return 'bg-emerald-700';
+      default: return 'bg-slate-700';
+    }
+  }
+  
+  // Helper: format bytes
+  function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+  
+  // Refresh cases button
+  const refreshCasesBtn = document.getElementById('refreshCasesBtn');
+  if (refreshCasesBtn) {
+    refreshCasesBtn.addEventListener('click', loadImportedCases);
+  }
+  
+  // Delete case button
+  const deleteCaseBtn = document.getElementById('deleteCaseBtn');
+  if (deleteCaseBtn) {
+    deleteCaseBtn.addEventListener('click', async () => {
+      if (!selectedCaseId) return;
+      if (!confirm('Delete this case? This cannot be undone.')) return;
+      
+      try {
+        const response = await fetch(`/api/import/cases/${selectedCaseId}`, { method: 'DELETE' });
+        if (response.ok) {
+          importedCases = importedCases.filter(c => c.bundle_id !== selectedCaseId);
+          selectedCaseId = null;
+          selectedCase = null;
+          renderCasesList();
+          renderCaseHeader();
+          showToast('Case deleted', 'success');
+        }
+      } catch (err) {
+        showToast('Delete failed', err.message, 'error');
+      }
+    });
+  }
+  
+  // Reprocess case button
+  const reprocessCaseBtn = document.getElementById('reprocessCaseBtn');
+  if (reprocessCaseBtn) {
+    reprocessCaseBtn.addEventListener('click', async () => {
+      if (!selectedCaseId) return;
+      
+      reprocessCaseBtn.disabled = true;
+      reprocessCaseBtn.textContent = 'Processing...';
+      
+      try {
+        const response = await fetch(`/api/import/cases/${selectedCaseId}/reprocess`, { method: 'POST' });
+        if (response.ok) {
+          const result = await response.json();
+          selectedCase = result;
+          renderCaseHeader();
+          showCaseTab('signals');
+          showToast('Reprocessed', `${result.signals_count} signals generated`);
+        }
+      } catch (err) {
+        showToast('Reprocess failed', err.message, 'error');
+      } finally {
+        reprocessCaseBtn.disabled = false;
+        reprocessCaseBtn.textContent = '🔄 Reprocess';
+      }
+    });
+  }
+  
+  // Export case button
+  const exportCaseBtn = document.getElementById('exportCaseBtn');
+  if (exportCaseBtn) {
+    exportCaseBtn.addEventListener('click', async () => {
+      if (!selectedCaseId) return;
+      
+      try {
+        const response = await fetch(`/api/import/cases/${selectedCaseId}/export`);
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `case_${selectedCaseId}.zip`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        }
+      } catch (err) {
+        showToast('Export failed', err.message, 'error');
+      }
+    });
+  }
+  
+  // Generate narrative button
+  const generateNarrativeBtn = document.getElementById('generateNarrativeBtn');
+  if (generateNarrativeBtn) {
+    generateNarrativeBtn.addEventListener('click', async () => {
+      if (!selectedCaseId) return;
+      
+      const narrativeContent = document.getElementById('narrativeContent');
+      if (narrativeContent) {
+        narrativeContent.innerHTML = '<div class="text-center text-slate-400 py-4">Generating narrative...</div>';
+      }
+      
+      try {
+        const response = await fetch(`/api/import/cases/${selectedCaseId}/narrative`, { method: 'POST' });
+        if (response.ok) {
+          const result = await response.json();
+          if (narrativeContent) {
+            narrativeContent.innerHTML = `
+              <h3 class="text-lg font-semibold mb-3">${result.title || 'Investigation Summary'}</h3>
+              <div class="text-slate-300 whitespace-pre-wrap">${result.narrative || 'No narrative generated.'}</div>
+              ${result.recommendations ? `
+                <h4 class="text-md font-medium mt-4 mb-2">Recommendations</h4>
+                <ul class="list-disc list-inside text-slate-400">
+                  ${result.recommendations.map(r => `<li>${r}</li>`).join('')}
+                </ul>
+              ` : ''}
+            `;
+          }
+        }
+      } catch (err) {
+        if (narrativeContent) {
+          narrativeContent.innerHTML = `<div class="text-center text-rose-400 py-4">Error: ${err.message}</div>`;
+        }
+      }
+    });
+  }
   
   // Initialize on load
   if (document.readyState === 'loading') {

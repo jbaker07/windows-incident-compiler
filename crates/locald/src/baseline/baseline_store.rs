@@ -4,7 +4,7 @@
 use super::types::HostBaseline;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub struct BaselineStore {
     baselines: HashMap<String, HostBaseline>,
@@ -32,7 +32,7 @@ impl BaselineStore {
             let entry = entry?;
             let path = entry.path();
 
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "json") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
                 if let Ok(contents) = fs::read_to_string(&path) {
                     if let Ok(baseline) = serde_json::from_str::<HostBaseline>(&contents) {
                         self.baselines.insert(baseline.host.clone(), baseline);
@@ -78,7 +78,7 @@ impl BaselineStore {
 
     /// Save all baselines
     pub fn save_all(&self) -> std::io::Result<()> {
-        for (host, _) in &self.baselines {
+        for host in self.baselines.keys() {
             self.save(host)?;
         }
         Ok(())

@@ -52,6 +52,7 @@ pub struct FocusWindowSpec {
     pub t_max: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReportResponse {
     pub success: bool,
@@ -223,10 +224,8 @@ impl PdfRenderer {
     /// Render ReportBundle to PDF bytes
     pub fn render(&self, bundle: &ReportBundle) -> Result<Vec<u8>, String> {
         // Build list of font directories to search
-        let mut font_dirs: Vec<std::path::PathBuf> = FONT_DIRS
-            .iter()
-            .map(|s| std::path::PathBuf::from(s))
-            .collect();
+        let mut font_dirs: Vec<std::path::PathBuf> =
+            FONT_DIRS.iter().map(std::path::PathBuf::from).collect();
 
         // Add crate-relative fonts directory (for embedded fonts)
         if let Some(crate_fonts) = get_crate_fonts_dir() {
@@ -253,7 +252,7 @@ impl PdfRenderer {
 
         // Create document
         let mut doc = Document::new(font_family);
-        doc.set_title(&format!(
+        doc.set_title(format!(
             "Security Analysis Report - {}",
             bundle.metadata.report_id
         ));
@@ -829,6 +828,7 @@ impl ReportBundleBuilder {
     }
 
     /// Override the generated_at timestamp (for deterministic golden bundle generation)
+    #[allow(dead_code)]
     pub fn with_generated_at(mut self, ts: DateTime<Utc>) -> Self {
         self.bundle.metadata.generated_at = ts;
         self
@@ -845,6 +845,7 @@ impl ReportBundleBuilder {
         self
     }
 
+    #[allow(dead_code)]
     pub fn with_time_window(mut self, t_min: DateTime<Utc>, t_max: DateTime<Utc>) -> Self {
         self.bundle.metadata.time_window = Some(TimeWindow {
             t_min,

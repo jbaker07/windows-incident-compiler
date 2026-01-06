@@ -73,6 +73,7 @@ impl EvidencePtr {
 
 /// Result of dereferencing an EvidencePtr
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)] // RawSegment needs full bytes for forensic analysis
 pub enum DerefResult {
     /// Successfully retrieved canonical event from DB
     Canonical(CanonicalEvent),
@@ -506,6 +507,7 @@ pub struct LinuxEbpfAdapter;
 /// Engine for dereferencing EvidencePtrs
 pub struct EvidenceDerefEngine {
     /// Database connection for canonical table lookups
+    #[allow(dead_code)]
     db_path: String,
     /// Segment storage root path
     segment_root: String,

@@ -194,12 +194,8 @@ impl IntegrationApiState {
         profiles.insert("jsonl_export".to_string(), jsonl.clone());
 
         // Add sample events
-        samples.insert("wazuh_main".to_string(), vec![
-            create_sample_wazuh_event(),
-        ]);
-        samples.insert("zeek_network".to_string(), vec![
-            create_sample_zeek_event(),
-        ]);
+        samples.insert("wazuh_main".to_string(), vec![create_sample_wazuh_event()]);
+        samples.insert("zeek_network".to_string(), vec![create_sample_zeek_event()]);
 
         // Create collectors
         let collectors = vec![
@@ -320,6 +316,7 @@ fn default_limit() -> usize {
 // ============================================================================
 
 /// GET /api/integrations - List integration profiles
+#[allow(dead_code)]
 pub async fn list_integrations(
     State(state): State<IntegrationApiState>,
     Query(query): Query<ListIntegrationsQuery>,
@@ -364,6 +361,7 @@ pub async fn list_integrations(
 }
 
 /// GET /api/integrations/:id - Get integration detail
+#[allow(dead_code)]
 pub async fn get_integration(
     State(state): State<IntegrationApiState>,
     Path(integration_id): Path<String>,
@@ -387,6 +385,7 @@ pub async fn get_integration(
 }
 
 /// GET /api/capabilities - Merged capabilities matrix
+#[allow(dead_code)]
 pub async fn get_capabilities(
     State(state): State<IntegrationApiState>,
     Query(query): Query<CapabilitiesQuery>,
@@ -412,9 +411,7 @@ pub async fn get_capabilities(
 
             // Add fact support (Hard for collectors)
             for fact_type in &collector.facts_supported {
-                let entry = fact_support
-                    .entry(fact_type.clone())
-                    .or_insert_with(HashMap::new);
+                let entry = fact_support.entry(fact_type.clone()).or_default();
                 entry.insert(collector.id.clone(), Fidelity::Hard);
             }
 
@@ -443,9 +440,7 @@ pub async fn get_capabilities(
 
         // Add fact support
         for (fact_type, fidelity) in &profile.facts_supported {
-            let entry = fact_support
-                .entry(fact_type.clone())
-                .or_insert_with(HashMap::new);
+            let entry = fact_support.entry(fact_type.clone()).or_default();
             entry.insert(id.clone(), *fidelity);
         }
 
@@ -463,6 +458,7 @@ pub async fn get_capabilities(
 }
 
 /// GET /api/integrations/:id/sample - Get sample events
+#[allow(dead_code)]
 pub async fn get_samples(
     State(state): State<IntegrationApiState>,
     Path(integration_id): Path<String>,
@@ -510,9 +506,7 @@ fn merge_join_keys(
     ];
 
     for (key_name, supported) in entries {
-        let entry = support
-            .entry(key_name.to_string())
-            .or_insert_with(HashMap::new);
+        let entry = support.entry(key_name.to_string()).or_default();
         entry.insert(source_id.to_string(), supported);
     }
 }
@@ -703,6 +697,7 @@ fn create_sample_zeek_event() -> MappedEventSample {
 // ============================================================================
 
 /// Build the integration API router
+#[allow(dead_code)]
 pub fn integration_api_router(state: IntegrationApiState) -> Router {
     Router::new()
         .route("/api/integrations", get(list_integrations))
@@ -762,9 +757,7 @@ pub async fn list_integrations_bridge(
 }
 
 /// Bridge handler for get_integration that creates its own state
-pub async fn get_integration_bridge(
-    Path(integration_id): Path<String>,
-) -> impl IntoResponse {
+pub async fn get_integration_bridge(Path(integration_id): Path<String>) -> impl IntoResponse {
     let state = IntegrationApiState::demo();
     let profiles = state.profiles.read().unwrap();
 
@@ -785,9 +778,7 @@ pub async fn get_integration_bridge(
 }
 
 /// Bridge handler for get_capabilities that creates its own state
-pub async fn get_capabilities_bridge(
-    Query(query): Query<CapabilitiesQuery>,
-) -> impl IntoResponse {
+pub async fn get_capabilities_bridge(Query(query): Query<CapabilitiesQuery>) -> impl IntoResponse {
     let state = IntegrationApiState::demo();
     let profiles = state.profiles.read().unwrap();
     let collectors = state.collectors.read().unwrap();
@@ -810,9 +801,7 @@ pub async fn get_capabilities_bridge(
 
             // Add fact support (Hard for collectors)
             for fact_type in &collector.facts_supported {
-                let entry = fact_support
-                    .entry(fact_type.clone())
-                    .or_insert_with(HashMap::new);
+                let entry = fact_support.entry(fact_type.clone()).or_default();
                 entry.insert(collector.id.clone(), Fidelity::Hard);
             }
 
@@ -841,9 +830,7 @@ pub async fn get_capabilities_bridge(
 
         // Add fact support
         for (fact_type, fidelity) in &profile.facts_supported {
-            let entry = fact_support
-                .entry(fact_type.clone())
-                .or_insert_with(HashMap::new);
+            let entry = fact_support.entry(fact_type.clone()).or_default();
             entry.insert(id.clone(), *fidelity);
         }
 

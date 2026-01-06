@@ -1,7 +1,6 @@
 //! Tests for Live Success Diagnostics and Probe functionality
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 // ============================================================================
 // Self-Check v2 API Tests
@@ -90,7 +89,7 @@ fn test_stream_diagnostic_schema() {
 #[test]
 fn test_issue_severity_ordering() {
     // Verify critical > error > warning > info
-    let severities = ["critical", "error", "warning", "info"];
+    let _severities = ["critical", "error", "warning", "info"];
 
     // Critical issues should appear first in sorted list
     let issues = vec![
@@ -157,7 +156,7 @@ fn test_missing_reason_descriptions() {
 /// Test: ProbeSpec defaults are sensible
 #[test]
 fn test_probe_spec_defaults() {
-    let default_json = r#"{}"#;
+    let _default_json = r#"{}"#;
 
     // Parsing empty JSON should use defaults
     let parsed: serde_json::Value = serde_json::from_str(
@@ -338,7 +337,7 @@ fn test_os_specific_actions_defined() {
     let macos_actions = ["fix_perms_esf_monitor"];
     let linux_actions = ["fix_perms_ebpf_monitor"];
     let windows_actions = ["fix_perms_etw_monitor"];
-    let universal_actions = ["run_probe", "adjust_throttle", "check_storage"];
+    let _universal_actions = ["run_probe", "adjust_throttle", "check_storage"];
 
     // All OS-specific actions should have expected structure
     for action in &macos_actions {

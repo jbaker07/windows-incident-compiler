@@ -3,9 +3,9 @@
 //! "No incident, but something changed" UX:
 //! Diff view as a core product feature.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 // ============================================================================
 // Change Types
@@ -248,6 +248,7 @@ pub struct DiffEngine {
     /// Minimum significance to report
     min_significance: ChangeSignificance,
     /// Whether to track non-incident changes
+    #[allow(dead_code)]
     track_non_incident: bool,
 }
 
@@ -658,6 +659,7 @@ impl ChangeTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
 
     #[test]
     fn test_state_diff() {

@@ -338,7 +338,7 @@ impl VersionRegistry {
 
     /// Get version at a specific time
     pub fn version_at(&self, time: DateTime<Utc>) -> Option<&VersionSnapshot> {
-        self.history.iter().filter(|s| s.timestamp <= time).last()
+        self.history.iter().rfind(|s| s.timestamp <= time)
     }
 
     /// Get version by fingerprint
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_session_config_fingerprint() {
-        let mut config1 = SessionConfigVersion::new();
+        let config1 = SessionConfigVersion::new();
         let mut config2 = SessionConfigVersion::new();
 
         assert_eq!(config1.fingerprint(), config2.fingerprint());

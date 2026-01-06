@@ -1,0 +1,177 @@
+---
+# playbooks/import/signal_beaconing.yaml
+# Detection of C2 beaconing patterns in network traffic
+
+id: "import_beaconing_001"
+title: "Network Beaconing Detection"
+name: "C2 Beacon Pattern Detection"
+family: "command_and_control"
+version: "1.0"
+description: |
+  Detects command-and-control beaconing patterns by analyzing:
+  - Regular periodic connections to same destination
+  - Consistent packet sizes suggesting protocol
+  - Long-lived connections with regular data exchange
+  - HTTP/HTTPS heartbeat patterns
+  
+  Works with Zeek conn logs, HAR files, and JSONL network events.
+
+enabled: true
+confidence_threshold: 0.70
+
+sources:
+  - zeek_conn
+  - zeek_http
+  - har
+  - jsonl_network
+
+input_tags:
+  - network
+  - connection
+  - long_connection
+  - http_request
+
+mitre:
+  tactics:
+    - command_and_control
+  techniques:
+    - T1071.001  # Web Protocols
+    - T1095      # Non-Application Layer Protocol
+    - T1573      # Encrypted Channel
+
+input_facts:
+  required:
+    - network_connection
+  optional:
+    - http_request
+
+slots:
+  required:
+    - name: dest_ip
+      type: string
+      extract_from: "id.resp_h"
+    - name: dest_port
+      type: integer
+      extract_from: "id.resp_p"
+
+rules:
+  - name: "Periodic Connection Pattern"
+    description: "Regular connections at consistent intervals"
+    window: 3600  # 1 hour
+    conditions:
+      - event_type: zeek_conn
+    aggregation:
+      group_by: [dest_ip, dest_port]
+      min_count: 10
+      timing_analysis:
+        type: periodic
+        tolerance: 0.2  # 20% jitter tolerance
+        min_period: 30   # at least 30 seconds apart
+        max_period: 600  # at most 10 minutes
+    actions:
+      - severity: HIGH
+        tags:
+          - "beaconing"
+          - "periodic"
+          - "c2_suspect"
+    evidence:
+      - field: interval_seconds
+        description: "Average beacon interval"
+      - field: jitter_percent
+        description: "Timing variance"
+
+  - name: "HTTP Polling Pattern"
+    description: "Regular HTTP GET requests to same path"
+    window: 3600
+    conditions:
+      - field: method
+        equals: "GET"
+    aggregation:
+      group_by: [domain, url]
+      min_count: 20
+      timing_analysis:
+        type: periodic
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "http_polling"
+          - "beacon_suspect"
+
+  - name: "Consistent Response Sizes"
+    description: "Responses of same size (heartbeat pattern)"
+    window: 1800  # 30 minutes
+    conditions:
+      - field: response_size
+        not_equals: 0
+    aggregation:
+      group_by: [domain]
+      variance_check:
+        field: response_size
+        max_variance: 0.1  # sizes within 10%
+      min_count: 10
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "consistent_size"
+          - "heartbeat"
+
+  - name: "Long Duration Connection"
+    description: "Very long TCP connections (potential tunnel)"
+    conditions:
+      - event_type: zeek_conn
+      - field: duration
+        greater_than: 3600  # > 1 hour
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "long_connection"
+          - "tunnel_suspect"
+
+  - name: "Sleep Pattern Beacon"
+    description: "Connections with sleep/jitter pattern typical of implants"
+    window: 7200  # 2 hours
+    conditions:
+      - event_type: zeek_conn
+    aggregation:
+      group_by: [dest_ip]
+      timing_analysis:
+        type: sleep_jitter
+        base_sleep_range: [60, 300]
+        jitter_range: [0.1, 0.3]
+    actions:
+      - severity: HIGH
+        tags:
+          - "sleep_beacon"
+          - "implant_pattern"
+
+  - name: "Non-standard Port HTTPS"
+    description: "HTTPS traffic on non-standard ports"
+    conditions:
+      - event_type: zeek_conn
+      - field: service
+        equals: "ssl"
+      - field: "id.resp_p"
+        not_in: [443, 8443]
+    actions:
+      - severity: LOW
+        tags:
+          - "nonstandard_port"
+          - "ssl"
+
+response:
+  - type: "signal"
+    signal_name: "C2 Beaconing Pattern Detected"
+    priority: "high"
+    narrative_template: |
+      Potential command-and-control beaconing detected.
+      Destination: {dest_ip}:{dest_port}
+      Pattern: {beacon_pattern}
+      Beacon interval: ~{interval_seconds}s (±{jitter_percent}%)
+      Connection count: {connection_count}
+      Time span: {time_span}
+
+false_positives:
+  - "Heartbeat monitors and health checks"
+  - "Chat applications polling for messages"
+  - "Auto-update services"
+  - "Telemetry and analytics endpoints"

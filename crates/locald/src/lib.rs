@@ -54,6 +54,15 @@ mod slot_matcher_tests;
 // Evidence system with path safety (Ship Hardening)
 pub mod evidence;
 
+// Evidence dereference helper (for explainability)
+pub mod evidence_deref;
+
+// Explanation builder (for API responses)
+pub mod explanation_builder;
+
+// Narrative builder (evidence-cited narration)
+pub mod narrative_builder;
+
 // Credibility locks: path safety, namespace isolation, ZIP safety
 pub mod safety;
 
@@ -91,8 +100,8 @@ pub use hypothesis_controller::HypothesisController;
 
 // Re-export slot matcher types
 pub use slot_matcher::{
-    CapabilityLevel, CapabilityRegistry, PlaybookDef, PlaybookIndex, PlaybookSlot, 
-    SlotMatcher, SlotPredicate,
+    CapabilityLevel, CapabilityRegistry, PlaybookDef, PlaybookIndex, PlaybookSlot, SlotMatcher,
+    SlotPredicate,
 };
 
 // Re-export hypothesis types for incident compiler

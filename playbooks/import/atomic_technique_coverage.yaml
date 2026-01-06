@@ -1,0 +1,101 @@
+id: import-atomic-technique-coverage
+name: Atomic Red Team Technique Coverage
+version: "1.0.0"
+description: >
+  Correlates Atomic Red Team test execution results with detection gaps
+  to identify coverage and visibility issues.
+
+trigger:
+  required_events:
+    - type: technique_executed
+      source_adapter: atomic
+      min_count: 1
+
+correlation:
+  # Group by technique ID
+  group_by:
+    - fields: [technique_id]
+  time_window: 24h
+  
+  aggregate:
+    test_count: "count(*)"
+    success_count: "count_where(success == true)"
+    failure_count: "count_where(success == false)"
+
+signal_template:
+  title: "Atomic Test: {{technique_id}} - {{technique_name}}"
+  severity: info  # These are simulated attacks
+  confidence: high
+  
+  severity_modifiers:
+    # Promote to low if we have potential detection gaps
+    - condition: "success_count > 0 and detections_count == 0"
+      bump: low
+    - condition: "tactic == 'Credential Access'"
+      bump: low
+    - condition: "tactic == 'Defense Evasion'"
+      bump: low
+      
+  fields:
+    technique_id: "{{group.technique_id}}"
+    technique_name: "{{events | first | get: 'technique_name' | default: 'Unknown'}}"
+    tactic: "{{events | first | get: 'tactic' | default: 'Unknown'}}"
+    
+    test_count: "{{test_count}}"
+    success_count: "{{success_count}}"
+    failure_count: "{{failure_count}}"
+    success_rate: "{{success_count | div: test_count | times: 100 | round}}%"
+    
+    # Test details
+    test_names: "{{events | map: 'test_name' | unique}}"
+    hostnames: "{{events | map: 'hostname' | unique | reject: ''}}"
+    
+    # Detection correlation (placeholder - needs timeline correlation)
+    # In a real scenario, this would cross-reference with detection events
+    detections_count: 0
+    detection_gap: "{{success_count > 0 and detections_count == 0}}"
+    
+    # MITRE info
+    mitre_url: "https://attack.mitre.org/techniques/{{technique_id | replace: '.', '/'}}/"
+    
+  explanation:
+    summary: >
+      Atomic Red Team test(s) executed for {{technique_id}} ({{technique_name}}).
+      
+      Tactic: {{tactic}}
+      Tests run: {{test_count}} ({{success_count}} succeeded, {{failure_count}} failed)
+      Success rate: {{success_rate}}
+      
+      Tests executed:
+      {% for test in test_names %}
+      - {{test}}
+      {% endfor %}
+      
+      {% if detection_gap %}
+      ⚠️ DETECTION GAP: Technique executed successfully but no corresponding 
+      detection events found. Review detection coverage for {{technique_id}}.
+      {% endif %}
+      
+    recommendations:
+      - "Review detection rules for {{technique_id}}"
+      - "Check SIEM/EDR for alerts during test window"
+      - "Reference: {{mitre_url}}"
+      - "Document test results for purple team report"
+      
+    evidence_refs:
+      - "Test output: {{events | first | get: 'evidence_ptr'}}"
+      - "{{test_count}} test execution(s)"
+
+  tags:
+    - atomic
+    - red_team
+    - purple_team
+    - detection_validation
+    - "{{technique_id}}"
+    - "{{tactic | downcase | replace: ' ', '_'}}"
+    - import_signal
+
+metadata:
+  author: import-system
+  mitre_attack:
+    - "{{technique_id}}"

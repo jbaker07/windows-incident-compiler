@@ -7,6 +7,8 @@
 //! - Visibility panel
 //! - Disambiguator actions
 
+#![allow(dead_code)] // Test scaffolding may define unused structures
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

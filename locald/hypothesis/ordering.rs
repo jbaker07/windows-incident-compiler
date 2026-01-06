@@ -547,6 +547,7 @@ impl<T> Default for EventMerger<T> {
 // ============================================================================
 
 /// Verify that a sequence of events is in canonical order
+#[allow(clippy::result_large_err)] // Diagnostic context requires both event keys
 pub fn verify_ordering(keys: &[EventOrderKey]) -> Result<(), OrderingViolation> {
     for window in keys.windows(2) {
         if window[0] > window[1] {
@@ -892,7 +893,7 @@ mod tests {
         let (action, is_late) = gate.check_and_update("stream1", "seg1", 0, now);
         assert_eq!(action, LateArrivalAction::ProcessNormal);
         assert!(!is_late);
-        let baseline_watermark = gate.watermark.global_high;
+        let _baseline_watermark = gate.watermark.global_high;
 
         // Second: malicious/buggy event with timestamp +24 hours in the future
         let future_time = now + Duration::hours(24);
@@ -919,7 +920,7 @@ mod tests {
 
         // Third: normal event at current time should NOT be rejected as "late"
         let normal_time = now + Duration::seconds(1);
-        let (action, is_late) = gate.check_and_update("stream1", "seg1", 2, normal_time);
+        let (action, _is_late) = gate.check_and_update("stream1", "seg1", 2, normal_time);
 
         // This is the key assertion: normal events after a future-skewed event
         // should NOT be rejected or marked as excessively late

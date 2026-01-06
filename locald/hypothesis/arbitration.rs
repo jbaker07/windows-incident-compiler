@@ -4,11 +4,11 @@ use super::canonical_event::EvidencePtr;
 use super::disambiguator::Disambiguator;
 use super::hypothesis_state::{FillStrength, HypothesisState, HypothesisStatus, VisibilityState};
 use super::incident::Incident;
-use super::promotion::{calculate_confidence, calculate_maturity, Severity};
+use super::promotion::{calculate_confidence, Severity};
 use super::scope_keys::ScopeKey;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 // ============================================================================
 // Arbitration Configuration
@@ -346,6 +346,7 @@ impl ArbitrationEngine {
     }
 
     /// Apply absorption rules
+    #[allow(clippy::type_complexity)]
     fn apply_absorption<'a>(
         &self,
         scored: &[(f64, &'a HypothesisState)],

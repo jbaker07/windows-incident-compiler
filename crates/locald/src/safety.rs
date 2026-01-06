@@ -156,8 +156,8 @@ impl DataNamespace {
         }
     }
 
-    /// Parse from string
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// Parse from string representation
+    pub fn parse(s: &str) -> Option<Self> {
         if s == "live" {
             Some(DataNamespace::Live)
         } else if s.starts_with("imported_") {
@@ -294,14 +294,14 @@ mod tests {
 
         // Create a directory outside root
         let tempdir2 = TempDir::new().unwrap();
-        let outside_dir = tempdir2.path();
+        let _outside_dir = tempdir2.path();
 
         // Create a symlink inside root pointing outside
-        let symlink_path = root.join("escape");
+        let _symlink_path = root.join("escape");
         #[cfg(unix)]
         {
             use std::os::unix::fs as unix_fs;
-            let _ = unix_fs::symlink(outside_dir, &symlink_path);
+            let _ = unix_fs::symlink(_outside_dir, &_symlink_path);
 
             // Trying to join through the symlink should fail or return safely
             let result = safe_join_under(root, Path::new("escape"));
@@ -314,12 +314,12 @@ mod tests {
     #[test]
     fn test_data_namespace_conversions() {
         assert_eq!(DataNamespace::Live.as_str(), "live");
-        assert_eq!(DataNamespace::from_str("live"), Some(DataNamespace::Live));
+        assert_eq!(DataNamespace::parse("live"), Some(DataNamespace::Live));
 
         let imported = DataNamespace::Imported(12345);
         let s = imported.as_str();
         assert_eq!(s, "imported_12345");
-        assert_eq!(DataNamespace::from_str(&s), Some(imported));
+        assert_eq!(DataNamespace::parse(&s), Some(imported));
     }
 
     #[test]

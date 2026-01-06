@@ -2,13 +2,12 @@
 //!
 //! SQLite schema and queries for persistent storage.
 
-use super::canonical_event::{CanonicalEvent, EvidencePtr};
+use super::canonical_event::CanonicalEvent;
 use super::canonical_fact::Fact;
 use super::hypothesis_state::HypothesisState;
 use super::incident::Incident;
 use super::scope_keys::ScopeKey;
 use super::session::Session;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ============================================================================
@@ -985,7 +984,7 @@ mod tests {
 
     #[test]
     fn test_in_memory_storage() {
-        let mut storage = InMemoryStorage::new();
+        let storage = InMemoryStorage::new();
 
         // Just test that it compiles and basic operations work
         assert!(storage.events.is_empty());

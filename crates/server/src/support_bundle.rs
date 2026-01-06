@@ -158,6 +158,7 @@ impl RedactionMap {
 // File Hash Computation
 // ============================================================================
 
+#[allow(dead_code)]
 pub fn compute_sha256(data: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -203,7 +204,7 @@ impl LogCollector {
 
             if path.exists() {
                 if let Ok(content) = fs::read_to_string(&path) {
-                    let content_bytes = content.as_bytes().len();
+                    let content_bytes = content.len();
                     if total_bytes + content_bytes > max_bytes {
                         // Truncate to fit
                         let remaining = max_bytes - total_bytes;
@@ -283,6 +284,7 @@ impl SupportBundleBuilder {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_incident(mut self, incident_json: String) -> Self {
         self.latest_incident = Some(incident_json);
         self

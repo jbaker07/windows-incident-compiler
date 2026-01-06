@@ -1,0 +1,149 @@
+---
+# playbooks/windows/signal_registry_persistence.yaml
+# Detection of registry-based persistence mechanisms
+# Monitors Sysmon EventID 12-14 for suspicious registry modifications
+
+name: "Windows Registry Persistence"
+id: "windows_registry_persistence_001"
+version: "1.0"
+description: |
+  Detects registry-based persistence techniques.
+  Monitors:
+  - Run/RunOnce keys (classic persistence)
+  - HKLM/HKCU persistence paths
+  - Image File Execution Options (IFEO) for debugger hijacking
+  - Services registry modifications
+  - Winlogon shell hijacking
+
+enabled: true
+confidence_threshold: 0.65
+
+# Input signals from registry_monitor
+signals:
+  - tag: "windows_registry"
+  - tag: "registry_object_modified"
+  - tag: "registry_value_set"
+
+# Correlation rules
+rules:
+  - name: "Run/RunOnce Key Modification"
+    window: 300
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "registry_value_set"
+      - or:
+          - registry_key: "*\\Run"
+          - registry_key: "*\\RunOnce"
+    actions:
+      - severity: HIGH
+        tags:
+          - "persistence"
+          - "registry"
+          - "initial_access"
+    evidence:
+      - event_type: "registry_modification"
+        event_id: 13
+        field_mapping:
+          registry_key: "TargetObject"
+          registry_value: "Details"
+          process: "Image"
+          pid: "ProcessId"
+
+  - name: "IFEO Debugger Hijacking"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "registry_value_set"
+      - registry_key: "*\\Image File Execution Options\\*\\Debugger"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "persistence"
+          - "privilege_escalation"
+          - "fileless_malware"
+
+  - name: "Winlogon Shell Override"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "registry_value_set"
+      - registry_key: "*\\Winlogon\\Shell"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "persistence"
+          - "logon_hook"
+
+  - name: "Services Registry Modification"
+    window: 300
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "registry_object_modified"
+      - registry_key: "*\\Services\\*"
+      - not_process: "services.exe"
+    actions:
+      - severity: HIGH
+        tags:
+          - "persistence"
+          - "lateral_movement"
+
+# Playbook response
+response:
+  - type: "snapshot_registry"
+    target: "registry_hive"
+    action: "backup"
+    description: "Backup registry hive for forensics before remediation"
+
+  - type: "revert_registry"
+    target: "registry_key"
+    action: "remove_value"
+    description: "Remove malicious registry value/key"
+
+  - type: "audit_log"
+    description: "Log registry modification details and parent process chain"
+    fields:
+      - registry_path
+      - registry_value_data
+      - modifying_process
+      - process_command_line
+      - parent_process
+
+  - type: "alert"
+    channel: "siem"
+    title: "Registry Persistence Detected"
+    priority: "high"
+
+# Remediation steps
+remediation:
+  steps:
+    - "Export suspicious registry key for analysis: 'reg export HKLM\\key output.reg'"
+    - "Delete malicious registry value: 'reg delete HKLM\\path\\to\\key /v ValueName /f'"
+    - "Search registry for additional IOCs using 'reg query HKLM /s /d' for file paths"
+    - "Restart services if modified: 'net stop ServiceName && net start ServiceName'"
+    - "Verify Windows startup with 'msconfig' or Task Manager Startup tab"
+    - "Analyze parent process that performed the modification (forensics)"
+
+# Exceptions/whitelisting
+whitelist:
+  - processes:
+    - "svchost.exe"
+    - "services.exe"
+    - "spoolsv.exe"
+    - "wininit.exe"
+  - registry_paths:
+    - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+    - "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
+  - legitimate_values:
+    - "SecurityHealthService"
+    - "RealTimeProtection"
+    - "WindowsDefender"
+
+# Detection tuning
+tuning:
+  exclude_admin_accounts: false  # Alert on SYSTEM modifications too
+  exclude_system_processes: false
+  correlation_time_window: 300  # seconds

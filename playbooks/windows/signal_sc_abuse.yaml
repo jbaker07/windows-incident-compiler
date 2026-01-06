@@ -1,0 +1,137 @@
+---
+# playbooks/windows/signal_sc_abuse.yaml
+# Detection of sc.exe abuse for service manipulation
+
+id: "windows_sc_abuse_001"
+title: "SC Service Manipulation"
+name: "SC.exe Abuse Detection"
+family: "persistence"
+version: "2.0"
+description: |
+  Detects abuse of sc.exe for:
+  - Malicious service creation
+  - Security service manipulation
+  - Lateral movement via service
+  - Privilege escalation via service
+
+enabled: true
+confidence_threshold: 0.75
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+mitre:
+  tactics:
+    - persistence
+    - privilege_escalation
+    - defense_evasion
+  techniques:
+    - T1543.003  # Windows Service
+    - T1562.001  # Disable Security Tools
+
+input_facts:
+  required:
+    - Exec
+  optional:
+    - PersistArtifact
+
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)sc\\.exe"
+  optional:
+    - name: create_flag
+      type: string
+      pattern: "(?i)\\bcreate\\b"
+    - name: config_flag
+      type: string
+      pattern: "(?i)\\bconfig\\b"
+    - name: stop_flag
+      type: string
+      pattern: "(?i)\\bstop\\b"
+
+rules:
+  - name: "Service Creation"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)sc(\\.exe)?"
+      - field: cmdline
+        matches: "(?i)\\bcreate\\b.*binpath"
+    actions:
+      - severity: HIGH
+        tags:
+          - "service_creation"
+          - "persistence"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "Security Service Stop"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)sc(\\.exe)?"
+      - field: cmdline
+        matches: "(?i)\\bstop\\b.*(windefend|mpssvc|wscsvc|wuauserv|eventlog|sense)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "defense_evasion"
+          - "security_disable"
+
+  - name: "Service Binary Path Change"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)sc(\\.exe)?"
+      - field: cmdline
+        matches: "(?i)\\bconfig\\b.*binpath"
+    actions:
+      - severity: HIGH
+        tags:
+          - "service_hijack"
+          - "persistence"
+
+  - name: "Remote Service Creation"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)sc(\\.exe)?"
+      - field: cmdline
+        matches: "(?i)\\\\\\\\.*\\bcreate\\b"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "lateral_movement"
+          - "remote_service"
+
+  - name: "Service from Suspicious Path"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)sc(\\.exe)?"
+      - field: cmdline
+        matches: "(?i)binpath.*(%temp%|\\\\temp\\\\|\\\\appdata\\\\|\\\\users\\\\public)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "suspicious_location"
+          - "malware"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "SC.exe Abuse Detected"
+    priority: "high"
+
+false_positives:
+  - "IT administrators managing services"
+  - "Software installation scripts"

@@ -10,14 +10,11 @@
 //! - Efficient: O(1) index lookups, avoid O(N*M) scans
 //! - Capability-aware: DnsResolve SOFT facts only fill soft_required slots
 
-use crate::hypothesis::{
-    EvidencePtr, Fact, FactDomain, FactType, HypothesisState, HypothesisStatus, Slot, SlotFill,
-    SlotRequirement, ScopeKey,
-};
+use crate::hypothesis::{Fact, FactType, ScopeKey};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 // ============================================================================
 // Capability Model
@@ -58,7 +55,7 @@ impl CapabilityRegistry {
         reg.set_capability("ModuleLoad", CapabilityLevel::Hard);
         reg.set_capability("MemWX", CapabilityLevel::Hard);
         reg.set_capability("PrivilegeBoundary", CapabilityLevel::Hard);
-        
+
         // SOFT capabilities - best-effort
         reg.set_capability("DnsResolve", CapabilityLevel::Soft);
         reg.set_capability("AuthEvent", CapabilityLevel::Soft);
@@ -301,7 +298,7 @@ impl PlaybookIndex {
     /// Add a playbook to the index
     pub fn add_playbook(&mut self, mut playbook: PlaybookDef) {
         playbook.playbook_hash = playbook.compute_hash();
-        
+
         // Index each slot by fact type
         for slot in &playbook.slots {
             let entry = IndexEntry {
@@ -313,8 +310,9 @@ impl PlaybookIndex {
                 .or_default()
                 .push(entry);
         }
-        
-        self.playbooks.insert(playbook.playbook_id.clone(), playbook);
+
+        self.playbooks
+            .insert(playbook.playbook_id.clone(), playbook);
     }
 
     /// Get candidate playbooks for a fact type
@@ -379,6 +377,12 @@ pub struct SlotMatcher {
     capability_registry: CapabilityRegistry,
 }
 
+impl Default for SlotMatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SlotMatcher {
     pub fn new() -> Self {
         Self {
@@ -387,7 +391,9 @@ impl SlotMatcher {
     }
 
     pub fn with_capabilities(capability_registry: CapabilityRegistry) -> Self {
-        Self { capability_registry }
+        Self {
+            capability_registry,
+        }
     }
 
     /// Get fact type discriminant string
@@ -420,31 +426,26 @@ impl SlotMatcher {
     }
 
     /// Match a fact against a slot predicate
-    pub fn matches_slot(
-        &self,
-        fact: &Fact,
-        slot: &PlaybookSlot,
-    ) -> Option<FillStrength> {
+    pub fn matches_slot(&self, fact: &Fact, slot: &PlaybookSlot) -> Option<FillStrength> {
         let fact_type = Self::fact_type_discriminant(fact);
-        
+
         // Check fact type matches
         if slot.predicate.fact_type != fact_type {
             return None;
         }
 
         // Check capability gating for required slots
-        if slot.required {
-            if !self.capability_registry.can_fill_required(
-                fact_type,
-                slot.predicate.soft_required,
-            ) {
-                return None;
-            }
+        if slot.required
+            && !self
+                .capability_registry
+                .can_fill_required(fact_type, slot.predicate.soft_required)
+        {
+            return None;
         }
 
         // Evaluate additional predicate filters
         let strength = self.evaluate_predicate(fact, &slot.predicate)?;
-        
+
         Some(strength)
     }
 
@@ -643,18 +644,20 @@ impl FactIndexKey {
     pub fn from_fact(fact: &Fact, bucket_seconds: i64) -> Self {
         let time_bucket = fact.ts.timestamp() / bucket_seconds;
         let fact_type = SlotMatcher::fact_type_discriminant(fact).to_string();
-        
+
         // Extract salient fields for deduplication
         let salient_fields = match &fact.fact_type {
             FactType::Exec { path, .. } => path.clone(),
-            FactType::OutboundConnect { dst_ip, dst_port, .. } => {
+            FactType::OutboundConnect {
+                dst_ip, dst_port, ..
+            } => {
                 format!("{}:{}", dst_ip, dst_port)
             }
             FactType::WritePath { path, .. } => path.clone(),
             FactType::DnsResolve { query, .. } => query.clone(),
             _ => format!("{:?}", fact.fact_type),
         };
-        
+
         Self {
             host_id: fact.host_id.clone(),
             scope_key: fact.scope_key.to_string(),
@@ -700,7 +703,7 @@ mod tests {
     #[test]
     fn test_playbook_index() {
         let mut index = PlaybookIndex::new();
-        
+
         let playbook = PlaybookDef {
             playbook_id: "pb_test".to_string(),
             title: "Test Playbook".to_string(),
@@ -725,9 +728,9 @@ mod tests {
             narrative: None,
             playbook_hash: String::new(),
         };
-        
+
         index.add_playbook(playbook);
-        
+
         let candidates = index.candidates_for_fact_type("Exec");
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].0.playbook_id, "pb_test");
@@ -737,12 +740,12 @@ mod tests {
     #[test]
     fn test_capability_gating() {
         let registry = CapabilityRegistry::new();
-        
+
         // DNS is SOFT
         assert_eq!(registry.get_capability("DnsResolve"), CapabilityLevel::Soft);
         assert!(!registry.can_fill_required("DnsResolve", false));
         assert!(registry.can_fill_required("DnsResolve", true));
-        
+
         // Exec is HARD
         assert_eq!(registry.get_capability("Exec"), CapabilityLevel::Hard);
         assert!(registry.can_fill_required("Exec", false));
@@ -750,16 +753,18 @@ mod tests {
 
     #[test]
     fn test_hypothesis_key_determinism() {
-        let scope = ScopeKey::Process { key: "proc123".to_string() };
+        let scope = ScopeKey::Process {
+            key: "proc123".to_string(),
+        };
         let ts = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:05:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        
+
         let key1 = HypothesisKey::new("pb_test", "host1", &scope, ts, 600);
         let key2 = HypothesisKey::new("pb_test", "host1", &scope, ts, 600);
-        
+
         assert_eq!(key1.to_hypothesis_id(), key2.to_hypothesis_id());
-        
+
         // Different time bucket should produce different ID
         let ts2 = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:15:00Z")
             .unwrap()
@@ -770,8 +775,17 @@ mod tests {
 
     #[test]
     fn test_glob_matching() {
-        assert!(SlotMatcher::glob_matches("/Library/LaunchAgents/*.plist", "/Library/LaunchAgents/com.evil.plist"));
-        assert!(!SlotMatcher::glob_matches("/Library/LaunchAgents/*.plist", "/Library/LaunchDaemons/com.evil.plist"));
-        assert!(SlotMatcher::glob_matches("**/*.plist", "/any/path/file.plist"));
+        assert!(SlotMatcher::glob_matches(
+            "/Library/LaunchAgents/*.plist",
+            "/Library/LaunchAgents/com.evil.plist"
+        ));
+        assert!(!SlotMatcher::glob_matches(
+            "/Library/LaunchAgents/*.plist",
+            "/Library/LaunchDaemons/com.evil.plist"
+        ));
+        assert!(SlotMatcher::glob_matches(
+            "**/*.plist",
+            "/any/path/file.plist"
+        ));
     }
 }

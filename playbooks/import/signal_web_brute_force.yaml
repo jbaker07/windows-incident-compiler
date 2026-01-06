@@ -1,0 +1,151 @@
+---
+# playbooks/import/signal_web_brute_force.yaml
+# Detection of web-based authentication brute force attacks
+
+id: "import_web_brute_force_001"
+title: "Web Authentication Brute Force"
+name: "HTTP Auth Brute Force Detection"
+family: "credential_access"
+version: "1.0"
+description: |
+  Detects web-based brute force attacks by analyzing HTTP traffic for:
+  - Multiple 401/403 responses to authentication endpoints
+  - Rapid auth attempts from same source
+  - Username enumeration attempts
+  
+  Works with HAR files and HTTP logs (Zeek, JSONL).
+
+enabled: true
+confidence_threshold: 0.75
+
+# Data sources this playbook can consume
+sources:
+  - har
+  - zeek_http
+  - jsonl_http
+
+# Tags that route events to this playbook
+input_tags:
+  - auth_failure
+  - auth_endpoint
+  - http_post
+
+mitre:
+  tactics:
+    - credential_access
+    - initial_access
+  techniques:
+    - T1110.001  # Password Guessing
+    - T1110.003  # Password Spraying
+    - T1110.004  # Credential Stuffing
+
+input_facts:
+  required:
+    - http_request
+    - http_response
+
+slots:
+  required:
+    - name: target_domain
+      type: string
+      extract_from: domain
+    - name: auth_path
+      type: string
+      pattern: "(?i)/login|/auth|/signin|/oauth|/token|/api/auth"
+  optional:
+    - name: client_ip
+      type: string
+      extract_from: "id.orig_h"
+    - name: user_agent
+      type: string
+      extract_from: user_agent
+
+rules:
+  - name: "Multiple Auth Failures"
+    description: "Many 401/403 responses to same endpoint"
+    window: 300  # 5 minutes
+    threshold: 5
+    conditions:
+      - field: status
+        in: [401, 403]
+      - field: url
+        matches: "(?i)login|auth|signin|oauth|token"
+    aggregation:
+      group_by: [domain, url]
+      count: ">=5"
+    actions:
+      - severity: HIGH
+        tags:
+          - "brute_force"
+          - "credential_access"
+    evidence:
+      - field: "response_count"
+        description: "Number of auth failures"
+
+  - name: "Rapid Auth Attempts"
+    description: "Many auth requests in short window"
+    window: 60  # 1 minute
+    threshold: 10
+    conditions:
+      - field: method
+        equals: "POST"
+      - field: url
+        matches: "(?i)login|auth|signin"
+    aggregation:
+      group_by: [domain]
+      count: ">=10"
+    actions:
+      - severity: HIGH
+        tags:
+          - "rapid_auth"
+          - "brute_force"
+
+  - name: "Username Enumeration"
+    description: "Pattern suggesting username enumeration"
+    window: 300
+    conditions:
+      - field: status
+        in: [200, 401, 403, 404]
+      - field: url
+        matches: "(?i)/user/|/users/|/api/user|forgot.?password|reset"
+    aggregation:
+      group_by: [domain]
+      count: ">=20"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "enumeration"
+          - "recon"
+
+  - name: "Credential Stuffing Pattern"
+    description: "Consistent auth attempts with varying credentials"
+    window: 600  # 10 minutes
+    conditions:
+      - field: method
+        equals: "POST"
+      - field: status
+        in: [401, 403, 200]
+      - field: url
+        matches: "(?i)login|auth|signin"
+    aggregation:
+      group_by: [domain]
+      variance_check: timing  # Look for consistent timing
+    actions:
+      - severity: HIGH
+        tags:
+          - "credential_stuffing"
+          - "automated"
+
+response:
+  - type: "signal"
+    signal_name: "Web Brute Force Detected"
+    priority: "high"
+    narrative_template: |
+      Potential web authentication brute force detected against {target_domain}.
+      {auth_failure_count} failed authentication attempts observed in {time_window}.
+      Endpoints targeted: {target_paths}
+
+false_positives:
+  - "Misconfigured API clients with stale credentials"
+  - "Load balancer health checks hitting auth endpoints"
+  - "Legitimate forgot password workflows"

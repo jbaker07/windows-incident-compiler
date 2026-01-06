@@ -578,7 +578,7 @@ impl HypothesisState {
         };
 
         // Get fill info first, then release the borrow
-        let (should_update, fill_count, fill_first_ts, fill_last_ts, time_ok) = {
+        let (should_update, _fill_count, fill_first_ts, fill_last_ts, time_ok) = {
             let fill = match self.slot_fills.get(slot_id) {
                 Some(f) => f,
                 None => return,
@@ -624,7 +624,7 @@ impl HypothesisState {
         &self,
         slot: &Slot,
         fill_first_ts: DateTime<Utc>,
-        fill_last_ts: DateTime<Utc>,
+        _fill_last_ts: DateTime<Utc>,
     ) -> bool {
         for constraint in &slot.ordering_constraints {
             if constraint.after_slot == slot.slot_id {
@@ -646,6 +646,7 @@ impl HypothesisState {
     }
 
     /// Check ordering constraints for a slot
+    #[allow(dead_code)]
     fn check_ordering_constraints(&self, slot: &Slot, fill: &SlotFill) -> bool {
         self.check_ordering_constraints_internal(slot, fill.first_ts, fill.last_ts)
     }
@@ -838,7 +839,7 @@ impl HypothesisState {
     /// Create a hypothesis for testing purposes with minimal setup
     pub fn new_for_testing(
         hypothesis_id: &str,
-        host_id: &str,
+        _host_id: &str,
         scope_key: ScopeKey,
         family: &str,
         maturity_score: f64,

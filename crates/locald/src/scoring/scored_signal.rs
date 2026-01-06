@@ -85,8 +85,6 @@ mod tests {
 
     #[test]
     fn test_scored_signal_from_critical() {
-        use edr_core::EvidencePtr;
-
         let signal = SignalResult {
             signal_id: "sig_123".to_string(),
             signal_type: "LogEvasion".to_string(),

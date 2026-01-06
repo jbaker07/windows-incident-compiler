@@ -181,8 +181,8 @@ fn test_data_namespace_isolation() {
     assert_ne!(live.as_str(), imported.as_str());
 
     // Verify they can be parsed back
-    assert_eq!(DataNamespace::from_str(&live.as_str()), Some(live));
-    assert_eq!(DataNamespace::from_str(&imported.as_str()), Some(imported));
+    assert_eq!(DataNamespace::parse(&live.as_str()), Some(live));
+    assert_eq!(DataNamespace::parse(&imported.as_str()), Some(imported));
 
     // Verify they are not equal
     assert_ne!(live, imported);

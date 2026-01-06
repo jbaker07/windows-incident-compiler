@@ -4,7 +4,7 @@
 //! their health, drop rate, backlog/watermark status. Distinguishes "didn't happen"
 //! from "didn't see."
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -525,6 +525,7 @@ impl VisibilityDiff {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
 
     #[test]
     fn test_collector_confidence() {

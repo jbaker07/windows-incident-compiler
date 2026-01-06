@@ -16,6 +16,14 @@ path = "src/main.rs"
 name = "proof_run"
 path = "src/bin/proof_run.rs"
 
+[[bin]]
+name = "metrics_run"
+path = "src/bin/metrics_run.rs"
+
+[[bin]]
+name = "explain_harness"
+path = "src/bin/explain_harness.rs"
+
 [dependencies]
 edr-core = { path = "../core" }
 serde = { version = "1.0", features = ["derive"] }
@@ -28,7 +36,7 @@ sha2 = "0.10"
 rusqlite = { version = "0.29", features = ["bundled"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 anyhow = "1"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "blocking"] }
 nalgebra = "0.32"
 hex = "0.4"  # Required by hypothesis module for evidence hashes
 thiserror = "1"  # Ship hardening: path validation errors
@@ -36,6 +44,8 @@ log = "0.4"      # Ship hardening: logging for path validation
 serde_yaml = "0.9"  # Integration layer: config parsing
 hostname = "0.4"  # Proof Run: get system hostname
 regex = "1"  # Slot matcher: regex-based predicate matching
+ctrlc = "3.4"  # Graceful shutdown handling
+clap = { version = "4", features = ["derive"] }  # Explain harness: CLI args
 
 [dev-dependencies]
 tempfile = "3"

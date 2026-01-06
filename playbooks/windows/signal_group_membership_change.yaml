@@ -1,0 +1,115 @@
+---
+# playbooks/windows/signal_group_membership_change.yaml
+# Detection of sensitive group membership changes
+
+id: "windows_group_membership_001"
+title: "Sensitive Group Membership Change"
+name: "Group Membership Change Detection"
+family: "identity"
+version: "2.0"
+description: |
+  Detects changes to sensitive security groups:
+  - Administrators
+  - Domain Admins
+  - Enterprise Admins
+  - Schema Admins
+  - Backup Operators
+  - Remote Desktop Users
+
+enabled: true
+confidence_threshold: 0.85
+
+requires:
+  - security_log
+
+mitre:
+  tactics:
+    - persistence
+    - privilege_escalation
+  techniques:
+    - T1098      # Account Manipulation
+    - T1136      # Create Account
+
+input_facts:
+  required:
+    - AuthEvent  # Note: Using AuthEvent as proxy since we don't have GroupMembership fact type
+
+slots:
+  required:
+    - name: group_name
+      type: string
+      pattern: "(?i)(administrator|domain admin|enterprise admin|schema admin|backup operator)"
+    - name: target_user
+      type: string
+  optional:
+    - name: actor_user
+      type: string
+
+rules:
+  - name: "Admin Group Member Added"
+    window: 10
+    conditions:
+      - tag: "group_member_added"
+      - or:
+          - field: group
+            matches: "(?i)administrators"
+          - field: group
+            matches: "(?i)domain admins"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "privilege_escalation"
+          - "admin_group"
+    evidence:
+      - event_type: "group_membership"
+        event_id: [4728, 4732, 4756]
+        field_mapping:
+          group: "TargetUserName"
+          member: "MemberName"
+          actor: "SubjectUserName"
+
+  - name: "Enterprise Admin Added"
+    window: 10
+    conditions:
+      - tag: "group_member_added"
+      - field: group
+        matches: "(?i)enterprise admins"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "domain_escalation"
+          - "high_privilege"
+
+  - name: "Remote Desktop Users Added"
+    window: 10
+    conditions:
+      - tag: "group_member_added"
+      - field: group
+        matches: "(?i)remote desktop users"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "rdp_access"
+          - "lateral_movement_prep"
+
+  - name: "Backup Operators Added"
+    window: 10
+    conditions:
+      - tag: "group_member_added"
+      - field: group
+        matches: "(?i)backup operators"
+    actions:
+      - severity: HIGH
+        tags:
+          - "backup_escalation"
+          - "ntds_theft_risk"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "Sensitive Group Membership Changed"
+    priority: "critical"
+
+false_positives:
+  - "Legitimate user provisioning"
+  - "Scheduled admin rotations"

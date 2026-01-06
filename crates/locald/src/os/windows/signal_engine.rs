@@ -5,6 +5,7 @@ use crate::signal_result::{EvidenceRef, SignalResult};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::env;
 
 // Use edr_core Event
 use edr_core::Event;
@@ -93,10 +94,19 @@ pub struct WindowsSignalEngine {
     lsass_access: Vec<LsassSnap>,
     audit_events: Vec<AuditSnap>,
     last_fired: HashMap<String, i64>, // key: (signal_type|entity_hash), value: last_fired_ts
+    /// Workflow seed enabled (via EDR_WORKFLOW_SEED=1)
+    workflow_seed_enabled: bool,
+    /// Track if we've emitted workflow seed this run (emit once per boot)
+    workflow_seed_emitted: bool,
 }
 
 impl WindowsSignalEngine {
     pub fn new(host: String) -> Self {
+        // Check if workflow seed is enabled via env var
+        let workflow_seed_enabled = env::var("EDR_WORKFLOW_SEED")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(false);
+
         Self {
             host,
             proc_by_pid: HashMap::new(),
@@ -108,6 +118,8 @@ impl WindowsSignalEngine {
             lsass_access: Vec::new(),
             audit_events: Vec::new(),
             last_fired: HashMap::new(),
+            workflow_seed_enabled,
+            workflow_seed_emitted: false,
         }
     }
 
@@ -130,6 +142,14 @@ impl WindowsSignalEngine {
 
         // Compact old entries before processing
         self.compact(now);
+
+        // Check for workflow seed signal (enabled via EDR_WORKFLOW_SEED=1)
+        // Triggers on any Windows event log event - emits once per boot
+        if self.workflow_seed_enabled && !self.workflow_seed_emitted {
+            if let Some(signal) = self.maybe_emit_workflow_seed(event, now) {
+                signals.push(signal);
+            }
+        }
 
         // Route event based on tags
         for tag in &event.tags {
@@ -236,10 +256,7 @@ impl WindowsSignalEngine {
                 evidence: Self::make_evidence(event),
             };
             if snap.pid > 0 {
-                self.net_by_pid
-                    .entry(snap.pid)
-                    .or_insert_with(Vec::new)
-                    .push(snap);
+                self.net_by_pid.entry(snap.pid).or_default().push(snap);
             }
         }
     }
@@ -452,7 +469,7 @@ impl WindowsSignalEngine {
         // Fire on LSASS access (simplified: just presence)
         // Collect data first to avoid borrow issues
         let snap_data: Option<(String, i64, u32, EvidenceRef)> =
-            self.lsass_access.iter().rev().next().map(|snap| {
+            self.lsass_access.iter().next_back().map(|snap| {
                 (
                     snap.accessor_exe.clone(),
                     snap.ts,
@@ -499,7 +516,7 @@ impl WindowsSignalEngine {
     fn detect_remote_persistence(&mut self, now: i64, signals: &mut Vec<SignalResult>) {
         // Collect data first to avoid borrow issues
         let logon_data: Option<(String, i64, String, EvidenceRef)> =
-            self.logon_events.iter().rev().next().map(|logon| {
+            self.logon_events.iter().next_back().map(|logon| {
                 (
                     logon.user.clone(),
                     logon.ts,
@@ -611,6 +628,70 @@ impl WindowsSignalEngine {
                 self.record_fired("LateralShareAccess", entity_hash, now);
             }
         }
+    }
+
+    // ============ WORKFLOW SEED (for E2E testing) ============
+
+    /// Emit a workflow seed signal on first Windows event log event.
+    /// Enabled via EDR_WORKFLOW_SEED=1 environment variable.
+    /// Emits at most once per boot (dedup via workflow_seed_emitted flag).
+    fn maybe_emit_workflow_seed(&mut self, event: &Event, now: i64) -> Option<SignalResult> {
+        // Only trigger on Windows event log events (tag "event_log")
+        if !event.tags.contains(&"event_log".to_string()) {
+            return None;
+        }
+
+        // Extract provider and event_id for metadata
+        let provider = event
+            .fields
+            .get("windows.provider")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let event_id = event
+            .fields
+            .get("windows.event_id")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+
+        let channel = event
+            .fields
+            .get("windows.channel")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Mark as emitted so we don't spam
+        self.workflow_seed_emitted = true;
+
+        // Deterministic entity hash based on host (so it's stable per machine)
+        let entity_hash = format!("workflow_seed|{}", self.host);
+        let signal_id =
+            SignalResult::compute_signal_id(&self.host, "WorkflowSeed", &entity_hash, now);
+
+        Some(SignalResult {
+            signal_id,
+            signal_type: "WorkflowSeed".to_string(),
+            severity: "low".to_string(),
+            host: self.host.clone(),
+            ts: now,
+            ts_start: now,
+            ts_end: now,
+            proc_key: None,
+            file_key: None,
+            identity_key: None,
+            evidence_ptrs: vec![Self::make_evidence(event)],
+            dropped_evidence_count: 0,
+            metadata: serde_json::json!({
+                "purpose": "workflow_testing",
+                "provider": provider,
+                "event_id": event_id,
+                "channel": channel,
+                "signal_type": "workflow_seed",
+                "note": "This signal exists solely for E2E verification. Enable via EDR_WORKFLOW_SEED=1."
+            }),
+        })
     }
 
     // ============ UTILITY ============

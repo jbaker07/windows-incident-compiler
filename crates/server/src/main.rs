@@ -20,19 +20,13 @@ use axum::{
 };
 use bundle_exchange::{
     build_incident_bundle, create_imported_namespace, export_to_zip, import_bundle,
-    mark_as_imported, recompute_from_bundle, validate_bundle, ExportBundleRequest,
-    ExportBundleResponse, ImportBundleResponse, ImportedBundleRecord, ImportedBundleStore,
-    RecomputeRequest, RecomputeResult,
+    mark_as_imported, validate_bundle, ExportBundleRequest, ExportBundleResponse,
+    ImportBundleResponse, RecomputeRequest, RecomputeResult,
 };
-use capture_control::{
-    CaptureProfile, ProfileConfig, TelemetryThrottledSummary, ThrottleController, ThrottleDecision,
-    ThrottleVisibilityState,
-};
+use capture_control::{CaptureProfile, ProfileConfig, ThrottleController, ThrottleDecision};
 use db::Database;
-use diagnostics::{
-    ActionDetails, DiagnosticEngine, SelfCheckResponse, SelfCheckVerdict, StreamStats,
-};
-use probe::{ProbeResult, ProbeRunner, ProbeSpec};
+use diagnostics::DiagnosticEngine;
+use probe::{ProbeRunner, ProbeSpec};
 use report::{PdfRenderer, ReportRequest};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -71,7 +65,8 @@ struct AppState {
     diagnostic_engine: DiagnosticEngine,
     /// Probe runner for live telemetry verification
     probe_runner: ProbeRunner,
-    /// Server start time
+    /// Server start time (used for uptime reporting)
+    #[allow(dead_code)]
     start_time: chrono::DateTime<chrono::Utc>,
 }
 
@@ -122,12 +117,14 @@ struct UpdateSectionRequest {
 #[derive(Debug, Deserialize)]
 struct SessionControlRequest {
     action: String, // "start", "stop", "pause", "resume"
+    #[allow(dead_code)]
     note: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct AddMarkerRequest {
     marker_type: String, // "important", "phase_start", "phase_end", "note"
+    #[allow(dead_code)]
     note: Option<String>,
 }
 
@@ -153,6 +150,29 @@ struct SignalQueryParams {
     signal_type: Option<String>,
     severity: Option<String>,
     limit: Option<usize>,
+}
+
+// ============================================================================
+// Narrative & Mission Types
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+struct CreateMissionRequest {
+    name: String,
+    objective: String,
+    allowed_technique_families: Option<Vec<String>>,
+    allowed_playbooks: Option<Vec<String>>,
+    expected_observables: Option<Vec<String>>,
+    scope_constraints: Option<serde_json::Value>,
+    success_criteria: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct NarrativeActionRequest {
+    sentence_id: Option<String>,
+    evidence_ptr: Option<serde_json::Value>,
+    action_type: String, // "pin", "hide", "verify", "annotate", "merge", "split"
+    notes: Option<String>,
 }
 
 // ============================================================================
@@ -503,10 +523,624 @@ async fn get_signal(State(state): State<SharedState>, Path(id): Path<String>) ->
     }
 }
 
+/// Get explanation bundle for a signal
+async fn get_signal_explanation(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    // First check if signal exists
+    match state.db.get_signal(&id) {
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                ApiResponse::err(&format!("Signal '{}' not found", id)),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ApiResponse::err(&format!("Database error: {}", e)),
+            );
+        }
+        Ok(Some(_)) => {} // Signal exists, continue
+    }
+
+    // Get explanation from signal_explanations table
+    match state.db.get_signal_explanation(&id) {
+        Ok(Some(explanation)) => (StatusCode::OK, ApiResponse::ok(explanation)),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            ApiResponse::err(&format!("Explanation not found for signal '{}'. The signal may have been created before explainability was enabled.", id)),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ApiResponse::err(&format!("Database error: {}", e)),
+        ),
+    }
+}
+
 async fn signal_stats(State(state): State<SharedState>) -> impl IntoResponse {
     match state.db.signal_stats() {
         Ok(stats) => ApiResponse::ok(stats),
         Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
+    }
+}
+
+// ============================================================================
+// Narrative Endpoints
+// ============================================================================
+
+/// Get narrative for a signal. Generates from ExplanationBundle + arbitration if not cached.
+async fn get_signal_narrative(
+    State(state): State<SharedState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    // Check if narrative is already cached
+    match state.db.get_narrative(&id) {
+        Ok(Some(narrative)) => {
+            return (StatusCode::OK, ApiResponse::ok(narrative));
+        }
+        Ok(None) => {} // Not cached, generate below
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ApiResponse::err(&format!("Database error: {}", e)),
+            );
+        }
+    }
+
+    // Get explanation bundle to generate narrative
+    let explanation = match state.db.get_signal_explanation(&id) {
+        Ok(Some(exp)) => exp,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                ApiResponse::err(&format!(
+                    "No explanation available for signal '{}'. Cannot generate narrative.",
+                    id
+                )),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ApiResponse::err(&format!("Database error: {}", e)),
+            );
+        }
+    };
+
+    // Get active mission spec (if any) to determine mode
+    let mission_spec = state.db.get_active_mission_spec().ok().flatten();
+    let mode = if mission_spec.is_some() {
+        "Mission"
+    } else {
+        "Discovery"
+    };
+
+    // Build narrative from explanation bundle
+    let narrative_id = format!("narr_{}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Extract data from explanation
+    let matched_facts = explanation
+        .get("matched_facts")
+        .cloned()
+        .unwrap_or(serde_json::json!([]));
+    let slots = explanation
+        .get("slots")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
+    let hypothesis = explanation
+        .get("hypothesis_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown");
+
+    // Build sentences from matched facts (observations) and slot explanations (inferences)
+    let mut sentences = Vec::new();
+    let mut sentence_idx = 0;
+
+    // Add observation sentences from matched facts
+    if let Some(facts) = matched_facts.as_array() {
+        for fact in facts {
+            let fact_type = fact
+                .get("fact_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let summary = fact.get("summary").and_then(|v| v.as_str()).unwrap_or("");
+            let evidence_ptrs = fact
+                .get("evidence_pointers")
+                .cloned()
+                .unwrap_or(serde_json::json!([]));
+            let excerpts = fact
+                .get("excerpts")
+                .cloned()
+                .unwrap_or(serde_json::json!([]));
+
+            sentence_idx += 1;
+            sentences.push(serde_json::json!({
+                "sentence_id": format!("s_{}", sentence_idx),
+                "sentence_type": "Observation",
+                "text": summary,
+                "receipts": {
+                    "evidence_ptrs": evidence_ptrs,
+                    "excerpts": excerpts,
+                    "supporting_facts": [],
+                    "supporting_slots": []
+                },
+                "confidence": 1.0,
+                "tags": [fact_type]
+            }));
+        }
+    }
+
+    // Add inference sentences from slot explanations
+    if let Some(slots_obj) = slots.as_object() {
+        for (slot_name, slot_data) in slots_obj {
+            if let Some(explanation_text) = slot_data.get("explanation").and_then(|v| v.as_str()) {
+                let evidence_ptrs = slot_data
+                    .get("evidence_pointers")
+                    .cloned()
+                    .unwrap_or(serde_json::json!([]));
+                let supporting_facts = slot_data
+                    .get("supporting_facts")
+                    .cloned()
+                    .unwrap_or(serde_json::json!([]));
+                let is_filled = slot_data
+                    .get("filled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                if is_filled {
+                    sentence_idx += 1;
+                    sentences.push(serde_json::json!({
+                        "sentence_id": format!("s_{}", sentence_idx),
+                        "sentence_type": "Inference",
+                        "inference_label": slot_name,
+                        "text": explanation_text,
+                        "receipts": {
+                            "evidence_ptrs": evidence_ptrs,
+                            "excerpts": [],
+                            "supporting_facts": supporting_facts,
+                            "supporting_slots": [slot_name]
+                        },
+                        "confidence": slot_data.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.8),
+                        "tags": ["slot_fill"]
+                    }));
+                }
+            }
+        }
+    }
+
+    // Build arbitration doc from explanation
+    let arbitration = if let Some(arb) = explanation.get("arbitration") {
+        build_arbitration_doc(arb)
+    } else {
+        serde_json::json!({
+            "winner": {
+                "hypothesis_name": hypothesis,
+                "rank": 1,
+                "score": 1.0,
+                "slot_status": {"filled_count": 0, "total_count": 0, "missing": []},
+                "key_evidence": [],
+                "missing_observables": [],
+                "capability_gaps": []
+            },
+            "runner_up": null,
+            "third": null,
+            "win_reasons": ["Only hypothesis evaluated"],
+            "runner_up_loss_reasons": [],
+            "third_loss_reasons": []
+        })
+    };
+
+    // Build disambiguation from missing slots/capability gaps
+    let disambiguation = build_disambiguation_doc(&explanation);
+
+    // Construct full narrative document
+    let narrative = serde_json::json!({
+        "narrative_id": narrative_id,
+        "signal_id": id,
+        "version": 1,
+        "generated_at": now,
+        "sentences": sentences,
+        "arbitration": arbitration,
+        "disambiguation": disambiguation,
+        "mode_context": {
+            "mode": mode,
+            "mission_spec": mission_spec,
+            "pivot_suggestions": [],
+            "user_actions": []
+        },
+        "input_hash": format!("{:x}", md5::compute(serde_json::to_string(&explanation).unwrap_or_default()))
+    });
+
+    // Cache the narrative
+    if let Err(e) = state.db.save_narrative(&narrative) {
+        tracing::warn!("Failed to cache narrative: {}", e);
+    }
+
+    (StatusCode::OK, ApiResponse::ok(narrative))
+}
+
+/// Build arbitration doc from raw arbitration response
+fn build_arbitration_doc(arb: &serde_json::Value) -> serde_json::Value {
+    let candidates = arb.get("candidates").and_then(|v| v.as_array());
+
+    let build_ranked = |candidate: Option<&serde_json::Value>, rank: u32| -> serde_json::Value {
+        match candidate {
+            Some(c) => serde_json::json!({
+                "hypothesis_name": c.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"),
+                "rank": rank,
+                "score": c.get("score").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                "slot_status": c.get("slot_status").cloned().unwrap_or(serde_json::json!({
+                    "filled_count": 0,
+                    "total_count": 0,
+                    "missing": []
+                })),
+                "key_evidence": c.get("key_evidence").cloned().unwrap_or(serde_json::json!([])),
+                "missing_observables": c.get("missing_observables").cloned().unwrap_or(serde_json::json!([])),
+                "capability_gaps": c.get("capability_gaps").cloned().unwrap_or(serde_json::json!([]))
+            }),
+            None => serde_json::json!(null),
+        }
+    };
+
+    let (winner, runner_up, third) = if let Some(cands) = candidates {
+        (
+            build_ranked(cands.first(), 1),
+            build_ranked(cands.get(1), 2),
+            build_ranked(cands.get(2), 3),
+        )
+    } else {
+        (
+            serde_json::json!(null),
+            serde_json::json!(null),
+            serde_json::json!(null),
+        )
+    };
+
+    // Extract win/loss reasons
+    let win_reasons = arb
+        .get("win_reasons")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!(["Higher slot fill ratio"]));
+    let runner_up_loss = arb
+        .get("runner_up_loss_reasons")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let third_loss = arb
+        .get("third_loss_reasons")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+
+    serde_json::json!({
+        "winner": winner,
+        "runner_up": runner_up,
+        "third": third,
+        "win_reasons": win_reasons,
+        "runner_up_loss_reasons": runner_up_loss,
+        "third_loss_reasons": third_loss
+    })
+}
+
+/// Build disambiguation doc from explanation gaps
+fn build_disambiguation_doc(explanation: &serde_json::Value) -> serde_json::Value {
+    let mut questions = Vec::new();
+    let mut pivot_actions = Vec::new();
+    let mut capability_suggestions = Vec::new();
+
+    // Extract missing slots
+    if let Some(slots) = explanation.get("slots").and_then(|v| v.as_object()) {
+        for (slot_name, slot_data) in slots {
+            let is_filled = slot_data
+                .get("filled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !is_filled {
+                let description = slot_data
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Additional evidence needed");
+
+                questions.push(serde_json::json!({
+                    "question_id": format!("q_{}", slot_name),
+                    "text": format!("What would satisfy the '{}' slot?", slot_name),
+                    "reason": format!("Slot '{}' is unfilled: {}", slot_name, description),
+                    "expected_answer_type": "evidence",
+                    "related_facts": [],
+                    "priority": "high"
+                }));
+
+                // Suggest pivot action to fill this slot
+                pivot_actions.push(serde_json::json!({
+                    "action_id": format!("piv_{}", slot_name),
+                    "action_type": "evidence_search",
+                    "description": format!("Search for evidence to fill '{}' slot", slot_name),
+                    "target_slot": slot_name,
+                    "estimated_impact": "high"
+                }));
+            }
+        }
+    }
+
+    // Extract capability gaps
+    if let Some(gaps) = explanation
+        .get("capability_gaps")
+        .and_then(|v| v.as_array())
+    {
+        for gap in gaps {
+            let integration = gap
+                .get("integration")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Unknown");
+            let missing_type = gap
+                .get("missing_type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("telemetry");
+
+            capability_suggestions.push(serde_json::json!({
+                "suggestion_id": format!("cap_{}", integration),
+                "capability_name": integration,
+                "reason": format!("Missing {} from {}", missing_type, integration),
+                "expected_benefit": "Would provide additional visibility",
+                "integration_link": null,
+                "priority": "medium"
+            }));
+        }
+    }
+
+    // Calculate ambiguity score based on questions and gaps
+    let ambiguity_score = if questions.is_empty() && capability_suggestions.is_empty() {
+        0.0
+    } else {
+        let question_weight = questions.len() as f64 * 0.15;
+        let gap_weight = capability_suggestions.len() as f64 * 0.1;
+        (question_weight + gap_weight).min(1.0)
+    };
+
+    serde_json::json!({
+        "questions": questions,
+        "pivot_actions": pivot_actions,
+        "capability_suggestions": capability_suggestions,
+        "ambiguity_score": ambiguity_score
+    })
+}
+
+/// Record a user action on a narrative
+async fn create_narrative_action(
+    State(state): State<SharedState>,
+    Path(narrative_id): Path<String>,
+    Json(request): Json<NarrativeActionRequest>,
+) -> impl IntoResponse {
+    // Verify narrative exists
+    match state.db.get_narrative_by_id(&narrative_id) {
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                ApiResponse::err(&format!("Narrative '{}' not found", narrative_id)),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ApiResponse::err(&format!("Database error: {}", e)),
+            );
+        }
+        Ok(Some(_)) => {}
+    }
+
+    match state.db.save_narrative_action(
+        &narrative_id,
+        request.sentence_id.as_deref(),
+        request.evidence_ptr.as_ref(),
+        &request.action_type,
+        request.notes.as_deref(),
+    ) {
+        Ok(action_id) => (
+            StatusCode::CREATED,
+            ApiResponse::ok(serde_json::json!({
+                "action_id": action_id,
+                "narrative_id": narrative_id,
+                "action_type": request.action_type
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ApiResponse::err(&format!("Failed to save action: {}", e)),
+        ),
+    }
+}
+
+/// Get actions for a narrative
+async fn get_narrative_actions(
+    State(state): State<SharedState>,
+    Path(narrative_id): Path<String>,
+) -> impl IntoResponse {
+    match state.db.get_narrative_actions(&narrative_id) {
+        Ok(actions) => ApiResponse::ok(actions),
+        Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
+    }
+}
+
+// ============================================================================
+// Mission Endpoints
+// ============================================================================
+
+/// Get current mission mode (discovery vs mission)
+async fn get_mission_mode(State(state): State<SharedState>) -> impl IntoResponse {
+    match state.db.get_active_mission_spec() {
+        Ok(Some(spec)) => ApiResponse::ok(serde_json::json!({
+            "mode": "Mission",
+            "mission_spec": spec
+        })),
+        Ok(None) => ApiResponse::ok(serde_json::json!({
+            "mode": "Discovery",
+            "mission_spec": null
+        })),
+        Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
+    }
+}
+
+/// Create a new mission spec
+async fn create_mission(
+    State(state): State<SharedState>,
+    Json(request): Json<CreateMissionRequest>,
+) -> impl IntoResponse {
+    let mission_id = format!("mission_{}", uuid::Uuid::new_v4());
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let spec = serde_json::json!({
+        "mission_id": mission_id,
+        "name": request.name,
+        "objective": request.objective,
+        "allowed_technique_families": request.allowed_technique_families.unwrap_or_default(),
+        "allowed_playbooks": request.allowed_playbooks.unwrap_or_default(),
+        "expected_observables": request.expected_observables.unwrap_or_default(),
+        "scope_constraints": request.scope_constraints,
+        "success_criteria": request.success_criteria,
+        "created_at": now
+    });
+
+    match state.db.save_mission_spec(&spec) {
+        Ok(()) => (
+            StatusCode::CREATED,
+            ApiResponse::ok(serde_json::json!({
+                "mission_id": mission_id,
+                "message": "Mission spec created. Use PUT /api/mission/active to activate."
+            })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ApiResponse::err(&format!("Failed to create mission: {}", e)),
+        ),
+    }
+}
+
+/// List all mission specs
+async fn list_missions(State(state): State<SharedState>) -> impl IntoResponse {
+    match state.db.list_mission_specs() {
+        Ok(specs) => ApiResponse::ok(specs),
+        Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
+    }
+}
+
+/// Get a specific mission spec
+async fn get_mission(
+    State(state): State<SharedState>,
+    Path(mission_id): Path<String>,
+) -> impl IntoResponse {
+    match state.db.get_mission_spec(&mission_id) {
+        Ok(Some(spec)) => (StatusCode::OK, ApiResponse::ok(spec)),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            ApiResponse::err(&format!("Mission '{}' not found", mission_id)),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ApiResponse::err(&format!("Database error: {}", e)),
+        ),
+    }
+}
+
+/// Set active mission
+async fn set_active_mission(
+    State(state): State<SharedState>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let mission_id = body.get("mission_id").and_then(|v| v.as_str());
+
+    match mission_id {
+        Some(id) => match state.db.set_active_mission(id) {
+            Ok(true) => ApiResponse::ok(serde_json::json!({
+                "mode": "Mission",
+                "mission_id": id,
+                "message": "Mission mode activated"
+            })),
+            Ok(false) => ApiResponse::err(&format!("Mission '{}' not found", id)),
+            Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
+        },
+        None => {
+            // Clear active mission (switch to discovery mode)
+            match state.db.clear_active_mission() {
+                Ok(()) => ApiResponse::ok(serde_json::json!({
+                    "mode": "Discovery",
+                    "message": "Switched to Discovery mode"
+                })),
+                Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
+            }
+        }
+    }
+}
+
+/// Delete a mission spec
+async fn delete_mission(
+    State(state): State<SharedState>,
+    Path(mission_id): Path<String>,
+) -> impl IntoResponse {
+    match state.db.delete_mission_spec(&mission_id) {
+        Ok(true) => (
+            StatusCode::OK,
+            ApiResponse::ok(serde_json::json!({
+                "deleted": true,
+                "mission_id": mission_id
+            })),
+        ),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            ApiResponse::err(&format!("Mission '{}' not found", mission_id)),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ApiResponse::err(&format!("Database error: {}", e)),
+        ),
+    }
+}
+
+// ============================================================================
+// Eval Metrics Endpoint
+// ============================================================================
+
+/// Fetch the latest eval metrics from the metrics directory
+async fn get_eval_metrics(State(state): State<SharedState>) -> impl IntoResponse {
+    // Look for metrics files in $EDR_TELEMETRY_ROOT/metrics/
+    let metrics_dir = state.data_dir.join("metrics");
+
+    if !metrics_dir.exists() {
+        return ApiResponse::err("No metrics directory found. Run eval_windows.ps1 first.");
+    }
+
+    // Find the most recent metrics file
+    let mut latest_file: Option<(std::path::PathBuf, std::time::SystemTime)> = None;
+
+    if let Ok(entries) = std::fs::read_dir(&metrics_dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().map(|e| e == "json").unwrap_or(false)
+                && path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().contains("metrics"))
+                    .unwrap_or(false)
+            {
+                if let Ok(metadata) = path.metadata() {
+                    if let Ok(modified) = metadata.modified() {
+                        if latest_file.is_none() || modified > latest_file.as_ref().unwrap().1 {
+                            latest_file = Some((path, modified));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    match latest_file {
+        Some((path, _)) => match std::fs::read_to_string(&path) {
+            Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(data) => ApiResponse::ok(data),
+                Err(e) => ApiResponse::err(&format!("Failed to parse metrics: {}", e)),
+            },
+            Err(e) => ApiResponse::err(&format!("Failed to read metrics file: {}", e)),
+        },
+        None => ApiResponse::err("No metrics files found. Run eval_windows.ps1 first."),
     }
 }
 
@@ -623,10 +1257,7 @@ async fn generate_pdf_report(
         .build();
 
     // Render to PDF
-    let renderer = match PdfRenderer::new() {
-        Ok(r) => r,
-        Err(_) => PdfRenderer::default(),
-    };
+    let renderer = PdfRenderer::new().unwrap_or_default();
 
     match renderer.render(&bundle) {
         Ok(pdf_bytes) => {
@@ -964,7 +1595,7 @@ async fn generate_support_bundle(
                 req.redact
             );
 
-            let response = SupportBundleResponse {
+            let _response = SupportBundleResponse {
                 success: true,
                 bundle_id: bundle_id.clone(),
                 filename: filename.clone(),
@@ -1143,7 +1774,7 @@ async fn complete_setup(
     }
     {
         let mut focus = state.focus_minutes.write().await;
-        *focus = req.focus_minutes.max(1).min(1440); // 1 min to 24 hours
+        *focus = req.focus_minutes.clamp(1, 1440); // 1 min to 24 hours
     }
 
     // Load verification pack if requested (opt-in)
@@ -1224,7 +1855,7 @@ async fn run_self_check_legacy(
     State(state): State<SharedState>,
     Json(req): Json<SelfCheckRequest>,
 ) -> impl IntoResponse {
-    let timeout_secs = req.timeout_seconds.min(30).max(1);
+    let timeout_secs = req.timeout_seconds.clamp(1, 30);
 
     // For now, a simple check: look for any signals in the database
     let events_received = match state.db.count_recent_signals(timeout_secs as i64) {
@@ -1326,13 +1957,13 @@ async fn get_self_check_actions(
                 .get_action_details("check_storage", os),
             state
                 .diagnostic_engine
-                .get_action_details(&format!("fix_perms_esf_monitor"), "macos"),
+                .get_action_details("fix_perms_esf_monitor", "macos"),
             state
                 .diagnostic_engine
-                .get_action_details(&format!("fix_perms_ebpf_monitor"), "linux"),
+                .get_action_details("fix_perms_ebpf_monitor", "linux"),
             state
                 .diagnostic_engine
-                .get_action_details(&format!("fix_perms_etw_monitor"), "windows"),
+                .get_action_details("fix_perms_etw_monitor", "windows"),
         ]
         .into_iter()
         .flatten()
@@ -1609,7 +2240,21 @@ async fn api_docs() -> Html<&'static str> {
     <div class="endpoint"><span class="method">POST</span> <code>/api/signals</code> - Ingest signals from locald</div>
     <div class="endpoint"><span class="method">GET</span> <code>/api/signals</code> - List signals (query: host, signal_type, severity, limit)</div>
     <div class="endpoint"><span class="method">GET</span> <code>/api/signals/:id</code> - Get signal by ID</div>
+    <div class="endpoint"><span class="method">GET</span> <code>/api/signals/:id/explain</code> - Get explanation bundle for signal</div>
+    <div class="endpoint"><span class="method">GET</span> <code>/api/signals/:id/narrative</code> - Get evidence-cited narrative for signal</div>
     <div class="endpoint"><span class="method">GET</span> <code>/api/signals/stats</code> - Get signal statistics</div>
+    
+    <h3>Narratives (Evidence-Cited Explanations)</h3>
+    <div class="endpoint"><span class="method">GET</span> <code>/api/narratives/:id/actions</code> - List user actions on narrative</div>
+    <div class="endpoint"><span class="method">POST</span> <code>/api/narratives/:id/actions</code> - Record user action (pin/hide/verify)</div>
+    
+    <h3>Mission Mode (Discovery vs Mission)</h3>
+    <div class="endpoint"><span class="method">GET</span> <code>/api/mission</code> - Get current mode (Discovery/Mission)</div>
+    <div class="endpoint"><span class="method">POST</span> <code>/api/mission</code> - Create new mission spec</div>
+    <div class="endpoint"><span class="method">PUT</span> <code>/api/mission/active</code> - Set or clear active mission</div>
+    <div class="endpoint"><span class="method">GET</span> <code>/api/missions</code> - List all mission specs</div>
+    <div class="endpoint"><span class="method">GET</span> <code>/api/missions/:id</code> - Get mission spec by ID</div>
+    <div class="endpoint"><span class="method">DELETE</span> <code>/api/missions/:id</code> - Delete mission spec</div>
     
     <h3>MITRE ATT&CK</h3>
     <div class="endpoint"><span class="method">POST</span> <code>/api/techniques/search</code> - Search techniques</div>
@@ -1768,6 +2413,20 @@ async fn main() {
         .route("/api/signals", get(list_signals).post(ingest_signals))
         .route("/api/signals/stats", get(signal_stats))
         .route("/api/signals/:id", get(get_signal))
+        .route("/api/signals/:id/explain", get(get_signal_explanation))
+        .route("/api/signals/:id/narrative", get(get_signal_narrative))
+        // Narrative Actions API
+        .route(
+            "/api/narratives/:id/actions",
+            get(get_narrative_actions).post(create_narrative_action),
+        )
+        // Mission Mode API
+        .route("/api/mission", get(get_mission_mode).post(create_mission))
+        .route("/api/mission/active", put(set_active_mission))
+        .route("/api/missions", get(list_missions))
+        .route("/api/missions/:id", get(get_mission).delete(delete_mission))
+        // Eval Metrics API
+        .route("/api/eval/metrics", get(get_eval_metrics))
         // MITRE API
         .route("/api/techniques/search", post(search_mitre_techniques))
         .route("/api/techniques/:id", get(get_mitre_technique))
@@ -1808,10 +2467,22 @@ async fn main() {
         )
         // Integration API endpoints (mounted separately due to different state)
         // These endpoints provide integration metadata and capabilities
-        .route("/api/integrations", get(integration_api::list_integrations_bridge))
-        .route("/api/integrations/:id", get(integration_api::get_integration_bridge))
-        .route("/api/integrations/:id/sample", get(integration_api::get_samples_bridge))
-        .route("/api/capabilities", get(integration_api::get_capabilities_bridge))
+        .route(
+            "/api/integrations",
+            get(integration_api::list_integrations_bridge),
+        )
+        .route(
+            "/api/integrations/:id",
+            get(integration_api::get_integration_bridge),
+        )
+        .route(
+            "/api/integrations/:id/sample",
+            get(integration_api::get_samples_bridge),
+        )
+        .route(
+            "/api/capabilities",
+            get(integration_api::get_capabilities_bridge),
+        )
         // Static files
         .nest_service("/ui", ServeDir::new(&ui_dir))
         .layer(cors)

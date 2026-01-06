@@ -302,7 +302,7 @@ impl Incident {
 
         // Sort by canonical 4-tuple (ts, stream_id, segment_id, record_index) for determinism
         self.timeline_entries
-            .sort_by(|a, b| a.canonical_order_key().cmp(&b.canonical_order_key()));
+            .sort_by_key(|a| a.canonical_order_key());
     }
 
     fn slot_to_timeline_kind(&self, slot_id: &str) -> TimelineEntryKind {
@@ -436,7 +436,7 @@ impl Incident {
         self.timeline_entries.push(entry);
         // Sort by canonical 4-tuple for determinism
         self.timeline_entries
-            .sort_by(|a, b| a.canonical_order_key().cmp(&b.canonical_order_key()));
+            .sort_by_key(|a| a.canonical_order_key());
     }
 
     /// Close the incident
@@ -534,7 +534,7 @@ impl Incident {
         }
         // Sort by canonical 4-tuple for determinism
         self.timeline_entries
-            .sort_by(|a, b| a.canonical_order_key().cmp(&b.canonical_order_key()));
+            .sort_by_key(|a| a.canonical_order_key());
         self.dedup_timeline();
 
         // Merge entities
@@ -708,7 +708,7 @@ mod tests {
         let hyp1 = HypothesisState::new("host1", "injection", "t1", scope.clone(), ts1, 600, 3600);
         let hyp2 = HypothesisState::new("host1", "injection", "t1", scope.clone(), ts2, 600, 3600);
 
-        let mut incident1 = Incident::from_hypothesis(&hyp1, "host1");
+        let incident1 = Incident::from_hypothesis(&hyp1, "host1");
         let incident2 = Incident::from_hypothesis(&hyp2, "host1");
 
         assert!(incident1.can_merge_with(&incident2, 3600));

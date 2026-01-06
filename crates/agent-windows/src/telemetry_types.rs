@@ -68,19 +68,14 @@ impl TelemetryOutput {
 }
 
 /// Memory anomaly types for detection
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum MemoryAnomalyType {
     HighEntropy,
     SuspiciousAllocation,
     ShellcodePattern,
     UnmappedExecution,
+    #[default]
     Unknown,
-}
-
-impl Default for MemoryAnomalyType {
-    fn default() -> Self {
-        MemoryAnomalyType::Unknown
-    }
 }
 
 impl std::fmt::Display for MemoryAnomalyType {

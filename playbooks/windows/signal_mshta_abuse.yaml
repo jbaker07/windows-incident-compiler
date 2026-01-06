@@ -1,0 +1,115 @@
+---
+# playbooks/windows/signal_mshta_abuse.yaml
+# Detection of mshta.exe abuse for script execution
+
+id: "windows_mshta_abuse_001"
+title: "MSHTA LOLBin Abuse"
+name: "MSHTA Abuse Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects abuse of mshta.exe for:
+  - Inline VBScript/JavaScript execution
+  - Remote HTA file execution
+  - AppLocker/WDAC bypass
+  - Phishing payload delivery
+
+enabled: true
+confidence_threshold: 0.85
+
+# Capability requirements
+requires:
+  - security_log
+  - audit_proc_creation
+
+# MITRE ATT&CK mapping
+mitre:
+  tactics:
+    - defense_evasion
+    - execution
+  techniques:
+    - T1218.005  # Mshta
+
+# Input fact types
+input_facts:
+  required:
+    - Exec
+
+# Slot definitions
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)mshta\\.exe"
+  optional:
+    - name: inline_script
+      type: string
+      pattern: "(?i)vbscript:|javascript:|about:"
+    - name: remote_url
+      type: string
+      pattern: "(?i)https?://"
+
+# Detection rules
+rules:
+  - name: "MSHTA Inline Script"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)mshta"
+      - field: cmdline
+        matches: "(?i)(vbscript:|javascript:)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "inline_script"
+          - "lolbin"
+          - "mshta"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+        field_mapping:
+          process: "NewProcessName"
+          cmdline: "CommandLine"
+
+  - name: "MSHTA Remote URL"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)mshta"
+      - field: cmdline
+        matches: "(?i)https?://"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "remote_execution"
+          - "dropper"
+
+  - name: "MSHTA About Protocol"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)mshta"
+      - field: cmdline
+        matches: "(?i)about:<"
+    actions:
+      - severity: HIGH
+        tags:
+          - "obfuscated_script"
+          - "evasion"
+
+response:
+  - type: "block_execution"
+    target: "process"
+    description: "Terminate MSHTA with suspicious arguments"
+    
+  - type: "alert"
+    channel: "siem"
+    title: "MSHTA Abuse Detected"
+    priority: "critical"
+
+false_positives:
+  - "Rare legitimate use of HTA applications"
+  - "Legacy enterprise applications using HTA"

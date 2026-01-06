@@ -37,6 +37,7 @@ impl Database {
         Ok(db)
     }
 
+    #[allow(dead_code)]
     pub fn open_in_memory() -> Result<Self, rusqlite::Error> {
         let conn = Connection::open_in_memory()?;
         let db = Self {
@@ -80,6 +81,40 @@ impl Database {
                 created_at TEXT NOT NULL
             );
             
+            -- Narratives table (evidence-cited explanations)
+            CREATE TABLE IF NOT EXISTS narratives (
+                narrative_id TEXT PRIMARY KEY,
+                signal_id TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                narrative_json TEXT NOT NULL,
+                input_hash TEXT NOT NULL,
+                generated_at TEXT NOT NULL,
+                FOREIGN KEY (signal_id) REFERENCES signals(signal_id)
+            );
+            
+            -- Mission specs table (for mission mode)
+            CREATE TABLE IF NOT EXISTS mission_specs (
+                mission_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                objective TEXT NOT NULL,
+                spec_json TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            
+            -- User actions on narratives (pin/hide/verify)
+            CREATE TABLE IF NOT EXISTS narrative_actions (
+                action_id TEXT PRIMARY KEY,
+                narrative_id TEXT NOT NULL,
+                sentence_id TEXT,
+                evidence_ptr_json TEXT,
+                action_type TEXT NOT NULL,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (narrative_id) REFERENCES narratives(narrative_id)
+            );
+            
             CREATE INDEX IF NOT EXISTS idx_documents_updated 
                 ON documents(updated_at DESC);
             
@@ -94,6 +129,12 @@ impl Database {
                 
             CREATE INDEX IF NOT EXISTS idx_signals_severity 
                 ON signals(severity);
+                
+            CREATE INDEX IF NOT EXISTS idx_narratives_signal 
+                ON narratives(signal_id);
+                
+            CREATE INDEX IF NOT EXISTS idx_mission_specs_active 
+                ON mission_specs(is_active);
         "#,
         )?;
         Ok(())
@@ -202,6 +243,44 @@ impl Database {
         }
     }
 
+    /// Get signal explanation by signal ID
+    pub fn get_signal_explanation(
+        &self,
+        signal_id: &str,
+    ) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        // First ensure the table exists (for backwards compatibility)
+        let _ = conn.execute(
+            "CREATE TABLE IF NOT EXISTS signal_explanations (
+                signal_id TEXT PRIMARY KEY,
+                explanation_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        );
+
+        let mut stmt =
+            conn.prepare("SELECT explanation_json FROM signal_explanations WHERE signal_id = ?1")?;
+
+        let mut rows = stmt.query(params![signal_id])?;
+        if let Some(row) = rows.next()? {
+            let json_str: String = row.get(0)?;
+            match serde_json::from_str(&json_str) {
+                Ok(json) => Ok(Some(json)),
+                Err(e) => {
+                    tracing::warn!("Failed to parse explanation JSON for {}: {}", signal_id, e);
+                    Ok(Some(serde_json::json!({
+                        "error": "Failed to parse stored explanation",
+                        "raw": json_str
+                    })))
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     /// List recent signals with optional filters
     pub fn list_signals(
         &self,
@@ -292,6 +371,276 @@ impl Database {
         })
     }
 
+    // ==========================================================================
+    // Narrative Operations
+    // ==========================================================================
+
+    /// Save a narrative document
+    pub fn save_narrative(
+        &self,
+        narrative_json: &serde_json::Value,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        let narrative_id = narrative_json
+            .get("narrative_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let signal_id = narrative_json
+            .get("signal_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let version = narrative_json
+            .get("version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1) as i64;
+        let input_hash = narrative_json
+            .get("input_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let json_str = serde_json::to_string(narrative_json).unwrap_or_default();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        conn.execute(
+            r#"INSERT OR REPLACE INTO narratives 
+               (narrative_id, signal_id, version, narrative_json, input_hash, generated_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
+            params![narrative_id, signal_id, version, json_str, input_hash, now],
+        )?;
+        Ok(())
+    }
+
+    /// Get narrative by signal ID (latest version)
+    pub fn get_narrative(
+        &self,
+        signal_id: &str,
+    ) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT narrative_json FROM narratives WHERE signal_id = ?1 ORDER BY version DESC LIMIT 1"
+        )?;
+
+        let mut rows = stmt.query(params![signal_id])?;
+        if let Some(row) = rows.next()? {
+            let json_str: String = row.get(0)?;
+            match serde_json::from_str(&json_str) {
+                Ok(json) => Ok(Some(json)),
+                Err(e) => {
+                    tracing::warn!("Failed to parse narrative JSON for {}: {}", signal_id, e);
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get narrative by ID
+    pub fn get_narrative_by_id(
+        &self,
+        narrative_id: &str,
+    ) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT narrative_json FROM narratives WHERE narrative_id = ?1")?;
+
+        let mut rows = stmt.query(params![narrative_id])?;
+        if let Some(row) = rows.next()? {
+            let json_str: String = row.get(0)?;
+            match serde_json::from_str(&json_str) {
+                Ok(json) => Ok(Some(json)),
+                Err(_) => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    // ==========================================================================
+    // Mission Spec Operations
+    // ==========================================================================
+
+    /// Save a mission spec
+    pub fn save_mission_spec(&self, spec: &serde_json::Value) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        let mission_id = spec
+            .get("mission_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let name = spec
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let objective = spec
+            .get("objective")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let json_str = serde_json::to_string(spec).unwrap_or_default();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        conn.execute(
+            r#"INSERT OR REPLACE INTO mission_specs 
+               (mission_id, name, objective, spec_json, is_active, created_at, updated_at)
+               VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)"#,
+            params![mission_id, name, objective, json_str, now],
+        )?;
+        Ok(())
+    }
+
+    /// Get active mission spec (if any)
+    pub fn get_active_mission_spec(&self) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT spec_json FROM mission_specs WHERE is_active = 1 LIMIT 1")?;
+
+        let mut rows = stmt.query([])?;
+        if let Some(row) = rows.next()? {
+            let json_str: String = row.get(0)?;
+            match serde_json::from_str(&json_str) {
+                Ok(json) => Ok(Some(json)),
+                Err(_) => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Set active mission spec
+    pub fn set_active_mission(&self, mission_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        // Deactivate all
+        conn.execute("UPDATE mission_specs SET is_active = 0", [])?;
+
+        // Activate the specified one
+        let count = conn.execute(
+            "UPDATE mission_specs SET is_active = 1, updated_at = ?1 WHERE mission_id = ?2",
+            params![chrono::Utc::now().to_rfc3339(), mission_id],
+        )?;
+
+        Ok(count > 0)
+    }
+
+    /// Clear active mission (switch to discovery mode)
+    pub fn clear_active_mission(&self) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("UPDATE mission_specs SET is_active = 0", [])?;
+        Ok(())
+    }
+
+    /// List all mission specs
+    pub fn list_mission_specs(&self) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt =
+            conn.prepare("SELECT spec_json FROM mission_specs ORDER BY updated_at DESC")?;
+
+        let mut rows = stmt.query([])?;
+        let mut specs = Vec::new();
+        while let Some(row) = rows.next()? {
+            let json_str: String = row.get(0)?;
+            if let Ok(json) = serde_json::from_str(&json_str) {
+                specs.push(json);
+            }
+        }
+        Ok(specs)
+    }
+
+    /// Get mission spec by ID
+    pub fn get_mission_spec(
+        &self,
+        mission_id: &str,
+    ) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT spec_json FROM mission_specs WHERE mission_id = ?1")?;
+
+        let mut rows = stmt.query(params![mission_id])?;
+        if let Some(row) = rows.next()? {
+            let json_str: String = row.get(0)?;
+            match serde_json::from_str(&json_str) {
+                Ok(json) => Ok(Some(json)),
+                Err(_) => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Delete mission spec
+    pub fn delete_mission_spec(&self, mission_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let count = conn.execute(
+            "DELETE FROM mission_specs WHERE mission_id = ?1",
+            params![mission_id],
+        )?;
+        Ok(count > 0)
+    }
+
+    // ==========================================================================
+    // Narrative Action Operations
+    // ==========================================================================
+
+    /// Save a user action on a narrative
+    pub fn save_narrative_action(
+        &self,
+        narrative_id: &str,
+        sentence_id: Option<&str>,
+        evidence_ptr: Option<&serde_json::Value>,
+        action_type: &str,
+        notes: Option<&str>,
+    ) -> Result<String, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+
+        let action_id = format!("act_{}", uuid::Uuid::new_v4());
+        let evidence_json = evidence_ptr.map(|p| serde_json::to_string(p).unwrap_or_default());
+        let now = chrono::Utc::now().to_rfc3339();
+
+        conn.execute(
+            r#"INSERT INTO narrative_actions 
+               (action_id, narrative_id, sentence_id, evidence_ptr_json, action_type, notes, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"#,
+            params![action_id, narrative_id, sentence_id, evidence_json, action_type, notes, now],
+        )?;
+
+        Ok(action_id)
+    }
+
+    /// Get actions for a narrative
+    pub fn get_narrative_actions(
+        &self,
+        narrative_id: &str,
+    ) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT action_id, sentence_id, evidence_ptr_json, action_type, notes, created_at 
+               FROM narrative_actions WHERE narrative_id = ?1 ORDER BY created_at"#,
+        )?;
+
+        let mut rows = stmt.query(params![narrative_id])?;
+        let mut actions = Vec::new();
+        while let Some(row) = rows.next()? {
+            let action_id: String = row.get(0)?;
+            let sentence_id: Option<String> = row.get(1)?;
+            let evidence_json: Option<String> = row.get(2)?;
+            let action_type: String = row.get(3)?;
+            let notes: Option<String> = row.get(4)?;
+            let created_at: String = row.get(5)?;
+
+            let evidence_ptr: Option<serde_json::Value> =
+                evidence_json.and_then(|j| serde_json::from_str(&j).ok());
+
+            actions.push(serde_json::json!({
+                "action_id": action_id,
+                "sentence_id": sentence_id,
+                "evidence_ptr": evidence_ptr,
+                "action_type": action_type,
+                "notes": notes,
+                "created_at": created_at,
+            }));
+        }
+        Ok(actions)
+    }
+
     /// Count signals received within the last N seconds
     pub fn count_recent_signals(&self, seconds: i64) -> Result<i64, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
@@ -334,30 +683,26 @@ impl Database {
             Ok((signal_type, count, max_ts))
         })?;
 
-        for row in rows {
-            if let Ok((signal_type, count, max_ts)) = row {
-                // Map signal types to stream IDs
-                let stream_id = match signal_type.as_str() {
-                    "ProcessInjection" | "SuspiciousExec" | "ProcessHollowing" => "process_exec",
-                    "FileModification" | "SuspiciousWrite" => "file_write",
-                    "NetworkConnection" | "C2Communication" => "network_connect",
-                    "DnsQuery" => "dns_query",
-                    "RegistryModification" => "registry_write",
-                    _ => "unknown",
-                };
+        for (signal_type, count, max_ts) in rows.flatten() {
+            // Map signal types to stream IDs
+            let stream_id = match signal_type.as_str() {
+                "ProcessInjection" | "SuspiciousExec" | "ProcessHollowing" => "process_exec",
+                "FileModification" | "SuspiciousWrite" => "file_write",
+                "NetworkConnection" | "C2Communication" => "network_connect",
+                "DnsQuery" => "dns_query",
+                "RegistryModification" => "registry_write",
+                _ => "unknown",
+            };
 
-                let entry = stats
-                    .entry(stream_id.to_string())
-                    .or_insert_with(StreamStats::default);
-                entry.event_count += count as u64;
+            let entry = stats.entry(stream_id.to_string()).or_default();
+            entry.event_count += count as u64;
 
-                // Convert timestamp to DateTime
-                let ts = chrono::DateTime::from_timestamp(max_ts, 0)
-                    .map(|dt| dt.with_timezone(&chrono::Utc));
-                if let Some(ts) = ts {
-                    if entry.last_seen_ts.map(|prev| ts > prev).unwrap_or(true) {
-                        entry.last_seen_ts = Some(ts);
-                    }
+            // Convert timestamp to DateTime
+            let ts = chrono::DateTime::from_timestamp(max_ts, 0)
+                .map(|dt| dt.with_timezone(&chrono::Utc));
+            if let Some(ts) = ts {
+                if entry.last_seen_ts.map(|prev| ts > prev).unwrap_or(true) {
+                    entry.last_seen_ts = Some(ts);
                 }
             }
         }

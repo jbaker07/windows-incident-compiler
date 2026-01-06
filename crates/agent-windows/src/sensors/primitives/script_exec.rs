@@ -2,10 +2,10 @@
 // Detects script/interpreter execution on Windows
 // PowerShell, cmd, wscript, cscript, mshta, etc.
 
-use edr_core::Event;
 use edr_core::event_keys;
-use std::collections::BTreeMap;
+use edr_core::Event;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 /// Script interpreters to detect
 const SCRIPT_INTERPRETERS: &[(&str, &str)] = &[
@@ -81,7 +81,8 @@ const SUSPICIOUS_PS_PATTERNS: &[&str] = &[
 
 /// Detect script execution from exec events
 pub fn detect_script_exec(base_event: &Event) -> Option<Event> {
-    let image = base_event.fields
+    let image = base_event
+        .fields
         .get(event_keys::PROC_EXE)
         .or_else(|| base_event.fields.get("Image"))
         .and_then(|v| v.as_str())?;
@@ -93,10 +94,12 @@ pub fn detect_script_exec(base_event: &Event) -> Option<Event> {
         .unwrap_or("");
 
     // Check if exe matches script interpreter
-    let (_, interpreter) = SCRIPT_INTERPRETERS.iter()
+    let (_, interpreter) = SCRIPT_INTERPRETERS
+        .iter()
         .find(|(tool, _)| image_base == *tool)?;
 
-    let cmd_line = base_event.fields
+    let cmd_line = base_event
+        .fields
         .get(event_keys::PROC_ARGV)
         .or_else(|| base_event.fields.get("CommandLine"))
         .and_then(|v| v.as_str())
@@ -105,16 +108,21 @@ pub fn detect_script_exec(base_event: &Event) -> Option<Event> {
     let cmd_line_lower = cmd_line.to_lowercase();
 
     // Determine if inline script or script file
-    let (is_inline, script_path) = detect_script_mode(&cmd_line_lower, *interpreter);
+    let (is_inline, script_path) = detect_script_mode(&cmd_line_lower, interpreter);
 
     // Extract process info
-    let pid = base_event.fields
+    let pid = base_event
+        .fields
         .get(event_keys::PROC_PID)
         .or_else(|| base_event.fields.get("ProcessId"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .map(|v| v as u32)?;
 
-    let user = base_event.fields
+    let user = base_event
+        .fields
         .get(event_keys::PROC_UID)
         .or_else(|| base_event.fields.get("User"))
         .and_then(|v| v.as_str())
@@ -126,7 +134,10 @@ pub fn detect_script_exec(base_event: &Event) -> Option<Event> {
     fields.insert(event_keys::PROC_UID.to_string(), json!(user.clone()));
     fields.insert(event_keys::PROC_EUID.to_string(), json!(user));
     fields.insert(event_keys::PROC_EXE.to_string(), json!(image));
-    fields.insert(event_keys::SCRIPT_INTERPRETER.to_string(), json!(interpreter));
+    fields.insert(
+        event_keys::SCRIPT_INTERPRETER.to_string(),
+        json!(interpreter),
+    );
     fields.insert(event_keys::SCRIPT_INLINE.to_string(), json!(is_inline));
 
     if let Some(path) = script_path {
@@ -145,7 +156,8 @@ pub fn detect_script_exec(base_event: &Event) -> Option<Event> {
 
     // Add suspicion indicators for PowerShell
     if *interpreter == "powershell" {
-        let suspicious = SUSPICIOUS_PS_PATTERNS.iter()
+        let suspicious = SUSPICIOUS_PS_PATTERNS
+            .iter()
             .any(|p| cmd_line_lower.contains(p));
         if suspicious {
             fields.insert("suspicious".to_string(), json!(true));
@@ -155,7 +167,11 @@ pub fn detect_script_exec(base_event: &Event) -> Option<Event> {
     Some(Event {
         ts_ms: base_event.ts_ms,
         host: base_event.host.clone(),
-        tags: vec!["windows".to_string(), "script_exec".to_string(), "sysmon".to_string()],
+        tags: vec![
+            "windows".to_string(),
+            "script_exec".to_string(),
+            "sysmon".to_string(),
+        ],
         proc_key: base_event.proc_key.clone(),
         file_key: None,
         identity_key: base_event.identity_key.clone(),
@@ -166,7 +182,8 @@ pub fn detect_script_exec(base_event: &Event) -> Option<Event> {
 
 /// Detect LOLBin execution with suspicious arguments
 pub fn detect_lolbin_exec(base_event: &Event) -> Option<Event> {
-    let image = base_event.fields
+    let image = base_event
+        .fields
         .get(event_keys::PROC_EXE)
         .or_else(|| base_event.fields.get("Image"))
         .and_then(|v| v.as_str())?;
@@ -178,11 +195,12 @@ pub fn detect_lolbin_exec(base_event: &Event) -> Option<Event> {
         .unwrap_or("");
 
     // Check if exe is a LOLBin
-    if !LOLBINS.iter().any(|l| image_base == *l) {
+    if !LOLBINS.contains(&image_base) {
         return None;
     }
 
-    let cmd_line = base_event.fields
+    let cmd_line = base_event
+        .fields
         .get(event_keys::PROC_ARGV)
         .or_else(|| base_event.fields.get("CommandLine"))
         .and_then(|v| v.as_str())
@@ -195,13 +213,18 @@ pub fn detect_lolbin_exec(base_event: &Event) -> Option<Event> {
         return None;
     }
 
-    let pid = base_event.fields
+    let pid = base_event
+        .fields
         .get(event_keys::PROC_PID)
         .or_else(|| base_event.fields.get("ProcessId"))
-        .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
         .map(|v| v as u32)?;
 
-    let user = base_event.fields
+    let user = base_event
+        .fields
         .get(event_keys::PROC_UID)
         .or_else(|| base_event.fields.get("User"))
         .and_then(|v| v.as_str())
@@ -213,7 +236,10 @@ pub fn detect_lolbin_exec(base_event: &Event) -> Option<Event> {
     fields.insert(event_keys::PROC_UID.to_string(), json!(user.clone()));
     fields.insert(event_keys::PROC_EUID.to_string(), json!(user));
     fields.insert(event_keys::PROC_EXE.to_string(), json!(image));
-    fields.insert(event_keys::SCRIPT_INTERPRETER.to_string(), json!(format!("lolbin:{}", image_base)));
+    fields.insert(
+        event_keys::SCRIPT_INTERPRETER.to_string(),
+        json!(format!("lolbin:{}", image_base)),
+    );
     fields.insert(event_keys::SCRIPT_INLINE.to_string(), json!(true));
 
     if !cmd_line.is_empty() {
@@ -228,7 +254,11 @@ pub fn detect_lolbin_exec(base_event: &Event) -> Option<Event> {
     Some(Event {
         ts_ms: base_event.ts_ms,
         host: base_event.host.clone(),
-        tags: vec!["windows".to_string(), "script_exec".to_string(), "lolbin".to_string()],
+        tags: vec![
+            "windows".to_string(),
+            "script_exec".to_string(),
+            "lolbin".to_string(),
+        ],
         proc_key: base_event.proc_key.clone(),
         file_key: None,
         identity_key: base_event.identity_key.clone(),
@@ -240,23 +270,21 @@ pub fn detect_lolbin_exec(base_event: &Event) -> Option<Event> {
 fn detect_script_mode(cmd_line: &str, interpreter: &str) -> (bool, Option<String>) {
     let is_inline = match interpreter {
         "powershell" => {
-            cmd_line.contains("-c ") || cmd_line.contains("-command ") ||
-            cmd_line.contains("-enc") || cmd_line.contains("-e ") ||
-            cmd_line.contains("iex") || cmd_line.contains("invoke-expression")
+            cmd_line.contains("-c ")
+                || cmd_line.contains("-command ")
+                || cmd_line.contains("-enc")
+                || cmd_line.contains("-e ")
+                || cmd_line.contains("iex")
+                || cmd_line.contains("invoke-expression")
         }
-        "cmd" => {
-            cmd_line.contains("/c ") || cmd_line.contains("/k ")
-        }
-        "wscript" | "cscript" => {
-            cmd_line.contains("//e:") || cmd_line.contains("//b")
-        }
+        "cmd" => cmd_line.contains("/c ") || cmd_line.contains("/k "),
+        "wscript" | "cscript" => cmd_line.contains("//e:") || cmd_line.contains("//b"),
         "mshta" => {
-            cmd_line.contains("javascript:") || cmd_line.contains("vbscript:") ||
-            cmd_line.contains("about:")
+            cmd_line.contains("javascript:")
+                || cmd_line.contains("vbscript:")
+                || cmd_line.contains("about:")
         }
-        "python" => {
-            cmd_line.contains("-c ") || cmd_line.contains("-c\"")
-        }
+        "python" => cmd_line.contains("-c ") || cmd_line.contains("-c\""),
         _ => false,
     };
 
@@ -268,14 +296,16 @@ fn detect_script_mode(cmd_line: &str, interpreter: &str) -> (bool, Option<String
 
 fn extract_script_path(cmd_line: &str) -> Option<String> {
     // Look for common script extensions
-    let extensions = [".ps1", ".bat", ".cmd", ".vbs", ".js", ".wsf", ".hta", ".py", ".pl", ".rb"];
-    
+    let extensions = [
+        ".ps1", ".bat", ".cmd", ".vbs", ".js", ".wsf", ".hta", ".py", ".pl", ".rb",
+    ];
+
     for ext in extensions {
         if let Some(start) = cmd_line.find(ext) {
             // Find start of path (space before or after quotes)
             let before = &cmd_line[..start + ext.len()];
             // Look backwards for space or quote
-            if let Some(path_start) = before.rfind(|c: char| c == ' ' || c == '"' || c == '\'') {
+            if let Some(path_start) = before.rfind([' ', '"', '\'']) {
                 let path = before[path_start + 1..].trim_matches(|c| c == '"' || c == '\'');
                 if !path.is_empty() {
                     return Some(path.to_string());
@@ -290,34 +320,46 @@ fn is_suspicious_lolbin(exe: &str, cmd_line: &str) -> bool {
     match exe {
         "certutil.exe" => {
             // Download, decode, encode operations
-            cmd_line.contains("-urlcache") || cmd_line.contains("-decode") ||
-            cmd_line.contains("-encode") || cmd_line.contains("split") ||
-            cmd_line.contains("-f ") && (cmd_line.contains("http") || cmd_line.contains("ftp"))
+            cmd_line.contains("-urlcache")
+                || cmd_line.contains("-decode")
+                || cmd_line.contains("-encode")
+                || cmd_line.contains("split")
+                || cmd_line.contains("-f ")
+                    && (cmd_line.contains("http") || cmd_line.contains("ftp"))
         }
         "bitsadmin.exe" => {
             // Download operations
-            cmd_line.contains("/transfer") || cmd_line.contains("/create") ||
-            cmd_line.contains("/addfile") || cmd_line.contains("/setnotifycmdline")
+            cmd_line.contains("/transfer")
+                || cmd_line.contains("/create")
+                || cmd_line.contains("/addfile")
+                || cmd_line.contains("/setnotifycmdline")
         }
         "mshta.exe" => {
             // Script execution, especially remote
-            cmd_line.contains("javascript:") || cmd_line.contains("vbscript:") ||
-            cmd_line.contains("http") || cmd_line.contains("about:")
+            cmd_line.contains("javascript:")
+                || cmd_line.contains("vbscript:")
+                || cmd_line.contains("http")
+                || cmd_line.contains("about:")
         }
         "msbuild.exe" => {
             // Inline task execution
-            cmd_line.contains("<task") || cmd_line.contains(".csproj") ||
-            cmd_line.contains(".xml") || cmd_line.contains("/p:")
+            cmd_line.contains("<task")
+                || cmd_line.contains(".csproj")
+                || cmd_line.contains(".xml")
+                || cmd_line.contains("/p:")
         }
         "regsvr32.exe" => {
             // Remote/scrobj execution (squiblydoo)
-            cmd_line.contains("/s") && cmd_line.contains("/n") ||
-            cmd_line.contains("/i:http") || cmd_line.contains("scrobj.dll")
+            cmd_line.contains("/s") && cmd_line.contains("/n")
+                || cmd_line.contains("/i:http")
+                || cmd_line.contains("scrobj.dll")
         }
         "rundll32.exe" => {
             // Suspicious DLL execution
-            cmd_line.contains("javascript:") || cmd_line.contains("shell32.dll,control_rundll") ||
-            cmd_line.contains("http") || cmd_line.contains("url.dll,fileprotocolhandler")
+            cmd_line.contains("javascript:")
+                || cmd_line.contains("shell32.dll,control_rundll")
+                || cmd_line.contains("http")
+                || cmd_line.contains("url.dll,fileprotocolhandler")
         }
         "installutil.exe" | "regasm.exe" | "regsvcs.exe" => {
             // Any execution is suspicious (often used for bypass)
@@ -325,12 +367,15 @@ fn is_suspicious_lolbin(exe: &str, cmd_line: &str) -> bool {
         }
         "forfiles.exe" => {
             // Command execution
-            cmd_line.contains("/c ") && (cmd_line.contains("cmd") || cmd_line.contains("powershell"))
+            cmd_line.contains("/c ")
+                && (cmd_line.contains("cmd") || cmd_line.contains("powershell"))
         }
         "bash.exe" | "wsl.exe" => {
             // WSL execution with commands
-            cmd_line.contains("-c ") || cmd_line.contains("bash -i") ||
-            cmd_line.contains("/bin/") || cmd_line.contains("nc ")
+            cmd_line.contains("-c ")
+                || cmd_line.contains("bash -i")
+                || cmd_line.contains("/bin/")
+                || cmd_line.contains("nc ")
         }
         _ => false,
     }

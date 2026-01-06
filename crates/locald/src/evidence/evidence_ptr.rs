@@ -68,6 +68,7 @@ impl EvidencePtr {
     }
 
     /// Verify integrity against provided record bytes
+    #[allow(clippy::result_large_err)] // Forensic context requires full details
     pub fn verify_integrity(&self, record_bytes: &[u8]) -> Result<(), EvidenceIntegrityError> {
         if let Some(expected_sha256) = &self.sha256 {
             let actual_sha256 = Self::compute_sha256(record_bytes);
@@ -211,6 +212,7 @@ impl fmt::Display for EvidenceIntegrityError {
 impl std::error::Error for EvidenceIntegrityError {}
 
 /// Builder for EvidencePtr with fluent API
+#[allow(dead_code)]
 pub struct EvidencePtrBuilder {
     stream_id: String,
     segment_id: String,
@@ -219,6 +221,7 @@ pub struct EvidencePtrBuilder {
     ts: Option<i64>,
 }
 
+#[allow(dead_code)]
 impl EvidencePtrBuilder {
     pub fn new(
         stream_id: impl Into<String>,

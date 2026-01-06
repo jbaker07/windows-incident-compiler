@@ -9,11 +9,11 @@
 //! Absolute paths and ".." traversal are rejected with ValidationError.
 
 use super::evidence_ptr::{EvidenceIntegrityError, EvidencePtr};
-use super::evidence_store::{EvidenceStore, RecordSource, StoredRecord};
+use super::evidence_store::{EvidenceStore, RecordSource};
 use super::path_safety::validate_segment_id;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 /// Result of dereferencing an evidence pointer
@@ -170,6 +170,7 @@ impl<'a> EvidenceDeref<'a> {
     ///
     /// Ship Hardening: Validates segment_id format and path safety before any file read.
     /// Rejects absolute paths and ".." traversal with IntegrityError.
+    #[allow(clippy::result_large_err)] // Forensic context requires full error details
     fn read_from_segment(&self, ptr: &EvidencePtr) -> Result<String, EvidenceIntegrityError> {
         // Ship Hardening: Validate segment_id format BEFORE any file operations
         if let Err(e) = validate_segment_id(&ptr.segment_id) {
@@ -201,6 +202,7 @@ impl<'a> EvidenceDeref<'a> {
 
     /// Read a specific record from segment file
     /// Assumes newline-delimited JSON format
+    #[allow(clippy::result_large_err)] // Forensic context requires full error details
     fn read_record_from_file(
         path: &Path,
         ptr: &EvidencePtr,
@@ -254,6 +256,7 @@ impl<'a> EvidenceDeref<'a> {
 }
 
 /// Bulk deref result with statistics
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BulkDerefResult {
     pub results: Vec<DerefResult>,
@@ -266,6 +269,7 @@ pub struct BulkDerefResult {
     pub integrity_errors: usize,
 }
 
+#[allow(dead_code)]
 impl BulkDerefResult {
     pub fn from_results(results: Vec<DerefResult>) -> Self {
         let total = results.len();

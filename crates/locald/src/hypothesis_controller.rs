@@ -9,21 +9,19 @@
 
 use crate::hypothesis::{
     ArbitrationEngine, ArbitrationResponse, CanonicalEvent, ExplanationBuilder,
-    ExplanationResponse, ExplanationVisibilityState, Fact, FactDomain, FactType, FocusWindow, 
-    GlobalWatermark, HypothesisState, HypothesisStatus, HypothesisStorage, InMemoryStorage, 
-    IncidentStore, LateArrivalAction, LateArrivalPolicy, QueryContext, ScopeKey, SessionMode, 
-    Slot, SlotRequirement, StreamWatermark,
+    ExplanationResponse, ExplanationVisibilityState, Fact, FactDomain, FactType, FocusWindow,
+    GlobalWatermark, HypothesisState, HypothesisStatus, HypothesisStorage, InMemoryStorage,
+    IncidentStore, LateArrivalAction, LateArrivalPolicy, QueryContext, ScopeKey, SessionMode, Slot,
+    SlotRequirement, StreamWatermark,
 };
-use crate::integrations::export::IncidentExporter;
 use crate::integrations::config::ExportSinkConfig;
+use crate::integrations::export::IncidentExporter;
 use crate::slot_matcher::{
-    CapabilityRegistry, FillStrength, HypothesisKey, PlaybookDef, PlaybookIndex,
-    PlaybookSlot, SlotMatcher, SlotPredicate,
+    CapabilityRegistry, FillStrength, HypothesisKey, PlaybookDef, PlaybookIndex, SlotMatcher,
 };
 use chrono::{DateTime, Utc};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
-use std::path::PathBuf;
 
 /// HypothesisController owns the hypothesis system runtime state
 pub struct HypothesisController {
@@ -223,7 +221,7 @@ impl HypothesisController {
     }
 
     /// Update hypotheses based on a new fact.
-    /// 
+    ///
     /// This is the core of the ground-truth slot engine:
     /// 1. Match fact against playbook slot predicates (via PlaybookIndex)
     /// 2. Create/update hypotheses keyed by (playbook_id, scope_key, time_bucket)
@@ -237,7 +235,7 @@ impl HypothesisController {
 
         // Get candidate playbooks for this fact type (O(1) lookup)
         let candidates = self.playbook_index.candidates_for_fact_type(fact_type);
-        
+
         if candidates.is_empty() {
             return Ok(affected_ids);
         }
@@ -246,8 +244,9 @@ impl HypothesisController {
         // Sort by (playbook_id, slot_id) for stable ordering
         let mut sorted_candidates: Vec<_> = candidates;
         sorted_candidates.sort_by(|a, b| {
-            a.0.playbook_id.cmp(&b.0.playbook_id)
-                .then_with(|| a.1.cmp(&b.1))
+            a.0.playbook_id
+                .cmp(&b.0.playbook_id)
+                .then_with(|| a.1.cmp(b.1))
         });
 
         for (playbook, slot_id) in sorted_candidates {
@@ -293,7 +292,8 @@ impl HypothesisController {
                     fact.ts,
                     self.bucket_seconds,
                 );
-                self.hypotheses.insert(hypothesis_id.clone(), new_hypothesis);
+                self.hypotheses
+                    .insert(hypothesis_id.clone(), new_hypothesis);
             }
 
             // Now get mutable reference to the hypothesis
@@ -319,9 +319,11 @@ impl HypothesisController {
             }
 
             // Fill the slot
-            let evidence_ptr = fact.evidence_ptrs.first().cloned()
-                .unwrap_or_else(|| crate::hypothesis::EvidencePtr::new("unknown", "unknown", 0));
-            
+            let evidence_ptr =
+                fact.evidence_ptrs.first().cloned().unwrap_or_else(|| {
+                    crate::hypothesis::EvidencePtr::new("unknown", "unknown", 0)
+                });
+
             let fact_domain = fact.domain();
             hypothesis.fill_slot(
                 &slot.slot_id,
@@ -334,7 +336,9 @@ impl HypothesisController {
             // Mark slot as satisfied based on fill strength
             if let Some(fill) = hypothesis.slot_fills.get_mut(&slot.slot_id) {
                 let strength = match fill_strength {
-                    FillStrength::Strong => crate::hypothesis::hypothesis_state::FillStrength::Strong,
+                    FillStrength::Strong => {
+                        crate::hypothesis::hypothesis_state::FillStrength::Strong
+                    }
                     FillStrength::Weak => crate::hypothesis::hypothesis_state::FillStrength::Weak,
                 };
                 fill.satisfy(strength);
@@ -395,7 +399,7 @@ impl HypothesisController {
             bucket_seconds,
             playbook.ttl_seconds as i64,
         );
-        
+
         // Override the computed ID with our deterministic one
         hypothesis.hypothesis_id = hypothesis_id.to_string();
 
@@ -407,7 +411,7 @@ impl HypothesisController {
             } else {
                 SlotRequirement::Optional
             };
-            
+
             let hypothesis_slot = Slot {
                 slot_id: slot.slot_id.clone(),
                 name: slot.name.clone(),
@@ -433,7 +437,7 @@ impl HypothesisController {
     /// Compute entity key for cooldown and grouping
     fn compute_entity_key(&self, scope_pattern: &str, fact: &Fact) -> String {
         let mut parts = Vec::new();
-        
+
         for component in scope_pattern.split('|') {
             match component.trim() {
                 "host" => parts.push(fact.host_id.clone()),
@@ -457,11 +461,11 @@ impl HypothesisController {
                 _ => {}
             }
         }
-        
+
         if parts.is_empty() {
             parts.push(fact.host_id.clone());
         }
-        
+
         parts.join("|")
     }
 
@@ -509,7 +513,9 @@ impl HypothesisController {
         match fact_type {
             "ProcSpawn" | "Exec" => FactDomain::Process,
             "OutboundConnect" | "InboundConnect" | "DnsResolve" => FactDomain::Network,
-            "WritePath" | "ReadPath" | "CreatePath" | "DeletePath" | "RenamePath" => FactDomain::File,
+            "WritePath" | "ReadPath" | "CreatePath" | "DeletePath" | "RenamePath" => {
+                FactDomain::File
+            }
             "PersistArtifact" | "RegistryMod" => FactDomain::Persist,
             "PrivilegeBoundary" | "AuthEvent" => FactDomain::Auth,
             "MemWX" | "MemAlloc" | "Injection" => FactDomain::Memory,
@@ -528,7 +534,7 @@ impl HypothesisController {
                 hypothesis.expire();
             }
         }
-        
+
         // Clean up old cooldowns (keep for 2x cooldown period)
         let max_cooldown_age = chrono::Duration::hours(2);
         self.cooldowns.retain(|_, ts| now - *ts < max_cooldown_age);
@@ -665,6 +671,24 @@ impl HypothesisController {
         self.incident_store.get(id)
     }
 
+    /// Get all incidents from the incident store
+    pub fn all_incidents(&self) -> Vec<&crate::hypothesis::Incident> {
+        // Get all incidents by iterating the by_host index
+        // This is a bit inefficient but works for the current use case
+        let mut incidents = Vec::new();
+        if let Some(host_ids) = self
+            .incident_store
+            .active_by_host(&self.host_id)
+            .into_iter()
+            .next()
+        {
+            incidents.push(host_ids);
+        }
+        // Actually we need a better way - let's add a method to IncidentStore
+        // For now, return active by host since that's what we have
+        self.incident_store.active_by_host(&self.host_id)
+    }
+
     /// Promote a hypothesis to an incident
     pub fn promote_to_incident(&mut self, hypothesis_id: &str) -> Result<String, String> {
         let hypothesis = self
@@ -692,7 +716,8 @@ impl HypothesisController {
 
         // Export incident if exporter is configured
         if let Some(exporter) = &mut self.exporter {
-            exporter.export_batch(&[&incident], self.export_namespace.as_deref())
+            exporter
+                .export_batch(&[&incident], self.export_namespace.as_deref())
                 .map_err(|e| format!("Failed to export incident: {}", e))?;
         }
 

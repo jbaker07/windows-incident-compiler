@@ -1,0 +1,92 @@
+id: import-recon-to-attack-surface
+name: Recon Results → Attack Surface Enumeration
+version: "1.0.0"
+description: >
+  Correlates reconnaissance tool outputs (nmap, gobuster, ffuf) into
+  a unified attack surface picture with severity scoring.
+
+trigger:
+  # Triggers when we have multiple recon events from the same target
+  required_events:
+    - type: host_discovered
+      source_adapter: nmap
+      min_count: 1
+    - type: port_discovered
+      source_adapter: nmap
+      min_count: 1
+  optional_events:
+    - type: directory_found
+      source_adapter: [gobuster, ffuf]
+    - type: fuzz_result
+      source_adapter: ffuf
+
+correlation:
+  # Group by target IP/hostname
+  group_by:
+    - fields: [ip, hostname, host]
+  time_window: 24h
+
+signal_template:
+  title: "Attack Surface Enumerated: {{target_ip}}"
+  severity: low
+  confidence: high
+  
+  # Promote severity based on findings
+  severity_modifiers:
+    - condition: "open_ports_count >= 10"
+      bump: medium
+    - condition: "has_high_risk_services"
+      bump: medium
+    - condition: "exposed_admin_paths_count >= 1"
+      bump: high
+    - condition: "has_directory_listing"
+      bump: medium
+      
+  fields:
+    target_ip: "{{group.ip | first}}"
+    hostname: "{{group.hostname | first}}"
+    open_ports: "{{events | where: 'event_type', 'port_discovered' | where: 'state', 'open' | map: 'port' | unique}}"
+    open_ports_count: "{{open_ports | size}}"
+    services: "{{events | where: 'event_type', 'port_discovered' | map: 'service' | unique | reject: ''}}"
+    
+    # High-risk service detection
+    has_high_risk_services: >
+      {{services | intersect: ['telnet', 'ftp', 'vnc', 'rdp', 'smb', 'ms-sql', 'mysql'] | size | gt: 0}}
+    
+    # Web enumeration results
+    web_directories: "{{events | where: 'event_type', 'directory_found' | where: 'status_code', 200 | map: 'path' | unique | first: 50}}"
+    web_directories_count: "{{web_directories | size}}"
+    
+    # Admin paths detection
+    admin_paths: "{{web_directories | select: 'contains', 'admin' | concat: (web_directories | select: 'contains', 'login') | concat: (web_directories | select: 'contains', 'dashboard') | unique}}"
+    exposed_admin_paths_count: "{{admin_paths | size}}"
+    
+    # Fuzzing stats
+    fuzz_hits: "{{events | where: 'event_type', 'fuzz_result' | where: 'status_code', 200 | size}}"
+    
+  explanation:
+    summary: >
+      Reconnaissance tools identified {{open_ports_count}} open port(s) on {{target_ip}}.
+      Services include: {{services | join: ', '}}.
+      {% if web_directories_count > 0 %}
+      Web enumeration found {{web_directories_count}} accessible directories.
+      {% endif %}
+      {% if exposed_admin_paths_count > 0 %}
+      ⚠️ {{exposed_admin_paths_count}} administrative interface(s) potentially exposed: {{admin_paths | first: 5 | join: ', '}}
+      {% endif %}
+      
+    evidence_refs:
+      - "Nmap scan: {{events | where: 'source_adapter', 'nmap' | first | get: 'evidence_ptr'}}"
+      - "Web enum: {{events | where: 'event_type', 'directory_found' | size}} findings"
+
+  tags:
+    - recon
+    - attack_surface
+    - enumeration
+    - import_signal
+
+metadata:
+  author: import-system
+  mitre_attack:
+    - T1595.001  # Active Scanning: Scanning IP Blocks
+    - T1592      # Gather Victim Host Information

@@ -1,7 +1,6 @@
 // scoring/mahalanobis.rs
 // Mahalanobis distance: statistical anomaly detection
 
-use nalgebra::{DMatrix, DVector};
 use std::collections::HashMap;
 
 /// Simple Mahalanobis distance calculator
@@ -11,6 +10,12 @@ pub struct MahalanobisCalculator {
     means: HashMap<String, f64>,
     // For now, we'll use a simplified approach without pre-computing full covariance
     // This is suitable for lightweight deployments
+}
+
+impl Default for MahalanobisCalculator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MahalanobisCalculator {

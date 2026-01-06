@@ -1,0 +1,172 @@
+---
+# playbooks/import/signal_ssl_anomalies.yaml
+# Detection of SSL/TLS certificate and connection anomalies
+
+id: "import_ssl_anomalies_001"
+title: "SSL/TLS Anomaly Detection"
+name: "Certificate and SSL Anomalies"
+family: "defense_evasion"
+version: "1.0"
+description: |
+  Detects SSL/TLS anomalies that may indicate:
+  - Self-signed certificates
+  - Expired certificates
+  - Certificate mismatches
+  - Unusual TLS versions
+  - Known malicious certificate patterns
+  
+  Works with Zeek SSL logs and JSONL.
+
+enabled: true
+confidence_threshold: 0.70
+
+sources:
+  - zeek_ssl
+  - jsonl_ssl
+
+input_tags:
+  - ssl
+  - cert_issue
+  - old_tls
+
+mitre:
+  tactics:
+    - defense_evasion
+    - command_and_control
+  techniques:
+    - T1573.002  # Asymmetric Cryptography
+    - T1071.001  # Web Protocols
+
+input_facts:
+  required:
+    - ssl_connection
+
+slots:
+  required:
+    - name: server_name
+      type: string
+      extract_from: server_name
+    - name: issuer
+      type: string
+      extract_from: issuer
+
+rules:
+  - name: "Self-Signed Certificate"
+    description: "Connection using self-signed certificate"
+    conditions:
+      - field: validation_status
+        matches: "(?i)self.?signed"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "self_signed"
+          - "cert_anomaly"
+    evidence:
+      - field: server_name
+        description: "Server name"
+      - field: issuer
+        description: "Certificate issuer"
+
+  - name: "Expired Certificate"
+    description: "Connection to server with expired certificate"
+    conditions:
+      - field: validation_status
+        matches: "(?i)expire"
+    actions:
+      - severity: LOW
+        tags:
+          - "expired_cert"
+          - "cert_anomaly"
+
+  - name: "Certificate Name Mismatch"
+    description: "Server name doesn't match certificate"
+    conditions:
+      - field: validation_status
+        matches: "(?i)(mismatch|invalid.*name|wrong.*host)"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "name_mismatch"
+          - "cert_anomaly"
+
+  - name: "Legacy TLS Version"
+    description: "Using deprecated TLS version"
+    conditions:
+      - field: version
+        matches: "(?i)(SSLv|TLSv10|TLSv11)"
+    actions:
+      - severity: LOW
+        tags:
+          - "legacy_tls"
+          - "weak_crypto"
+
+  - name: "Unknown Certificate Authority"
+    description: "Certificate from unknown/untrusted CA"
+    conditions:
+      - field: validation_status
+        matches: "(?i)(unable.*verify|unknown.*authority|untrusted)"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "unknown_ca"
+          - "untrusted"
+
+  - name: "JA3 Hash Match"
+    description: "Known malicious JA3 fingerprint"
+    conditions:
+      - field: ja3
+        in_list: "malicious_ja3_hashes"
+    actions:
+      - severity: HIGH
+        tags:
+          - "ja3_match"
+          - "known_malware"
+
+  - name: "JA3S Hash Match"
+    description: "Known malicious JA3S fingerprint"
+    conditions:
+      - field: ja3s
+        in_list: "malicious_ja3s_hashes"
+    actions:
+      - severity: HIGH
+        tags:
+          - "ja3s_match"
+          - "known_c2"
+
+  - name: "Short Certificate Validity"
+    description: "Certificate with very short validity period"
+    conditions:
+      - field: not_valid_after
+        custom: "validity_days < 7"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "short_validity"
+          - "ephemeral_cert"
+
+  - name: "Non-Standard Port SSL"
+    description: "SSL/TLS on unusual port"
+    conditions:
+      - field: "id.resp_p"
+        not_in: [443, 8443, 993, 995, 465, 636, 989, 990]
+    actions:
+      - severity: LOW
+        tags:
+          - "nonstandard_port"
+          - "unusual"
+
+response:
+  - type: "signal"
+    signal_name: "SSL/TLS Anomaly Detected"
+    priority: "medium"
+    narrative_template: |
+      SSL/TLS anomaly detected for connection to {server_name}.
+      Issue: {validation_issue}
+      Certificate issuer: {issuer}
+      TLS version: {tls_version}
+
+false_positives:
+  - "Development/test environments"
+  - "Internal services with self-signed certs"
+  - "Legacy systems pending upgrade"
+  - "IoT devices with embedded certs"

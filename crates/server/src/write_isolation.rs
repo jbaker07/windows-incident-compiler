@@ -51,6 +51,7 @@ pub enum WriteIsolationError {
 /// Write isolation context for a specific imported bundle
 pub struct WriteIsolationContext {
     /// Root telemetry directory
+    #[allow(dead_code)]
     telemetry_root: PathBuf,
     /// Bundle ID
     bundle_id: String,
@@ -272,14 +273,14 @@ pub fn is_imported_path(path: &Path) -> bool {
 
 /// Extract bundle_id from an imported path, if present
 pub fn extract_bundle_id_from_path(path: &Path) -> Option<String> {
-    let path_str = path.to_string_lossy();
+    let _path_str = path.to_string_lossy();
 
     // Look for IMPORTED_ prefix in path components
     for component in path.components() {
         if let std::path::Component::Normal(s) = component {
             let s_str = s.to_string_lossy();
-            if s_str.starts_with(BUNDLE_DIR_PREFIX) {
-                return Some(s_str[BUNDLE_DIR_PREFIX.len()..].to_string());
+            if let Some(bundle_id) = s_str.strip_prefix(BUNDLE_DIR_PREFIX) {
+                return Some(bundle_id.to_string());
             }
         }
     }

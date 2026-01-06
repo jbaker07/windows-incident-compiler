@@ -15,6 +15,7 @@ use std::collections::HashMap;
 /// Machine-executable pivot actions
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
+#[derive(Default)]
 pub enum PivotAction {
     /// Expand time window backward
     ExpandWindowBackward { seconds: i64 },
@@ -57,13 +58,8 @@ pub enum PivotAction {
     /// Scan child processes
     ChildProcessScan { proc_key: String, depth: u32 },
     /// No pivot available
+    #[default]
     None,
-}
-
-impl Default for PivotAction {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 // ============================================================================
@@ -403,7 +399,7 @@ pub fn generate_competitive_disambiguators(
             .collect();
 
         // Slots we have that they don't
-        let our_unique: Vec<_> = our_slots.difference(&their_slots).collect();
+        let _our_unique: Vec<_> = our_slots.difference(&their_slots).collect();
         // Slots they have that we don't
         let their_unique: Vec<_> = their_slots.difference(&our_slots).collect();
 

@@ -4,7 +4,6 @@
 use crate::SignalResult;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
 
 pub struct SignalPersister {
     signals_path: String,

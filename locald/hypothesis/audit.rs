@@ -49,7 +49,7 @@ impl AuditEntry {
         hasher.update(format!("{:?}", self.action).as_bytes());
         hasher.update(format!("{:?}", self.actor).as_bytes());
         hasher.update(format!("{:?}", self.target).as_bytes());
-        hasher.update(&serde_json::to_vec(&self.new_state).unwrap_or_default());
+        hasher.update(serde_json::to_vec(&self.new_state).unwrap_or_default());
         self.id = hex::encode(&hasher.finalize()[..16]);
     }
 }

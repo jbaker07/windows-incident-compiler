@@ -60,6 +60,12 @@ pub struct BookmarkManager {
     state: RefCell<BookmarkState>,
 }
 
+impl Default for BookmarkManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BookmarkManager {
     pub fn new() -> Self {
         // Default to temp telemetry root for development/testing
@@ -75,7 +81,7 @@ impl BookmarkManager {
         }
     }
 
-    pub fn with_telemetry_root(telemetry_root: &PathBuf) -> Self {
+    pub fn with_telemetry_root(telemetry_root: &std::path::Path) -> Self {
         let state_file = telemetry_root.join("bookmark_state.json");
         let state = Self::load_state(&state_file).unwrap_or_default();
 

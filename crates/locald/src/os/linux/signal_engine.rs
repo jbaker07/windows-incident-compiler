@@ -508,10 +508,7 @@ impl LinuxSignalEngine {
         };
 
         if pid > 0 {
-            self.net_by_pid
-                .entry(pid)
-                .or_insert_with(Vec::new)
-                .push(snap);
+            self.net_by_pid.entry(pid).or_default().push(snap);
         }
     }
 

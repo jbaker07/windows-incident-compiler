@@ -1,0 +1,132 @@
+---
+# playbooks/windows/signal_logon_anomaly.yaml
+# Detection of anomalous logon patterns
+
+id: "windows_logon_anomaly_001"
+title: "Anomalous Logon Detection"
+name: "Logon Anomaly Detection"
+family: "identity"
+version: "2.0"
+description: |
+  Detects anomalous logon patterns including:
+  - Failed logon bursts (brute force)
+  - After-hours logons
+  - Multiple logon sources
+  - Type 10 (RDP) from unusual sources
+  - Service account interactive logons
+
+enabled: true
+confidence_threshold: 0.70
+
+requires:
+  - security_log
+
+enhances_with:
+  - advanced_audit
+
+mitre:
+  tactics:
+    - credential_access
+    - initial_access
+    - lateral_movement
+  techniques:
+    - T1110      # Brute Force
+    - T1078      # Valid Accounts
+    - T1021.001  # RDP
+
+input_facts:
+  required:
+    - AuthEvent
+
+slots:
+  required:
+    - name: logon_type
+      type: integer
+      values: [2, 3, 5, 7, 10, 11]
+    - name: user_name
+      type: string
+  optional:
+    - name: source_ip
+      type: string
+    - name: failure_reason
+      type: string
+
+rules:
+  - name: "Failed Logon Burst"
+    window: 300
+    aggregation: count
+    threshold: 5
+    conditions:
+      - fact_type: AuthEvent
+      - field: success
+        equals: false
+    actions:
+      - severity: HIGH
+        tags:
+          - "brute_force"
+          - "credential_attack"
+    evidence:
+      - event_type: "logon"
+        event_id: 4625
+        field_mapping:
+          user: "TargetUserName"
+          source_ip: "SourceNetworkAddress"
+          failure_reason: "FailureReason"
+
+  - name: "Multiple Logon Sources"
+    window: 3600
+    aggregation: distinct
+    aggregation_field: source_ip
+    threshold: 3
+    conditions:
+      - fact_type: AuthEvent
+      - field: success
+        equals: true
+      - field: auth_type
+        in: [Network, RemoteInteractive]
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "account_compromise"
+          - "multi_source"
+    evidence:
+      - event_type: "logon"
+        event_id: 4624
+
+  - name: "Service Account Interactive Logon"
+    window: 10
+    conditions:
+      - fact_type: AuthEvent
+      - field: user
+        matches: "(?i)^svc_|_svc$|service"
+      - field: auth_type
+        in: [Interactive, RemoteInteractive]
+    actions:
+      - severity: HIGH
+        tags:
+          - "service_account_abuse"
+          - "credential_theft"
+
+  - name: "RDP From External IP"
+    window: 10
+    conditions:
+      - fact_type: AuthEvent
+      - field: auth_type
+        equals: RemoteInteractive
+      - field: source_ip
+        not_matches: "^(10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|192\\.168\\.|127\\.)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "external_rdp"
+          - "initial_access"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "Logon Anomaly Detected"
+    priority: "high"
+
+false_positives:
+  - "VPN users with changing IPs"
+  - "Administrators with multiple jump hosts"

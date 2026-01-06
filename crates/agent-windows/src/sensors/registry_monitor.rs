@@ -44,7 +44,7 @@ impl RegistryMonitor {
             _ => "registry_unknown",
         };
 
-        let mut fields = event.fields.clone();
+        let fields = event.fields.clone();
         // Convert string values to JSON for consistency
         let fields_json: BTreeMap<String, serde_json::Value> = fields
             .into_iter()

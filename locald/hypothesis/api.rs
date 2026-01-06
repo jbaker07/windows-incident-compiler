@@ -10,7 +10,7 @@ use super::hypothesis_state::HypothesisState;
 use super::incident::Incident;
 use super::promotion::Severity;
 use super::scope_keys::ScopeKey;
-use super::session::{AnalystAction, Assertion, AssertionType, FocusWindow, Session, SessionMode};
+use super::session::SessionMode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -246,7 +246,6 @@ pub struct Top3Request {
 }
 
 /// Response is ArbitrationResponse
-
 /// GET /hypotheses/:id
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HypothesisDetailResponse {
@@ -330,8 +329,7 @@ pub struct EntityDetail {
     pub display_name: Option<String>,
 }
 
-/// GET /incidents/:id/explain
-/// Response is ExplanationResponse
+// GET /incidents/:id/explain - Response is ExplanationResponse
 
 // ============================================================================
 // Assertion Endpoints

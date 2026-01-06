@@ -347,6 +347,7 @@ pub struct VerificationState {
 }
 
 impl VerificationState {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self::default()
     }

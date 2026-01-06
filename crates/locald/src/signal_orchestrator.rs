@@ -3,11 +3,11 @@
 //! Routes canonical Events through the appropriate signal engine based on
 //! the detected platform and returns detected signals.
 
+use crate::integrations::ingest::VendorAlertIngester;
 use crate::os::linux::LinuxSignalEngine;
 use crate::os::macos::MacOSSignalEngine;
 use crate::os::windows::WindowsSignalEngine;
 use crate::signal_result::SignalResult;
-use crate::integrations::ingest::VendorAlertIngester;
 use edr_core::Event;
 
 /// Platform type for signal routing

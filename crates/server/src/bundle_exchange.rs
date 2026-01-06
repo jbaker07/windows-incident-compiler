@@ -13,7 +13,7 @@
 //! - Community sharing
 //! - Training and education
 
-use crate::report::{ClaimEntry, IntegrityNoteEntry, ReportBundle, TimelineEntry};
+use crate::report::{IntegrityNoteEntry, ReportBundle};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,7 @@ pub const HASH_ALGORITHM: &str = "sha256";
 pub const CHECKSUM_SCOPE: &str = "bundle_payload_sans_checksum";
 
 /// Imported namespace prefix
+#[allow(dead_code)]
 pub const IMPORTED_NAMESPACE: &str = "imported_bundle";
 
 // ============================================================================
@@ -45,6 +46,7 @@ pub struct ZipSafetyPolicy {
     pub max_single_file: usize,
     pub reject_nested_archives: bool,
     pub reject_path_traversal: bool,
+    #[allow(dead_code)]
     pub allowed_extensions: Vec<&'static str>,
 }
 
@@ -304,6 +306,7 @@ pub struct ThrottleConfigSnapshotCompat {
 // Imported Bundle Storage (namespace isolation)
 // ============================================================================
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportedBundleRecord {
     pub bundle_id: String,
@@ -314,11 +317,13 @@ pub struct ImportedBundleRecord {
 }
 
 /// In-memory store for imported bundles (isolated from live data)
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct ImportedBundleStore {
     bundles: std::sync::RwLock<HashMap<String, ImportedBundleRecord>>,
 }
 
+#[allow(dead_code)]
 impl ImportedBundleStore {
     pub fn new() -> Self {
         Self::default()
@@ -363,6 +368,12 @@ pub struct RedactionContext {
     user_counter: u32,
     ip_counter: u32,
     path_counter: u32,
+}
+
+impl Default for RedactionContext {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RedactionContext {
@@ -637,6 +648,7 @@ pub fn build_incident_bundle(
 }
 
 /// Serialize bundle to JSON bytes
+#[allow(dead_code)]
 pub fn export_to_json(bundle: &IncidentBundle) -> Result<Vec<u8>, String> {
     serde_json::to_vec_pretty(bundle).map_err(|e| format!("Failed to serialize bundle: {}", e))
 }
@@ -1049,6 +1061,7 @@ pub fn validate_bundle(bundle: &IncidentBundle) -> Result<(), String> {
 }
 
 /// Execute recompute from bundle's canonical inputs
+#[allow(dead_code)]
 pub fn recompute_from_bundle(
     bundle: &IncidentBundle,
     mode: &str,
@@ -1113,7 +1126,7 @@ pub fn recompute_from_bundle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::ReportBundleBuilder;
+    use crate::report::{ClaimEntry, ReportBundleBuilder, TimelineEntry};
 
     fn create_test_bundle() -> ReportBundle {
         ReportBundleBuilder::new(

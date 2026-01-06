@@ -1,0 +1,102 @@
+id: import-network-alert-correlation
+name: Network Alert Correlation
+version: "1.0.0"
+description: >
+  Correlates network security alerts from Suricata EVE JSON, Zeek notices,
+  and similar IDS/IPS sources into actionable security signals.
+
+trigger:
+  required_events:
+    - type: net_alert
+      source_adapter: [suricata, zeek]
+      min_count: 1
+
+correlation:
+  # Group alerts by source IP → destination IP pair
+  group_by:
+    - fields: [src_ip, dest_ip]
+  time_window: 1h
+  
+  # Aggregate severity
+  aggregate:
+    max_severity: "max(severity)"
+    alert_count: "count(*)"
+    unique_signatures: "count_distinct(signature_id)"
+
+signal_template:
+  title: "Network Alerts: {{src_ip}} → {{dest_ip}}"
+  
+  # Base severity from highest alert
+  severity: >
+    {% if max_severity <= 1 %}high
+    {% elsif max_severity == 2 %}medium
+    {% else %}low
+    {% endif %}
+    
+  confidence: high
+  
+  severity_modifiers:
+    - condition: "alert_count >= 10"
+      bump: +1
+    - condition: "unique_signatures >= 3"
+      bump: +1
+    - condition: "has_c2_indicator"
+      bump: high
+    - condition: "has_malware_indicator"
+      bump: high
+      
+  fields:
+    src_ip: "{{group.src_ip}}"
+    dest_ip: "{{group.dest_ip}}"
+    alert_count: "{{alert_count}}"
+    unique_signatures: "{{unique_signatures}}"
+    
+    # Extract signature categories
+    categories: "{{events | map: 'category' | unique | reject: ''}}"
+    signatures: "{{events | map: 'signature' | unique | first: 20}}"
+    
+    # C2/Malware detection
+    has_c2_indicator: "{{categories | intersect: ['c2', 'command-and-control', 'trojan'] | size | gt: 0}}"
+    has_malware_indicator: "{{categories | intersect: ['malware', 'trojan', 'exploit', 'shellcode'] | size | gt: 0}}"
+    
+    # Protocol breakdown
+    protocols: "{{events | map: 'protocol' | unique}}"
+    dest_ports: "{{events | map: 'dest_port' | unique | sort | first: 20}}"
+    
+    # Time span
+    first_seen: "{{events | map: 'timestamp' | min}}"
+    last_seen: "{{events | map: 'timestamp' | max}}"
+    
+  explanation:
+    summary: >
+      {{alert_count}} network security alert(s) detected from {{src_ip}} to {{dest_ip}}
+      over {{time_span_human}}.
+      
+      Signatures triggered: {{signatures | first: 5 | join: '; '}}
+      Categories: {{categories | join: ', '}}
+      
+      {% if has_c2_indicator %}
+      ⚠️ POTENTIAL C2 ACTIVITY DETECTED - requires immediate investigation.
+      {% endif %}
+      {% if has_malware_indicator %}
+      ⚠️ MALWARE INDICATORS PRESENT - host may be compromised.
+      {% endif %}
+      
+    evidence_refs:
+      - "First alert: {{events | first | get: 'evidence_ptr'}}"
+      - "All alerts from: {{events | map: 'source_file' | unique | join: ', '}}"
+
+  tags:
+    - network
+    - ids
+    - alert
+    - suricata
+    - zeek
+    - import_signal
+
+metadata:
+  author: import-system
+  mitre_attack:
+    - T1071      # Application Layer Protocol
+    - T1095      # Non-Application Layer Protocol
+    - T1571      # Non-Standard Port

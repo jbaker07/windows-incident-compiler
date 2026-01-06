@@ -9,6 +9,12 @@ pub struct KrimLite {
     // Full KRIM would use isolation trees
 }
 
+impl Default for KrimLite {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KrimLite {
     pub fn new() -> Self {
         Self {}

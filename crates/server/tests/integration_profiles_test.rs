@@ -6,19 +6,15 @@
 //! 3. Sample events endpoint returns raw + mapped examples
 //! 4. Health status computation works correctly
 
-use edr_server::integration_api::{
-    CapabilitiesMatrixApi, CapabilitySource, CollectorInfo, DerivedScopeKey, Fidelity,
-    HealthStatus, IntegrationApiState, IntegrationDetailApi, IntegrationMode,
-    IntegrationProfileApi, JoinKeySupport, MappedEventSample, SampleEventsResponse,
-    SourceType, integration_api_router,
-};
 use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
 use chrono::Utc;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use edr_server::integration_api::{
+    integration_api_router, CapabilitiesMatrixApi, Fidelity, HealthStatus, IntegrationApiState,
+    MappedEventSample, SampleEventsResponse, SourceType,
+};
 use tower::ServiceExt;
 
 /// Test 1: Integration profile appears in /api/integrations and updates last_seen_ts/eps
@@ -48,7 +44,10 @@ async fn test_integration_profiles_list_and_update() {
 
     // Should have demo integrations
     let integrations = json["integrations"].as_array().unwrap();
-    assert!(integrations.len() >= 2, "Should have at least 2 demo integrations");
+    assert!(
+        integrations.len() >= 2,
+        "Should have at least 2 demo integrations"
+    );
 
     // Check that wazuh integration is present
     let wazuh = integrations
@@ -88,10 +87,13 @@ async fn test_integration_profiles_list_and_update() {
         .await
         .unwrap();
     let json2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
-    
+
     // IntegrationDetailApi uses #[serde(flatten)] so eps is at top level of "integration"
     let updated_eps = json2["integration"]["eps"].as_f64().unwrap();
-    assert!((updated_eps - 100.5).abs() < 0.01, "EPS should be updated to 100.5");
+    assert!(
+        (updated_eps - 100.5).abs() < 0.01,
+        "EPS should be updated to 100.5"
+    );
 }
 
 /// Test 2: Capabilities endpoint shows merged matrix (collectors + integrations)
@@ -135,7 +137,10 @@ async fn test_capabilities_matrix_merged() {
     assert!(!integrations.is_empty(), "Should have integrations");
 
     // Verify fact support matrix exists
-    assert!(!matrix.fact_support.is_empty(), "Fact support should not be empty");
+    assert!(
+        !matrix.fact_support.is_empty(),
+        "Fact support should not be empty"
+    );
 
     // Check that exec fact type has both HARD (collector) and SOFT (integration) support
     if let Some(exec_support) = matrix.fact_support.get("exec") {
@@ -146,8 +151,14 @@ async fn test_capabilities_matrix_merged() {
     }
 
     // Verify join key support
-    assert!(!matrix.join_key_support.is_empty(), "Join key support should not be empty");
-    assert!(matrix.join_key_support.contains_key("proc_key"), "Should have proc_key support");
+    assert!(
+        !matrix.join_key_support.is_empty(),
+        "Join key support should not be empty"
+    );
+    assert!(
+        matrix.join_key_support.contains_key("proc_key"),
+        "Should have proc_key support"
+    );
 }
 
 /// Test 3: Sample events endpoint returns raw + mapped examples
@@ -179,22 +190,34 @@ async fn test_sample_events_with_provenance() {
 
     // Check first sample has required fields
     let sample = &samples.samples[0];
-    assert!(!sample.raw_json_hash.is_empty(), "Should have raw_json_hash");
-    assert!(!sample.mapping_version.is_empty(), "Should have mapping_version");
-    
+    assert!(
+        !sample.raw_json_hash.is_empty(),
+        "Should have raw_json_hash"
+    );
+    assert!(
+        !sample.mapping_version.is_empty(),
+        "Should have mapping_version"
+    );
+
     // Check provenance (derived scope keys)
-    assert!(!sample.derived_scope_keys.is_empty(), "Should have derived scope keys");
-    
+    assert!(
+        !sample.derived_scope_keys.is_empty(),
+        "Should have derived scope keys"
+    );
+
     let key = &sample.derived_scope_keys[0];
     assert!(!key.key.is_empty(), "Scope key should not be empty");
-    assert!(key.join_confidence > 0.0 && key.join_confidence <= 1.0, "Join confidence should be 0-1");
+    assert!(
+        key.join_confidence > 0.0 && key.join_confidence <= 1.0,
+        "Join confidence should be 0-1"
+    );
 }
 
 /// Test 4: Health status computation
 #[tokio::test]
 async fn test_health_status_computation() {
-    let mut state = IntegrationApiState::demo();
-    
+    let state = IntegrationApiState::demo();
+
     // Modify an integration to have warning status (stale)
     {
         let mut profiles = state.profiles.write().unwrap();
@@ -206,7 +229,7 @@ async fn test_health_status_computation() {
     }
 
     let app = integration_api_router(state);
-    
+
     let response = app
         .oneshot(
             Request::builder()
@@ -241,7 +264,7 @@ async fn test_health_status_computation() {
 #[tokio::test]
 async fn test_integration_mode_filtering() {
     let state = IntegrationApiState::demo();
-    
+
     // Filter for export mode only
     let app = integration_api_router(state);
     let response = app
@@ -262,7 +285,7 @@ async fn test_integration_mode_filtering() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
     let integrations = json["integrations"].as_array().unwrap();
-    
+
     // All returned integrations should be export mode
     for int in integrations {
         assert_eq!(
@@ -321,7 +344,10 @@ async fn test_capabilities_without_collectors() {
         .iter()
         .any(|s| s.source_type == SourceType::Collector);
 
-    assert!(!has_collector, "Should not have collectors when include_collectors=false");
+    assert!(
+        !has_collector,
+        "Should not have collectors when include_collectors=false"
+    );
 }
 
 /// Test 8: MappedEvent hash is deterministic

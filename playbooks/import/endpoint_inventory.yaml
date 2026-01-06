@@ -1,0 +1,109 @@
+id: import-endpoint-inventory
+name: Endpoint Inventory from osquery/Velociraptor
+version: "1.0.0"
+description: >
+  Builds endpoint inventory and security posture from osquery and 
+  Velociraptor collection results.
+
+trigger:
+  required_events:
+    - type: [process_info, user_info, listening_port, service_info]
+      source_adapter: [osquery, velociraptor]
+      min_count: 1
+
+correlation:
+  # Group by hostname/client
+  group_by:
+    - fields: [hostname, client_id, Computer]
+  time_window: 24h
+
+signal_template:
+  title: "Endpoint Inventory: {{hostname}}"
+  severity: info
+  confidence: high
+  
+  severity_modifiers:
+    # Promote if security issues found
+    - condition: "has_suspicious_listener"
+      bump: medium
+    - condition: "has_privileged_process"
+      bump: low
+    - condition: "admin_users_count > 5"
+      bump: low
+      
+  fields:
+    hostname: "{{group.hostname | default: group.client_id | default: group.Computer}}"
+    
+    # Process inventory
+    process_count: "{{events | where: 'event_type', 'process_info' | size}}"
+    unique_processes: "{{events | where: 'event_type', 'process_info' | map: 'process_name' | unique | size}}"
+    processes: "{{events | where: 'event_type', 'process_info' | map: 'process_name' | unique | first: 50}}"
+    
+    # User inventory
+    user_count: "{{events | where: 'event_type', 'user_info' | size}}"
+    users: "{{events | where: 'event_type', 'user_info' | map: 'username' | unique}}"
+    admin_users: "{{events | where: 'event_type', 'user_info' | where: 'is_admin', true | map: 'username' | unique}}"
+    admin_users_count: "{{admin_users | size}}"
+    
+    # Network listeners
+    listener_count: "{{events | where: 'event_type', 'listening_port' | size}}"
+    listening_ports: "{{events | where: 'event_type', 'listening_port' | map: 'port' | unique | sort}}"
+    
+    # Suspicious listeners (high ports, unusual services)
+    high_port_listeners: "{{listening_ports | select: 'gt', 49151}}"
+    has_suspicious_listener: "{{high_port_listeners | size | gt: 0}}"
+    
+    # Service inventory
+    service_count: "{{events | where: 'event_type', 'service_info' | size}}"
+    services: "{{events | where: 'event_type', 'service_info' | map: 'service_name' | unique | first: 50}}"
+    
+    # Security checks
+    has_privileged_process: "{{processes | intersect: ['mimikatz', 'procdump', 'psexec', 'wce'] | size | gt: 0}}"
+    suspicious_processes: "{{processes | intersect: ['mimikatz', 'procdump', 'psexec', 'wce', 'lazagne', 'rubeus']}}"
+    
+  explanation:
+    summary: >
+      Endpoint inventory collected for {{hostname}}:
+      
+      📊 **Overview**
+      - Processes: {{unique_processes}} unique ({{process_count}} total entries)
+      - Users: {{user_count}} ({{admin_users_count}} administrators)
+      - Listening ports: {{listener_count}}
+      - Services: {{service_count}}
+      
+      {% if admin_users_count > 0 %}
+      👤 **Administrators**: {{admin_users | join: ', '}}
+      {% endif %}
+      
+      🔌 **Listening Ports**: {{listening_ports | first: 15 | join: ', '}}
+      {% if high_port_listeners | size > 0 %}
+      ⚠️ High ports listening: {{high_port_listeners | join: ', '}}
+      {% endif %}
+      
+      {% if has_privileged_process %}
+      ⚠️ **SECURITY ALERT**: Suspicious tools detected: {{suspicious_processes | join: ', '}}
+      {% endif %}
+      
+    recommendations:
+      - "Review high-port listeners for unauthorized services"
+      - "Validate administrator account list"
+      - "Check for unauthorized remote access tools"
+      {% if has_privileged_process %}
+      - "URGENT: Investigate suspicious tool presence"
+      {% endif %}
+      
+    evidence_refs:
+      - "Collection data: {{events | first | get: 'evidence_ptr'}}"
+      - "Source: {{events | map: 'source_file' | unique | first}}"
+
+  tags:
+    - inventory
+    - endpoint
+    - osquery
+    - velociraptor
+    - baseline
+    - import_signal
+
+metadata:
+  author: import-system
+  use_case: asset_inventory

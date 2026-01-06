@@ -191,6 +191,7 @@ pub struct ObservedEventSummary {
 /// Runs probes and collects results
 pub struct ProbeRunner {
     /// Event sink for observing results (optional, for testing)
+    #[allow(dead_code)]
     event_observer: Option<mpsc::Sender<ObservedEventSummary>>,
 }
 
@@ -202,6 +203,7 @@ impl ProbeRunner {
     }
 
     /// Create with an event observer for testing
+    #[allow(dead_code)]
     pub fn with_observer(observer: mpsc::Sender<ObservedEventSummary>) -> Self {
         Self {
             event_observer: Some(observer),
@@ -351,7 +353,7 @@ impl ProbeRunner {
                 ProbeActionType::LocalhostConnect => {
                     if let Some(addr) = action.details.get("listen_addr") {
                         // Extract port from "127.0.0.1:PORT"
-                        if let Some(port_str) = addr.split(':').last() {
+                        if let Some(port_str) = addr.split(':').next_back() {
                             if let Ok(port) = port_str.parse::<u16>() {
                                 localhost_port = Some(port);
                             }
@@ -549,6 +551,7 @@ impl ProbeRunner {
     }
 
     /// Notify observer of an event (for testing)
+    #[allow(dead_code)]
     pub async fn notify_event(&self, event: ObservedEventSummary) {
         if let Some(ref tx) = self.event_observer {
             let _ = tx.send(event).await;
@@ -567,6 +570,7 @@ impl Default for ProbeRunner {
 // ============================================================================
 
 /// Correlate observed events with probe actions (legacy simple version)
+#[allow(dead_code)]
 pub fn correlate_events(
     probe_result: &ProbeResult,
     events: &[ObservedEventSummary],
@@ -586,10 +590,10 @@ pub fn correlate_events(
             ev.matched_probe = true;
 
             // Check if this stream was expected
-            if probe_result.matched_streams.contains(&event.stream_id) {
-                if !matched_streams.contains(&event.stream_id) {
-                    matched_streams.push(event.stream_id.clone());
-                }
+            if probe_result.matched_streams.contains(&event.stream_id)
+                && !matched_streams.contains(&event.stream_id)
+            {
+                matched_streams.push(event.stream_id.clone());
             }
 
             observed.push(ev);
@@ -603,6 +607,7 @@ pub fn correlate_events(
 }
 
 /// Robust correlation that uses fingerprints and returns partial success info
+#[allow(dead_code)]
 pub fn correlate_events_robust(
     probe_result: &ProbeResult,
     events: &[ObservedEventSummary],
@@ -731,7 +736,7 @@ pub fn correlate_events_robust(
         }
 
         per_action.push(ActionMatchStatus {
-            action_type: action.action_type.clone(),
+            action_type: action.action_type,
             action_success: action.success,
             event_observed,
             match_reason,
@@ -782,6 +787,7 @@ pub fn correlate_events_robust(
 }
 
 /// Detailed event information for robust correlation
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct EventCorrelationDetail {
     pub action_type: String,

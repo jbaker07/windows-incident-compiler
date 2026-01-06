@@ -1,0 +1,139 @@
+---
+# playbooks/windows/signal_wmic_abuse.yaml
+# Detection of WMIC abuse for execution and discovery
+
+id: "windows_wmic_abuse_001"
+title: "WMIC LOLBin Abuse"
+name: "WMIC Abuse Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects abuse of wmic.exe for:
+  - Process creation (process call create)
+  - XSL script execution
+  - Shadow copy deletion (ransomware)
+  - Uninstall software evasion
+  - Remote command execution
+
+enabled: true
+confidence_threshold: 0.80
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+mitre:
+  tactics:
+    - execution
+    - discovery
+    - defense_evasion
+  techniques:
+    - T1047      # WMI
+    - T1220      # XSL Script Processing
+    - T1490      # Inhibit System Recovery
+
+input_facts:
+  required:
+    - Exec
+
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)wmic\\.exe"
+  optional:
+    - name: process_create
+      type: string
+      pattern: "(?i)process\\s+call\\s+create"
+    - name: xsl_script
+      type: string
+      pattern: "(?i)/format:.*\\.xsl"
+    - name: shadowcopy_delete
+      type: string
+      pattern: "(?i)shadowcopy\\s+delete"
+
+rules:
+  - name: "WMIC Process Creation"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)wmic"
+      - field: cmdline
+        matches: "(?i)process\\s+call\\s+create"
+    actions:
+      - severity: HIGH
+        tags:
+          - "process_creation"
+          - "lolbin"
+          - "wmi_exec"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "WMIC XSL Script Execution"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)wmic"
+      - field: cmdline
+        matches: "(?i)/format:.*\\.xsl"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "xsl_execution"
+          - "applocker_bypass"
+
+  - name: "WMIC Shadow Copy Delete"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)wmic"
+      - field: cmdline
+        matches: "(?i)shadowcopy\\s+delete"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "ransomware"
+          - "recovery_inhibit"
+          - "shadow_delete"
+
+  - name: "WMIC Remote Execution"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)wmic"
+      - field: cmdline
+        matches: "(?i)/node:"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lateral_movement"
+          - "remote_exec"
+
+  - name: "WMIC Product Uninstall"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)wmic"
+      - field: cmdline
+        matches: "(?i)product.*call\\s+uninstall"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "defense_evasion"
+          - "software_removal"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "WMIC Abuse Detected"
+    priority: "high"
+
+false_positives:
+  - "IT management scripts using WMIC for inventory"
+  - "Backup software shadow copy operations"

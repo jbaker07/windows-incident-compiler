@@ -105,7 +105,11 @@ pub struct FileHint {
 
 impl VendorAlertFact {
     /// Create a new VendorAlertFact
-    pub fn new(vendor: impl Into<String>, source: impl Into<String>, vendor_ts: DateTime<Utc>) -> Self {
+    pub fn new(
+        vendor: impl Into<String>,
+        source: impl Into<String>,
+        vendor_ts: DateTime<Utc>,
+    ) -> Self {
         Self {
             vendor: vendor.into(),
             source: source.into(),
@@ -126,7 +130,7 @@ impl VendorAlertFact {
     }
 
     /// Compute deterministic scope key for this vendor alert
-    /// 
+    ///
     /// Formula: hash(vendor + host_hint_or_ip + time_bucket_minutes)
     /// This ensures:
     /// 1. Same alert from same source at same time → same scope key
@@ -162,23 +166,25 @@ impl VendorAlertFact {
         }
 
         let hash = hex::encode(&hasher.finalize()[..16]);
-        ScopeKey::Campaign { key: format!("vendor_alert:{}", hash) }
+        ScopeKey::Campaign {
+            key: format!("vendor_alert:{}", hash),
+        }
     }
 
     /// Convert to canonical Fact with Unknown FactType (for now)
-    /// 
+    ///
     /// Note: We use FactType::Unknown because VendorAlert is not in the
     /// canonical FactType enum. This is intentional - vendor alerts are
     /// soft-provenance enrichment, not primary facts.
     pub fn to_fact(&self, host_id: &str, time_bucket_minutes: i64) -> Fact {
         let scope_key = self.compute_scope_key(time_bucket_minutes);
-        
+
         // Build extra fields map
         let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
         fields.insert("vendor".to_string(), serde_json::json!(self.vendor));
         fields.insert("source".to_string(), serde_json::json!(self.source));
         fields.insert("provenance".to_string(), serde_json::json!("soft"));
-        
+
         if let Some(ref alert_name) = self.alert_name {
             fields.insert("alert_name".to_string(), serde_json::json!(alert_name));
         }
@@ -186,7 +192,10 @@ impl VendorAlertFact {
             fields.insert("vendor_severity".to_string(), serde_json::json!(severity));
         }
         if !self.ip_indicators.is_empty() {
-            fields.insert("ip_indicators".to_string(), serde_json::json!(self.ip_indicators));
+            fields.insert(
+                "ip_indicators".to_string(),
+                serde_json::json!(self.ip_indicators),
+            );
         }
         if let Some(ref dns) = self.dns_query {
             fields.insert("dns_query".to_string(), serde_json::json!(dns));
@@ -201,16 +210,22 @@ impl VendorAlertFact {
         // Create evidence pointer (synthetic for ingested events)
         let evidence_ptr = EvidencePtr::new(
             format!("vendor:{}", self.vendor),
-            self.original_event_id.clone().unwrap_or_else(|| "unknown".to_string()),
+            self.original_event_id
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string()),
             0,
-        ).with_timestamp(self.vendor_ts);
+        )
+        .with_timestamp(self.vendor_ts);
 
         let fact_type = FactType::Unknown {
             raw_type: format!("vendor_alert:{}", self.vendor),
             fields,
         };
 
-        let host = self.host_hint.clone().unwrap_or_else(|| host_id.to_string());
+        let host = self
+            .host_hint
+            .clone()
+            .unwrap_or_else(|| host_id.to_string());
         Fact::new(host, scope_key, fact_type, vec![evidence_ptr])
     }
 

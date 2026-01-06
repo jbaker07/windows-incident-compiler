@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Windows capture agent using ETW"
 
+[features]
+default = []
+windows_etw = []
+
 [lib]
 name = "agent_windows"
 path = "src/lib.rs"

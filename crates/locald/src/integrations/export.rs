@@ -3,8 +3,8 @@
 //! Exports incidents (not raw telemetry) in a stable JSONL format.
 //! Supports filtering by severity and always-includes Tier-0 invariants.
 
-use crate::hypothesis::{EvidencePtr, Incident, IncidentStatus, ScopeKey, Tier0Invariant};
-use crate::integrations::config::{ExportSinkConfig, ExportSinkType};
+use crate::hypothesis::{Incident, ScopeKey, Tier0Invariant};
+use crate::integrations::config::ExportSinkConfig;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -152,7 +152,11 @@ impl IncidentExporter {
     }
 
     /// Export a batch of incidents
-    pub fn export_batch(&mut self, incidents: &[&Incident], namespace: Option<&str>) -> Result<ExportResult, String> {
+    pub fn export_batch(
+        &mut self,
+        incidents: &[&Incident],
+        namespace: Option<&str>,
+    ) -> Result<ExportResult, String> {
         let mut exported = 0;
         let mut skipped = 0;
         let mut hasher = Sha256::new();
@@ -184,7 +188,8 @@ impl IncidentExporter {
             }
         }
 
-        writer.flush()
+        writer
+            .flush()
             .map_err(|e| format!("Failed to flush export file: {}", e))?;
 
         self.exported_count += exported;
@@ -200,7 +205,11 @@ impl IncidentExporter {
     }
 
     /// Export incidents to a fresh file (overwrite mode for determinism testing)
-    pub fn export_fresh(&mut self, incidents: &[&Incident], namespace: Option<&str>) -> Result<ExportResult, String> {
+    pub fn export_fresh(
+        &mut self,
+        incidents: &[&Incident],
+        namespace: Option<&str>,
+    ) -> Result<ExportResult, String> {
         // Remove existing file
         if self.output_path.exists() {
             fs::remove_file(&self.output_path)
@@ -212,9 +221,7 @@ impl IncidentExporter {
 
         // Sort incidents deterministically before export
         let mut sorted: Vec<_> = incidents.to_vec();
-        sorted.sort_by(|a, b| {
-            a.incident_id.cmp(&b.incident_id)
-        });
+        sorted.sort_by(|a, b| a.incident_id.cmp(&b.incident_id));
 
         self.export_batch(&sorted, namespace)
     }
@@ -245,8 +252,8 @@ impl IncidentExporter {
 
     /// Convert Incident to ExportedIncident
     fn convert_incident(&self, incident: &Incident, namespace: Option<&str>) -> ExportedIncident {
-        let tier0_type = Tier0Invariant::from_predicate(&incident.family)
-            .map(|t| format!("{:?}", t));
+        let tier0_type =
+            Tier0Invariant::from_predicate(&incident.family).map(|t| format!("{:?}", t));
 
         // Extract join keys from scope
         let join_keys = self.extract_join_keys(incident);
@@ -403,15 +410,15 @@ impl JsonlFileSink {
 
 impl ExportSink for JsonlFileSink {
     fn export(&mut self, incident: &ExportedIncident) -> Result<(), String> {
-        let json = serde_json::to_string(incident)
-            .map_err(|e| format!("Failed to serialize: {}", e))?;
-        writeln!(self.writer, "{}", json)
-            .map_err(|e| format!("Failed to write: {}", e))?;
+        let json =
+            serde_json::to_string(incident).map_err(|e| format!("Failed to serialize: {}", e))?;
+        writeln!(self.writer, "{}", json).map_err(|e| format!("Failed to write: {}", e))?;
         Ok(())
     }
 
     fn flush(&mut self) -> Result<(), String> {
-        self.writer.flush()
+        self.writer
+            .flush()
             .map_err(|e| format!("Failed to flush: {}", e))?;
         Ok(())
     }
@@ -431,7 +438,8 @@ fn severity_to_level(severity: &str) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hypothesis::{Incident, IncidentStatus, Severity, TimelineEntry, TimelineEntryKind};
+    use crate::hypothesis::{Incident, IncidentStatus, Severity};
+    use crate::integrations::config::ExportSinkType;
     use std::collections::HashSet;
     use tempfile::tempdir;
 

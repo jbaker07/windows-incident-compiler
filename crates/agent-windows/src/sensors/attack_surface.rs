@@ -1,10 +1,12 @@
 //! Windows attack surface event normalization
 //! Parses raw Windows events and emits canonical attack-surface events
 //! All emitted events have evidence_ptr: None (capture assigns it)
-#![cfg(target_os = "windows")]
+
+// Detection helper functions used conditionally
+#![allow(dead_code)]
 
 use edr_core::{event_keys, Event};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::BTreeMap;
 
 /// Normalize Windows event log record into attack-surface canonical events
@@ -172,7 +174,7 @@ fn parse_proc_exec(event: &Event) -> Option<Event> {
         json!(event.fields.get("windows.event_id")?),
     );
 
-    let mut evt = Event {
+    let evt = Event {
         ts_ms: event.ts_ms,
         host: event.host.clone(),
         tags: vec![
@@ -364,7 +366,7 @@ fn parse_wmi_persistence(event: &Event) -> Option<Event> {
     };
 
     let operation = extract_field_string(event, "Operation").unwrap_or_else(|| match event_id {
-        19 | 20 | 21 => "create".to_string(),
+        19..=21 => "create".to_string(),
         _ => "unknown".to_string(),
     });
 

@@ -7,6 +7,8 @@
 //! - POST /api/verify/reset
 //! - POST /api/selfcheck
 
+#![allow(dead_code)] // Test scaffolding may define unused structures
+
 use serde_json::json;
 
 /// Test that app state endpoint returns expected fields
@@ -239,7 +241,6 @@ fn test_pdf_verification_pack_watermark() {
 /// Test first-run marker behavior
 #[test]
 fn test_first_run_marker_logic() {
-    use std::path::Path;
     use tempfile::TempDir;
 
     let temp_dir = TempDir::new().unwrap();

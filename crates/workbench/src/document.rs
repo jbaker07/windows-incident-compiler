@@ -90,6 +90,12 @@ pub struct Timeline {
     pub entries: Vec<TimelineEntry>,
 }
 
+impl Default for Timeline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Timeline {
     pub fn new() -> Self {
         Self { entries: vec![] }
@@ -166,6 +172,12 @@ pub struct EvidenceSection {
     pub events: Vec<EventSelection>,
     pub show_raw: bool,           // Show raw JSON in export?
     pub group_by: Option<String>, // "time", "type", "process"
+}
+
+impl Default for EvidenceSection {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EvidenceSection {

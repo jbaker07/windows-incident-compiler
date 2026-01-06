@@ -1,10 +1,12 @@
+#![allow(dead_code, unused_imports, unused_comparisons)] // Test scaffolding
+
 use edr_locald::ScoringEngine;
 // Pipeline Integration Tests
 // Tests the full Agent → Locald → Signal flow across all platforms
 
 use edr_core::{Event, EvidencePtr, Severity};
 use edr_locald::{
-    BaselineQuery, BaselineStore, BaselineUpdater, EvidenceRef, HostBaseline, LinuxSignalEngine,
+    BaselineQuery, BaselineStore, BaselineUpdater, HostBaseline, LinuxSignalEngine,
     MacOSSignalEngine, MemorySink, Pipeline, Platform, SignalOrchestrator, SignalResult,
     TelemetryInput, WindowsSignalEngine,
 };

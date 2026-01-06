@@ -100,6 +100,7 @@ pub enum SelfCheckVerdict {
     Blocked,
 }
 
+#[allow(dead_code)]
 impl SelfCheckVerdict {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -534,7 +535,7 @@ impl DiagnosticEngine {
         expected_collectors(os)
             .iter()
             .map(|&collector_id| {
-                let expected_running = enabled_sensors.iter().any(|s| {
+                let expected_running = enabled_sensors.iter().any(|_s| {
                     collector_streams(collector_id)
                         .iter()
                         .any(|stream| self.stream_enabled_by_profile(stream, enabled_sensors))

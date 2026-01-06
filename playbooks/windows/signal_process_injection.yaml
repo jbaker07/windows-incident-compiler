@@ -1,0 +1,92 @@
+---
+# playbooks/windows/signal_process_injection.yaml
+# Detection of process injection techniques
+
+id: "windows_process_injection_001"
+title: "Process Injection Detection"
+name: "Process Injection Detection"
+family: "defense_evasion"
+version: "2.0"
+description: |
+  Detects process injection techniques including:
+  - Remote thread creation
+  - Process hollowing indicators
+  - APC injection patterns
+
+enabled: true
+confidence_threshold: 0.85
+
+requires:
+  - sysmon
+
+mitre:
+  tactics:
+    - defense_evasion
+    - privilege_escalation
+  techniques:
+    - T1055.001  # DLL Injection
+    - T1055.002  # PE Injection
+    - T1055.003  # Thread Execution Hijacking
+    - T1055.004  # APC Injection
+    - T1055.012  # Process Hollowing
+
+input_facts:
+  required:
+    - MemAlloc
+  optional:
+    - Exec
+
+slots:
+  optional:
+    - name: target_process
+      type: string
+    - name: source_process
+      type: string
+
+rules:
+  - name: "Remote Thread Creation"
+    window: 10
+    conditions:
+      - tag: "remote_thread"
+    actions:
+      - severity: HIGH
+        tags:
+          - "injection"
+          - "remote_thread"
+    evidence:
+      - event_type: "create_remote_thread"
+        event_id: 8
+
+  - name: "Injection into System Process"
+    window: 10
+    conditions:
+      - tag: "remote_thread"
+      - field: target_image
+        matches: "(?i)(svchost|lsass|csrss|winlogon|services)\\.exe"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "system_injection"
+          - "privilege_escalation"
+
+  - name: "Injection from Temp Path"
+    window: 10
+    conditions:
+      - tag: "remote_thread"
+      - field: source_image
+        matches: "(?i)(\\\\temp\\\\|\\\\appdata\\\\)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "suspicious_injector"
+          - "malware"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "Process Injection Detected"
+    priority: "critical"
+
+false_positives:
+  - "Security software"
+  - "Accessibility tools"

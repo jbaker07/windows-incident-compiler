@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" args="nmap -sV 192.168.1.1" start="1704067200">
+  <host starttime="1704067200" endtime="1704067260">
+    <status state="up" reason="syn-ack"/>
+    <address addr="192.168.1.1" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="test-host.local" type="PTR"/>
+    </hostnames>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open" reason="syn-ack"/>
+        <service name="ssh" product="OpenSSH" version="8.9"/>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="open" reason="syn-ack"/>
+        <service name="http" product="nginx" version="1.22"/>
+      </port>
+      <port protocol="tcp" portid="443">
+        <state state="open" reason="syn-ack"/>
+        <service name="https" product="nginx" version="1.22"/>
+      </port>
+    </ports>
+  </host>
+  <runstats>
+    <finished time="1704067260" timestr="Mon Jan 01 00:01:00 2024"/>
+    <hosts up="1" down="0" total="1"/>
+  </runstats>
+</nmaprun>

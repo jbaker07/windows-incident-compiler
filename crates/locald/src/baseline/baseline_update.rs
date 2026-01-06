@@ -1,7 +1,7 @@
 // locald/baseline/baseline_update.rs
 // Update baselines from canonical events
 
-use super::types::{HostBaseline, RateBaseline};
+use super::types::HostBaseline;
 use edr_core::Event;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -86,7 +86,7 @@ impl BaselineUpdater {
     }
 
     /// Update rate baselines from a canonical event
-    pub fn update_rates(baseline: &mut HostBaseline, event: &Event, metric_name: &str, rate: f64) {
+    pub fn update_rates(baseline: &mut HostBaseline, _event: &Event, metric_name: &str, rate: f64) {
         let now_min = (SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -96,7 +96,7 @@ impl BaselineUpdater {
         let rate_baseline = baseline
             .rate_baselines
             .entry(metric_name.to_string())
-            .or_insert_with(RateBaseline::new);
+            .or_default();
 
         // Use alpha=0.1 for EMA smoothing
         rate_baseline.update(rate, 0.1, now_min);
@@ -111,7 +111,7 @@ impl BaselineUpdater {
         let fv_baseline = baseline
             .feature_vector_baselines
             .entry(vector_type.to_string())
-            .or_insert_with(Default::default);
+            .or_default();
 
         fv_baseline.update(features);
     }

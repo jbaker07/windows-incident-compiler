@@ -1,0 +1,143 @@
+id: import-windows-security-events
+name: Windows Security Event Correlation
+version: "1.0.0"
+description: >
+  Correlates Windows Security and Sysmon events from EVTX JSON imports
+  to identify suspicious activity patterns.
+
+trigger:
+  required_events:
+    - type: [logon_success, logon_failure, process_create, powershell_script_block]
+      source_adapter: evtx_json
+      min_count: 3
+      
+correlation:
+  # Multiple correlation groups for different patterns
+  groups:
+    - name: failed_logons
+      match:
+        event_type: logon_failure
+      group_by: [src_ip, target_user]
+      time_window: 15m
+      threshold: 5  # 5+ failures in 15 min
+      
+    - name: suspicious_process
+      match:
+        event_type: process_create
+        # Match on suspicious process patterns
+        filters:
+          - field: process_name
+            matches: "(?i)powershell|cmd|wscript|cscript|mshta|rundll32"
+      group_by: [hostname, user]
+      time_window: 5m
+      
+    - name: encoded_powershell
+      match:
+        event_type: powershell_script_block
+        filters:
+          - field: script_block
+            matches: "(?i)encodedcommand|-enc|frombase64|decompress"
+      group_by: [hostname]
+      time_window: 1h
+
+signal_template:
+  # Dynamic signal based on which correlation matched
+  title: >
+    {% if matched_group == 'failed_logons' %}
+    Brute Force Attempt: {{target_user}} from {{src_ip}}
+    {% elsif matched_group == 'suspicious_process' %}
+    Suspicious Process Chain: {{hostname}}
+    {% elsif matched_group == 'encoded_powershell' %}
+    Encoded PowerShell Detected: {{hostname}}
+    {% else %}
+    Windows Security Alert: {{hostname}}
+    {% endif %}
+    
+  severity: >
+    {% if matched_group == 'failed_logons' and event_count >= 10 %}high
+    {% elsif matched_group == 'encoded_powershell' %}high
+    {% elsif matched_group == 'suspicious_process' %}medium
+    {% else %}low
+    {% endif %}
+    
+  confidence: high
+  
+  fields:
+    matched_group: "{{correlation.matched_group}}"
+    event_count: "{{events | size}}"
+    hostname: "{{events | first | get: 'hostname' | default: events | first | get: 'Computer'}}"
+    
+    # Failed logon specific
+    target_user: "{{events | first | get: 'TargetUserName'}}"
+    src_ip: "{{events | first | get: 'IpAddress'}}"
+    failure_reasons: "{{events | map: 'Status' | unique}}"
+    
+    # Process specific  
+    processes: "{{events | where: 'event_type', 'process_create' | map: 'process_name' | unique}}"
+    command_lines: "{{events | where: 'event_type', 'process_create' | map: 'command_line' | first: 10}}"
+    parent_processes: "{{events | where: 'event_type', 'process_create' | map: 'parent_process' | unique}}"
+    
+    # PowerShell specific
+    script_blocks: "{{events | where: 'event_type', 'powershell_script_block' | size}}"
+    
+    # Timeline
+    first_event: "{{events | map: 'timestamp' | min}}"
+    last_event: "{{events | map: 'timestamp' | max}}"
+    
+    # User context
+    users: "{{events | map: 'user' | concat: (events | map: 'TargetUserName') | unique | reject: '' | reject: nil}}"
+    
+  explanation:
+    summary: >
+      {% if matched_group == 'failed_logons' %}
+      {{event_count}} failed logon attempts detected for user {{target_user}} from {{src_ip}}.
+      This pattern is consistent with password spraying or brute force attacks.
+      Failure reasons: {{failure_reasons | join: ', '}}
+      
+      {% elsif matched_group == 'suspicious_process' %}
+      Suspicious process execution chain detected on {{hostname}}.
+      Processes: {{processes | join: ' → '}}
+      
+      Sample command lines:
+      {% for cmd in command_lines | first: 3 %}
+      - {{cmd | truncate: 100}}
+      {% endfor %}
+      
+      {% elsif matched_group == 'encoded_powershell' %}
+      {{script_blocks}} encoded or obfuscated PowerShell script block(s) detected on {{hostname}}.
+      This technique is commonly used to evade detection and execute malicious code.
+      
+      {% endif %}
+      
+    recommendations:
+      {% if matched_group == 'failed_logons' %}
+      - "Block source IP: {{src_ip}}"
+      - "Review account {{target_user}} for compromise indicators"
+      - "Enable account lockout if not configured"
+      {% elsif matched_group == 'suspicious_process' %}
+      - "Investigate process execution on {{hostname}}"
+      - "Check for persistence mechanisms"
+      - "Review parent-child process relationships"
+      {% elsif matched_group == 'encoded_powershell' %}
+      - "Decode and analyze script content"
+      - "Check for download/execute patterns"
+      - "Review PowerShell logging configuration"
+      {% endif %}
+      
+    evidence_refs:
+      - "Events from: {{events | map: 'source_file' | unique | join: ', '}}"
+      - "Time span: {{first_event}} to {{last_event}}"
+
+  tags:
+    - windows
+    - security
+    - evtx
+    - "{{matched_group}}"
+    - import_signal
+
+metadata:
+  author: import-system
+  mitre_attack:
+    - T1110      # Brute Force
+    - T1059.001  # PowerShell
+    - T1027      # Obfuscated Files or Information

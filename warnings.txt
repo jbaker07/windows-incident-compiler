@@ -1,0 +1,1161 @@
+   Compiling proc-macro2 v1.0.104
+   Compiling quote v1.0.42
+   Compiling unicode-ident v1.0.22
+   Compiling windows-link v0.2.1
+   Compiling version_check v0.9.5
+   Compiling cfg-if v1.0.4
+   Compiling memchr v2.7.6
+   Compiling autocfg v1.5.0
+   Compiling windows-sys v0.61.2
+   Compiling itoa v1.0.17
+   Compiling pin-project-lite v0.2.16
+   Compiling bytes v1.11.0
+   Compiling serde_core v1.0.228
+   Compiling num-traits v0.2.19
+   Compiling windows_aarch64_msvc v0.53.1
+   Compiling once_cell v1.21.3
+   Compiling log v0.4.29
+   Compiling futures-core v0.3.31
+   Compiling serde v1.0.228
+   Compiling windows-targets v0.53.5
+   Compiling windows-sys v0.60.2
+   Compiling tracing-core v0.1.36
+   Compiling pin-utils v0.1.0
+   Compiling stable_deref_trait v1.2.1
+   Compiling smallvec v1.15.1
+   Compiling aho-corasick v1.1.4
+   Compiling syn v2.0.113
+   Compiling futures-task v0.3.31
+   Compiling futures-io v0.3.31
+   Compiling slab v0.4.11
+   Compiling regex-syntax v0.8.8
+   Compiling futures-util v0.3.31
+   Compiling socket2 v0.6.1
+   Compiling httparse v1.10.1
+   Compiling typenum v1.19.0
+   Compiling tower-service v0.3.3
+   Compiling zmij v1.0.10
+   Compiling mio v1.1.1
+   Compiling httpdate v1.0.3
+   Compiling regex-automata v0.4.13
+   Compiling futures-channel v0.3.31
+   Compiling generic-array v0.14.7
+   Compiling synstructure v0.13.2
+   Compiling percent-encoding v2.3.2
+   Compiling getrandom v0.3.4
+   Compiling zerocopy v0.8.31
+   Compiling serde_json v1.0.148
+   Compiling futures-sink v0.3.31
+   Compiling ahash v0.8.12
+   Compiling find-msvc-tools v0.1.6
+   Compiling zerofrom-derive v0.1.6
+   Compiling serde_derive v1.0.228
+   Compiling tokio-macros v2.6.0
+   Compiling yoke-derive v0.8.1
+   Compiling tracing-attributes v0.1.31
+   Compiling tokio v1.49.0
+   Compiling zerovec-derive v0.11.2
+   Compiling displaydoc v0.2.5
+   Compiling zerofrom v0.1.6
+   Compiling tracing v0.1.44
+   Compiling windows_aarch64_msvc v0.52.6
+   Compiling yoke v0.8.1
+   Compiling shlex v1.3.0
+   Compiling litemap v0.8.1
+   Compiling mime v0.3.17
+   Compiling writeable v0.6.2
+   Compiling cc v1.2.51
+   Compiling zerovec v0.11.5
+   Compiling zerotrie v0.2.3
+   Compiling form_urlencoded v1.2.2
+   Compiling encoding_index_tests v0.1.4
+   Compiling chrono v0.4.42
+   Compiling tinystr v0.8.2
+   Compiling potential_utf v0.1.4
+   Compiling vcpkg v0.2.15
+   Compiling icu_locale_core v2.1.1
+   Compiling ryu v1.0.22
+   Compiling icu_properties_data v2.1.2
+   Compiling pkg-config v0.3.32
+   Compiling icu_normalizer_data v2.1.1
+   Compiling libsqlite3-sys v0.26.0
+   Compiling icu_provider v2.1.1
+   Compiling icu_collections v2.1.1
+   Compiling standback v0.2.17
+   Compiling proc-macro-hack v0.5.20+deprecated
+   Compiling fnv v1.0.7
+   Compiling windows_aarch64_msvc v0.48.5
+   Compiling tokio-util v0.7.17
+   Compiling equivalent v1.0.2
+   Compiling hashbrown v0.16.1
+   Compiling syn v1.0.109
+   Compiling allocator-api2 v0.2.21
+   Compiling hashbrown v0.14.5
+   Compiling indexmap v2.12.1
+   Compiling http v0.2.12
+   Compiling windows-targets v0.52.6
+   Compiling serde_urlencoded v0.7.1
+   Compiling uuid v1.19.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling http v1.4.0
+   Compiling crc32fast v1.5.0
+   Compiling bitflags v2.10.0
+   Compiling thiserror v1.0.69
+   Compiling native-tls v0.2.14
+   Compiling lazy_static v1.5.0
+   Compiling sharded-slab v0.1.7
+   Compiling edr-core v0.1.0 (C:\Users\Jermaine B\src\windows-incident-compiler\crates\core)
+   Compiling icu_normalizer v2.1.1
+   Compiling http-body v1.0.1
+   Compiling digest v0.10.7
+warning: unused import: `Severity`
+  --> crates\core\src\explain.rs:11:26
+   |
+11 | use crate::{EvidencePtr, Severity};
+   |                          ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::collections::HashMap`
+  --> crates\core\src\explain.rs:13:5
+   |
+13 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling windows-sys v0.52.0
+   Compiling hashlink v0.8.4
+   Compiling icu_properties v2.1.2
+   Compiling matchers v0.2.0
+   Compiling thiserror-impl v1.0.69
+   Compiling nu-ansi-term v0.50.3
+   Compiling schannel v0.1.28
+   Compiling tracing-log v0.2.0
+   Compiling thread_local v1.1.9
+warning: `edr-core` (lib) generated 2 warnings (run `cargo fix --lib -p edr-core` to apply 2 suggestions)
+   Compiling paste v1.0.15
+   Compiling const_fn v0.4.11
+   Compiling utf8parse v0.2.2
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling simd-adler32 v0.3.8
+   Compiling fallible-iterator v0.2.0
+   Compiling try-lock v0.2.5
+   Compiling bytemuck v1.24.0
+   Compiling winapi v0.3.9
+   Compiling adler2 v2.0.1
+   Compiling anstyle v1.0.13
+   Compiling cpufeatures v0.2.17
+   Compiling once_cell_polyfill v1.70.2
+   Compiling miniz_oxide v0.8.9
+   Compiling safe_arch v0.7.4
+   Compiling anstyle-wincon v3.0.11
+   Compiling sha2 v0.10.9
+   Compiling want v0.3.1
+   Compiling anstyle-parse v0.2.7
+   Compiling tracing-subscriber v0.3.22
+   Compiling time-macros-impl v0.1.2
+   Compiling idna_adapter v1.2.1
+   Compiling socket2 v0.5.10
+   Compiling windows-targets v0.48.5
+   Compiling h2 v0.3.27
+   Compiling http-body v0.4.6
+   Compiling regex v1.12.2
+   Compiling anstyle-query v1.1.5
+   Compiling matrixmultiply v0.3.10
+   Compiling time v0.2.27
+   Compiling colorchoice v1.0.4
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling utf8_iter v1.0.4
+   Compiling byteorder v1.5.0
+   Compiling anstream v0.6.21
+   Compiling idna v1.1.0
+   Compiling time-macros v0.1.1
+   Compiling tokio-native-tls v0.3.1
+   Compiling flate2 v1.1.5
+   Compiling windows-sys v0.48.0
+   Compiling wide v0.7.33
+   Compiling encoding-index-singlebyte v1.20141219.5
+   Compiling encoding-index-tradchinese v1.20141219.5
+   Compiling encoding-index-simpchinese v1.20141219.5
+   Compiling encoding-index-japanese v1.20141219.5
+   Compiling encoding-index-korean v1.20141219.5
+   Compiling bstr v1.12.1
+   Compiling num-complex v0.4.6
+   Compiling hyper v0.14.32
+   Compiling approx v0.5.1
+   Compiling num-integer v0.1.46
+   Compiling rustversion v1.0.22
+   Compiling unicase v2.8.1
+   Compiling heck v0.5.0
+   Compiling base64 v0.21.7
+   Compiling strsim v0.11.1
+   Compiling clap_lex v0.7.6
+   Compiling rusqlite v0.29.0
+   Compiling anyhow v1.0.100
+   Compiling rawpointer v0.2.1
+   Compiling tower-layer v0.3.3
+   Compiling clap_builder v4.5.54
+   Compiling rustls-pemfile v1.0.4
+   Compiling clap_derive v4.5.49
+   Compiling mime_guess v2.0.5
+   Compiling hyper-tls v0.5.0
+   Compiling winreg v0.50.0
+   Compiling num-rational v0.4.2
+   Compiling pom v3.4.0
+   Compiling simba v0.8.1
+   Compiling encoding v0.2.33
+   Compiling url v2.5.7
+   Compiling stb_truetype v0.3.1
+   Compiling http-body-util v0.1.3
+   Compiling nalgebra-macros v0.2.2
+   Compiling approx v0.3.2
+   Compiling ordered-float v1.1.1
+   Compiling encoding_rs v0.8.35
+   Compiling sync_wrapper v1.0.2
+   Compiling atomic-waker v1.1.2
+   Compiling lzw v0.10.0
+   Compiling itoa v0.4.8
+   Compiling linked-hash-map v0.5.6
+   Compiling unsafe-libyaml v0.2.11
+   Compiling sync_wrapper v0.1.2
+   Compiling ipnet v2.11.0
+   Compiling dtoa v0.4.8
+   Compiling lopdf v0.26.0
+   Compiling serde_yaml v0.9.34+deprecated
+   Compiling reqwest v0.11.27
+   Compiling hyper v1.8.1
+   Compiling nalgebra v0.32.6
+   Compiling rusttype v0.8.3
+   Compiling clap v4.5.54
+   Compiling async-trait v0.1.89
+   Compiling ctrlc v3.5.1
+   Compiling hostname v0.4.2
+   Compiling option-ext v0.2.0
+   Compiling hex v0.4.3
+   Compiling dirs-sys v0.5.0
+   Compiling axum-core v0.4.5
+   Compiling printpdf v0.3.4
+   Compiling hyper-util v0.1.19
+   Compiling tower v0.5.2
+   Compiling derive_more v0.99.20
+   Compiling serde_path_to_error v0.1.20
+   Compiling fastrand v2.3.0
+   Compiling matchit v0.7.3
+   Compiling http-range-header v0.4.2
+   Compiling genpdf v0.2.0
+   Compiling tower-http v0.5.2
+   Compiling tempfile v3.24.0
+   Compiling axum v0.7.9
+   Compiling dirs v6.0.0
+   Compiling zip v0.6.6
+   Compiling workbench v0.1.0 (C:\Users\Jermaine B\src\windows-incident-compiler\crates\workbench)
+warning: unused import: `super::session::*`
+ --> crates\workbench\src\api.rs:6:5
+  |
+6 | use super::session::*;
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling md5 v0.7.0
+warning: `workbench` (lib) generated 1 warning (run `cargo fix --lib -p workbench` to apply 1 suggestion)
+   Compiling edr-locald v0.1.0 (C:\Users\Jermaine B\src\windows-incident-compiler\crates\locald)
+warning: unused import: `Path`
+ --> crates\locald\src\baseline\baseline_store.rs:7:17
+  |
+7 | use std::path::{Path, PathBuf};
+  |                 ^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `DMatrix` and `DVector`
+ --> crates\locald\src\scoring\mahalanobis.rs:4:16
+  |
+4 | use nalgebra::{DMatrix, DVector};
+  |                ^^^^^^^  ^^^^^^^
+
+warning: unused import: `std::path::Path`
+ --> crates\locald\src\signal_persistence.rs:7:5
+  |
+7 | use std::path::Path;
+  |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `EvidencePtr`, `FactDomain`, `HypothesisState`, `HypothesisStatus`, `SlotFill`, `SlotRequirement`, and `Slot`
+  --> crates\locald\src\slot_matcher.rs:14:5
+   |
+14 |     EvidencePtr, Fact, FactDomain, FactType, HypothesisState, HypothesisStatus, Slot, SlotFill,
+   |     ^^^^^^^^^^^        ^^^^^^^^^^            ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^  ^^^^^^^^
+15 |     SlotRequirement, ScopeKey,
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused imports: `BTreeSet` and `HashSet`
+  --> crates\locald\src\slot_matcher.rs:20:34
+   |
+20 | use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+   |                                  ^^^^^^^^           ^^^^^^^
+
+warning: unused import: `StoredRecord`
+  --> crates\locald\src\evidence\deref.rs:12:58
+   |
+12 | use super::evidence_store::{EvidenceStore, RecordSource, StoredRecord};
+   |                                                          ^^^^^^^^^^^^
+
+warning: unused imports: `SeekFrom` and `Seek`
+  --> crates\locald\src\evidence\deref.rs:16:35
+   |
+16 | use std::io::{BufRead, BufReader, Seek, SeekFrom};
+   |                                   ^^^^  ^^^^^^^^
+
+warning: unused import: `EvidenceIntegrityError`
+ --> crates\locald\src\evidence\evidence_store.rs:8:27
+  |
+8 | use super::evidence_ptr::{EvidenceIntegrityError, EvidencePtr};
+  |                           ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `PlaybookIndex`
+ --> crates\locald\src\explanation_builder.rs:8:40
+  |
+8 | use crate::slot_matcher::{PlaybookDef, PlaybookIndex};
+  |                                        ^^^^^^^^^^^^^
+
+warning: unused imports: `AnalystAction`, `AssertionType`, `Assertion`, `FocusWindow`, and `Session`
+  --> crates\locald\src\..\..\..\locald\hypothesis\api.rs:13:22
+   |
+13 | use super::session::{AnalystAction, Assertion, AssertionType, FocusWindow, Session, SessionMode};
+   |                      ^^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^
+
+warning: unused import: `calculate_maturity`
+ --> crates\locald\src\..\..\..\locald\hypothesis\arbitration.rs:7:46
+  |
+7 | use super::promotion::{calculate_confidence, calculate_maturity, Severity};
+  |                                              ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `HashMap`
+  --> crates\locald\src\..\..\..\locald\hypothesis\arbitration.rs:11:24
+   |
+11 | use std::collections::{HashMap, HashSet};
+   |                        ^^^^^^^
+
+warning: unused import: `super::arbitration::ArbitrationResponse`
+ --> crates\locald\src\..\..\..\locald\hypothesis\copilot.rs:7:5
+  |
+7 | use super::arbitration::ArbitrationResponse;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `ExplanationVisibilityState`, `MissingEvidence`, `QueryContext`, and `SlotStatusSummary`
+  --> crates\locald\src\..\..\..\locald\hypothesis\copilot.rs:11:49
+   |
+11 |     Claim, ClaimCertainty, ExplanationResponse, ExplanationVisibilityState, MissingEvidence,
+   |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
+12 |     MissingReason, QueryContext, SlotStatusSummary,
+   |                    ^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::hypothesis_state::HypothesisStatus`
+  --> crates\locald\src\..\..\..\locald\hypothesis\copilot.rs:14:5
+   |
+14 | use super::hypothesis_state::HypothesisStatus;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `super::session::SessionMode`
+  --> crates\locald\src\..\..\..\locald\hypothesis\copilot.rs:16:5
+   |
+16 | use super::session::SessionMode;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling edr-server v0.1.0 (C:\Users\Jermaine B\src\windows-incident-compiler\crates\server)
+warning: unused import: `super::incident::Incident`
+ --> crates\locald\src\..\..\..\locald\hypothesis\explanation.rs:9:5
+  |
+9 | use super::incident::Incident;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Severity`
+  --> crates\locald\src\..\..\..\locald\hypothesis\explanation.rs:11:53
+   |
+11 | use super::promotion::{ConfidenceSeverityBreakdown, Severity};
+   |                                                     ^^^^^^^^
+
+warning: unused import: `EvidencePtr`
+ --> crates\locald\src\..\..\..\locald\hypothesis\storage.rs:5:46
+  |
+5 | use super::canonical_event::{CanonicalEvent, EvidencePtr};
+  |                                              ^^^^^^^^^^^
+
+warning: unused imports: `Deserialize` and `Serialize`
+  --> crates\locald\src\..\..\..\locald\hypothesis\storage.rs:11:13
+   |
+11 | use serde::{Deserialize, Serialize};
+   |             ^^^^^^^^^^^  ^^^^^^^^^
+
+warning: unused import: `Duration`
+ --> crates\locald\src\..\..\..\locald\hypothesis\changes.rs:6:24
+  |
+6 | use chrono::{DateTime, Duration, Utc};
+  |                        ^^^^^^^^
+
+warning: unused import: `HashSet`
+ --> crates\locald\src\..\..\..\locald\hypothesis\changes.rs:8:33
+  |
+8 | use std::collections::{HashMap, HashSet};
+  |                                 ^^^^^^^
+
+warning: unused import: `Duration`
+ --> crates\locald\src\..\..\..\locald\hypothesis\visibility.rs:7:24
+  |
+7 | use chrono::{DateTime, Duration, Utc};
+  |                        ^^^^^^^^
+
+warning: unused imports: `PlaybookSlot` and `SlotPredicate`
+  --> crates\locald\src\hypothesis_controller.rs:21:5
+   |
+21 |     PlaybookSlot, SlotMatcher, SlotPredicate,
+   |     ^^^^^^^^^^^^               ^^^^^^^^^^^^^
+
+warning: unused import: `BTreeMap`
+  --> crates\locald\src\hypothesis_controller.rs:24:24
+   |
+24 | use std::collections::{BTreeMap, HashMap, HashSet};
+   |                        ^^^^^^^^
+
+warning: unused import: `std::path::PathBuf`
+  --> crates\locald\src\hypothesis_controller.rs:26:5
+   |
+26 | use std::path::PathBuf;
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `EvidencePtr` and `IncidentStatus`
+ --> crates\locald\src\integrations\export.rs:6:25
+  |
+6 | use crate::hypothesis::{EvidencePtr, Incident, IncidentStatus, ScopeKey, Tier0Invariant};
+  |                         ^^^^^^^^^^^            ^^^^^^^^^^^^^^
+
+warning: unused import: `ExportSinkType`
+ --> crates\locald\src\integrations\export.rs:7:53
+  |
+7 | use crate::integrations::config::{ExportSinkConfig, ExportSinkType};
+  |                                                     ^^^^^^^^^^^^^^
+
+warning: unused import: `ScopeKey`
+ --> crates\locald\src\integrations\ingest.rs:6:31
+  |
+6 | use crate::hypothesis::{Fact, ScopeKey};
+  |                               ^^^^^^^^
+
+warning: unused import: `JoinStrategy`
+ --> crates\locald\src\integrations\ingest.rs:7:73
+  |
+7 | use crate::integrations::config::{IngestSourceConfig, IngestSourceType, JoinStrategy};
+  |                                                                         ^^^^^^^^^^^^
+
+warning: unused import: `FileHint`
+ --> crates\locald\src\integrations\ingest.rs:9:5
+  |
+9 |     FileHint, IpDirection, IpIndicator, ProcessHint, VendorAlertFact,
+  |     ^^^^^^^^
+
+warning: unused import: `TimeZone`
+  --> crates\locald\src\integrations\ingest.rs:11:24
+   |
+11 | use chrono::{DateTime, TimeZone, Utc};
+   |                        ^^^^^^^^
+
+warning: unused import: `IncidentStatus`
+ --> crates\locald\src\integrations\metrics.rs:9:41
+  |
+9 | use crate::hypothesis::{Fact, Incident, IncidentStatus};
+  |                                         ^^^^^^^^^^^^^^
+
+warning: unused imports: `ClaimEntry` and `TimelineEntry`
+  --> crates\server\src\bundle_exchange.rs:16:21
+   |
+16 | use crate::report::{ClaimEntry, IntegrityNoteEntry, ReportBundle, TimelineEntry};
+   |                     ^^^^^^^^^^                                    ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::collections::HashMap`
+  --> crates\server\src\golden_bundle.rs:26:5
+   |
+26 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::BTreeMap`
+  --> crates\server\src\health.rs:15:5
+   |
+15 | use std::collections::BTreeMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `path_str`
+   --> crates\server\src\write_isolation.rs:275:9
+    |
+275 |     let path_str = path.to_string_lossy();
+    |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_path_str`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `telemetry_root` is never read
+  --> crates\server\src\write_isolation.rs:54:5
+   |
+52 | pub struct WriteIsolationContext {
+   |            --------------------- field in this struct
+53 |     /// Root telemetry directory
+54 |     telemetry_root: PathBuf,
+   |     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `event`
+  --> crates\locald\src\baseline\baseline_update.rs:89:54
+   |
+89 |     pub fn update_rates(baseline: &mut HostBaseline, event: &Event, metric_name: &str, rate: f64) {
+   |                                                      ^^^^^ help: if this is intentional, prefix it with an underscore: `_event`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `key`
+   --> crates\locald\src\explanation_builder.rs:223:49
+    |
+223 |         crate::hypothesis::ScopeKey::Campaign { key } 
+    |                                                 ^^^
+224 |         | crate::hypothesis::ScopeKey::Session { key } => {
+    |                                                  ^^^
+    |
+help: try ignoring the field
+    |
+223 ~         crate::hypothesis::ScopeKey::Campaign { key: _ } 
+224 ~         | crate::hypothesis::ScopeKey::Session { key: _ } => {
+    |
+
+warning: unused variable: `spec`
+   --> crates\locald\src\narrative_builder.rs:556:25
+    |
+556 |             if let Some(spec) = &self.mission_spec {
+    |                         ^^^^ help: if this is intentional, prefix it with an underscore: `_spec`
+
+warning: unused variable: `our_unique`
+   --> crates\locald\src\..\..\..\locald\hypothesis\disambiguator.rs:406:13
+    |
+406 |         let our_unique: Vec<_> = our_slots.difference(&their_slots).collect();
+    |             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_our_unique`
+
+warning: unused variable: `fill_count`
+   --> crates\locald\src\..\..\..\locald\hypothesis\hypothesis_state.rs:581:29
+    |
+581 |         let (should_update, fill_count, fill_first_ts, fill_last_ts, time_ok) = {
+    |                             ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_fill_count`
+
+warning: unused variable: `fill_last_ts`
+   --> crates\locald\src\..\..\..\locald\hypothesis\hypothesis_state.rs:627:9
+    |
+627 |         fill_last_ts: DateTime<Utc>,
+    |         ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_fill_last_ts`
+
+warning: unused variable: `host_id`
+   --> crates\locald\src\..\..\..\locald\hypothesis\hypothesis_state.rs:841:9
+    |
+841 |         host_id: &str,
+    |         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_host_id`
+
+warning: struct `BulkDerefResult` is never constructed
+   --> crates\locald\src\evidence\deref.rs:258:12
+    |
+258 | pub struct BulkDerefResult {
+    |            ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated items `from_results`, `resolved_contents`, `missing_ptrs`, and `has_integrity_errors` are never used
+   --> crates\locald\src\evidence\deref.rs:270:12
+    |
+269 | impl BulkDerefResult {
+    | -------------------- associated items in this implementation
+270 |     pub fn from_results(results: Vec<DerefResult>) -> Self {
+    |            ^^^^^^^^^^^^
+...
+317 |     pub fn resolved_contents(&self) -> Vec<(&EvidencePtr, &str)> {
+    |            ^^^^^^^^^^^^^^^^^
+...
+326 |     pub fn missing_ptrs(&self) -> Vec<&EvidencePtr> {
+    |            ^^^^^^^^^^^^
+...
+340 |     pub fn has_integrity_errors(&self) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `EvidencePtrBuilder` is never constructed
+   --> crates\locald\src\evidence\evidence_ptr.rs:214:12
+    |
+214 | pub struct EvidencePtrBuilder {
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: associated items `new`, `with_sha256`, `with_sha256_from_bytes`, `with_ts`, and `build` are never used
+   --> crates\locald\src\evidence\evidence_ptr.rs:223:12
+    |
+222 | impl EvidencePtrBuilder {
+    | ----------------------- associated items in this implementation
+223 |     pub fn new(
+    |            ^^^
+...
+237 |     pub fn with_sha256(mut self, sha256: impl Into<String>) -> Self {
+    |            ^^^^^^^^^^^
+...
+242 |     pub fn with_sha256_from_bytes(mut self, bytes: &[u8]) -> Self {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+247 |     pub fn with_ts(mut self, ts: i64) -> Self {
+    |            ^^^^^^^
+...
+252 |     pub fn build(self) -> EvidencePtr {
+    |            ^^^^^
+
+warning: field `db_path` is never read
+   --> crates\locald\src\..\..\..\locald\hypothesis\canonical_event.rs:509:5
+    |
+507 | pub struct EvidenceDerefEngine {
+    |            ------------------- field in this struct
+508 |     /// Database connection for canonical table lookups
+509 |     db_path: String,
+    |     ^^^^^^^
+
+warning: field `citation_counter` is never read
+   --> crates\locald\src\..\..\..\locald\hypothesis\copilot.rs:416:5
+    |
+414 | pub struct TemplatedRenderer {
+    |            ----------------- field in this struct
+415 |     /// Citation counter for generating tokens
+416 |     citation_counter: usize,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: method `next_citation` is never used
+   --> crates\locald\src\..\..\..\locald\hypothesis\copilot.rs:430:8
+    |
+421 | impl TemplatedRenderer {
+    | ---------------------- method in this implementation
+...
+430 |     fn next_citation(&mut self, claim: &Claim) -> String {
+    |        ^^^^^^^^^^^^^
+
+warning: method `check_ordering_constraints` is never used
+   --> crates\locald\src\..\..\..\locald\hypothesis\hypothesis_state.rs:649:8
+    |
+447 | impl HypothesisState {
+    | -------------------- method in this implementation
+...
+649 |     fn check_ordering_constraints(&self, slot: &Slot, fill: &SlotFill) -> bool {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `track_non_incident` is never read
+   --> crates\locald\src\..\..\..\locald\hypothesis\changes.rs:251:5
+    |
+247 | pub struct DiffEngine {
+    |            ---------- field in this struct
+...
+251 |     track_non_incident: bool,
+    |     ^^^^^^^^^^^^^^^^^^
+
+warning: fields `addr` and `vendor` are never read
+   --> crates\locald\src\integrations\ingest.rs:686:5
+    |
+685 | pub struct SyslogUdpSource {
+    |            --------------- fields in this struct
+686 |     addr: String,
+    |     ^^^^
+687 |     vendor: String,
+    |     ^^^^^^
+
+warning: `edr-server` (lib) generated 5 warnings (run `cargo fix --lib -p edr-server` to apply 4 suggestions)
+warning: unused import: `delete`
+  --> crates\server\src\main.rs:18:15
+   |
+18 |     routing::{delete, get, post, put},
+   |               ^^^^^^
+
+warning: unused imports: `ImportedBundleRecord`, `ImportedBundleStore`, and `recompute_from_bundle`
+  --> crates\server\src\main.rs:23:23
+   |
+23 |     mark_as_imported, recompute_from_bundle, validate_bundle, ExportBundleRequest,
+   |                       ^^^^^^^^^^^^^^^^^^^^^
+24 |     ExportBundleResponse, ImportBundleResponse, ImportedBundleRecord, ImportedBundleStore,
+   |                                                 ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `TelemetryThrottledSummary` and `ThrottleVisibilityState`
+  --> crates\server\src\main.rs:28:36
+   |
+28 |     CaptureProfile, ProfileConfig, TelemetryThrottledSummary, ThrottleController, ThrottleDecision,
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+29 |     ThrottleVisibilityState,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `ActionDetails`, `SelfCheckResponse`, `SelfCheckVerdict`, and `StreamStats`
+  --> crates\server\src\main.rs:33:5
+   |
+33 |     ActionDetails, DiagnosticEngine, SelfCheckResponse, SelfCheckVerdict, StreamStats,
+   |     ^^^^^^^^^^^^^                    ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `ProbeResult`
+  --> crates\server\src\main.rs:35:13
+   |
+35 | use probe::{ProbeResult, ProbeRunner, ProbeSpec};
+   |             ^^^^^^^^^^^
+
+warning: unused variable: `stream_id`
+   --> crates\server\src\capture_control.rs:909:34
+    |
+909 |     fn maybe_emit_summary(&self, stream_id: &str, stream: &StreamState) {
+    |                                  ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_stream_id`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `stream`
+   --> crates\server\src\capture_control.rs:909:51
+    |
+909 |     fn maybe_emit_summary(&self, stream_id: &str, stream: &StreamState) {
+    |                                                   ^^^^^^ help: if this is intentional, prefix it with an underscore: `_stream`
+
+warning: unused variable: `s`
+   --> crates\server\src\diagnostics.rs:537:68
+    |
+537 |                 let expected_running = enabled_sensors.iter().any(|s| {
+    |                                                                    ^ help: if this is intentional, prefix it with an underscore: `_s`
+
+warning: unused variable: `response`
+    --> crates\server\src\main.rs:1538:17
+     |
+1538 |             let response = SupportBundleResponse {
+     |                 ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_response`
+
+warning: field `start_time` is never read
+  --> crates\server\src\main.rs:75:5
+   |
+57 | struct AppState {
+   |        -------- field in this struct
+...
+75 |     start_time: chrono::DateTime<chrono::Utc>,
+   |     ^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `note` is never read
+   --> crates\server\src\main.rs:125:5
+    |
+123 | struct SessionControlRequest {
+    |        --------------------- field in this struct
+124 |     action: String, // "start", "stop", "pause", "resume"
+125 |     note: Option<String>,
+    |     ^^^^
+    |
+    = note: `SessionControlRequest` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: constant `IMPORTED_NAMESPACE` is never used
+  --> crates\server\src\bundle_exchange.rs:35:11
+   |
+35 | pub const IMPORTED_NAMESPACE: &str = "imported_bundle";
+   |           ^^^^^^^^^^^^^^^^^^
+
+warning: field `allowed_extensions` is never read
+  --> crates\server\src\bundle_exchange.rs:48:9
+   |
+42 | pub struct ZipSafetyPolicy {
+   |            --------------- field in this struct
+...
+48 |     pub allowed_extensions: Vec<&'static str>,
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `ZipSafetyPolicy` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: struct `ImportedBundleRecord` is never constructed
+   --> crates\server\src\bundle_exchange.rs:308:12
+    |
+308 | pub struct ImportedBundleRecord {
+    |            ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ImportedBundleStore` is never constructed
+   --> crates\server\src\bundle_exchange.rs:318:12
+    |
+318 | pub struct ImportedBundleStore {
+    |            ^^^^^^^^^^^^^^^^^^^
+
+warning: associated items `new`, `store`, `get`, `list`, `remove`, and `is_imported_namespace` are never used
+   --> crates\server\src\bundle_exchange.rs:323:12
+    |
+322 | impl ImportedBundleStore {
+    | ------------------------ associated items in this implementation
+323 |     pub fn new() -> Self {
+    |            ^^^
+...
+327 |     pub fn store(&self, record: ImportedBundleRecord) {
+    |            ^^^^^
+...
+332 |     pub fn get(&self, bundle_id: &str) -> Option<ImportedBundleRecord> {
+    |            ^^^
+...
+337 |     pub fn list(&self) -> Vec<String> {
+    |            ^^^^
+...
+342 |     pub fn remove(&self, bundle_id: &str) -> bool {
+    |            ^^^^^^
+...
+348 |     pub fn is_imported_namespace(namespace: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `export_to_json` is never used
+   --> crates\server\src\bundle_exchange.rs:640:8
+    |
+640 | pub fn export_to_json(bundle: &IncidentBundle) -> Result<Vec<u8>, String> {
+    |        ^^^^^^^^^^^^^^
+
+warning: function `recompute_from_bundle` is never used
+    --> crates\server\src\bundle_exchange.rs:1052:8
+     |
+1052 | pub fn recompute_from_bundle(
+     |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `as_str` is never used
+   --> crates\server\src\capture_control.rs:343:12
+    |
+342 | impl DropReason {
+    | --------------- method in this implementation
+343 |     pub fn as_str(&self) -> &'static str {
+    |            ^^^^^^
+
+warning: methods `record_sample` and `record_queue` are never used
+   --> crates\server\src\capture_control.rs:498:12
+    |
+477 | impl StreamCounters {
+    | ------------------- methods in this implementation
+...
+498 |     pub fn record_sample(&self) {
+    |            ^^^^^^^^^^^^^
+...
+502 |     pub fn record_queue(&self) {
+    |            ^^^^^^^^^^^^
+
+warning: multiple methods are never used
+   --> crates\server\src\capture_control.rs:964:12
+    |
+592 | impl ThrottleController {
+    | ----------------------- methods in this implementation
+...
+964 |     pub fn take_pending_summaries(&self) -> Vec<TelemetryThrottledSummary> {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+...
+970 |     pub fn has_critical_gap(&self) -> bool {
+    |            ^^^^^^^^^^^^^^^^
+...
+975 |     pub fn get_audit_log(&self) -> Vec<ThrottleAuditEntry> {
+    |            ^^^^^^^^^^^^^
+...
+980 |     pub fn clear_audit_log(&self) {
+    |            ^^^^^^^^^^^^^^^
+...
+985 |     pub fn is_sensor_enabled(&self, sensor_id: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^^^
+...
+991 |     pub fn is_collector_enabled(&self, collector_id: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^
+...
+999 |     pub fn is_heavy_feature_enabled(&self, feature_id: &str) -> bool {
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `validate_config_match` and `validate_config_best_effort` are never used
+    --> crates\server\src\capture_control.rs:1099:12
+     |
+1065 | impl ThrottleController {
+     | ----------------------- methods in this implementation
+...
+1099 |     pub fn validate_config_match(
+     |            ^^^^^^^^^^^^^^^^^^^^^
+...
+1178 |     pub fn validate_config_best_effort(&self, snapshot: &ThrottleConfigSnapshot) -> Vec<String> {
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated items `event_type`, `ordering_key`, and `tier0_warning` are never used
+    --> crates\server\src\capture_control.rs:1214:12
+     |
+1213 | impl TelemetryThrottledSummary {
+     | ------------------------------ associated items in this implementation
+1214 |     pub fn event_type() -> &'static str {
+     |            ^^^^^^^^^^
+...
+1219 |     pub fn ordering_key(&self) -> (String, i64, u32) {
+     |            ^^^^^^^^^^^^
+...
+1228 |     pub fn tier0_warning(&self) -> Option<&'static str> {
+     |            ^^^^^^^^^^^^^
+
+warning: associated function `open_in_memory` is never used
+  --> crates\server\src\db.rs:40:12
+   |
+30 | impl Database {
+   | ------------- associated function in this implementation
+...
+40 |     pub fn open_in_memory() -> Result<Self, rusqlite::Error> {
+   |            ^^^^^^^^^^^^^^
+
+warning: methods `as_str` and `emoji` are never used
+   --> crates\server\src\diagnostics.rs:104:12
+    |
+103 | impl SelfCheckVerdict {
+    | --------------------- methods in this implementation
+104 |     pub fn as_str(&self) -> &'static str {
+    |            ^^^^^^
+...
+112 |     pub fn emoji(&self) -> &'static str {
+    |            ^^^^^
+
+warning: function `list_integrations` is never used
+   --> crates\server\src\integration_api.rs:323:14
+    |
+323 | pub async fn list_integrations(
+    |              ^^^^^^^^^^^^^^^^^
+
+warning: function `get_integration` is never used
+   --> crates\server\src\integration_api.rs:367:14
+    |
+367 | pub async fn get_integration(
+    |              ^^^^^^^^^^^^^^^
+
+warning: function `get_capabilities` is never used
+   --> crates\server\src\integration_api.rs:390:14
+    |
+390 | pub async fn get_capabilities(
+    |              ^^^^^^^^^^^^^^^^
+
+warning: function `get_samples` is never used
+   --> crates\server\src\integration_api.rs:466:14
+    |
+466 | pub async fn get_samples(
+    |              ^^^^^^^^^^^
+
+warning: function `integration_api_router` is never used
+   --> crates\server\src\integration_api.rs:706:8
+    |
+706 | pub fn integration_api_router(state: IntegrationApiState) -> Router {
+    |        ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `event_observer` is never read
+   --> crates\server\src\probe.rs:194:5
+    |
+192 | pub struct ProbeRunner {
+    |            ----------- field in this struct
+193 |     /// Event sink for observing results (optional, for testing)
+194 |     event_observer: Option<mpsc::Sender<ObservedEventSummary>>,
+    |     ^^^^^^^^^^^^^^
+
+warning: associated items `with_observer` and `notify_event` are never used
+   --> crates\server\src\probe.rs:205:12
+    |
+197 | impl ProbeRunner {
+    | ---------------- associated items in this implementation
+...
+205 |     pub fn with_observer(observer: mpsc::Sender<ObservedEventSummary>) -> Self {
+    |            ^^^^^^^^^^^^^
+...
+552 |     pub async fn notify_event(&self, event: ObservedEventSummary) {
+    |                  ^^^^^^^^^^^^
+
+warning: function `correlate_events` is never used
+   --> crates\server\src\probe.rs:570:8
+    |
+570 | pub fn correlate_events(
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `correlate_events_robust` is never used
+   --> crates\server\src\probe.rs:606:8
+    |
+606 | pub fn correlate_events_robust(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `EventCorrelationDetail` is never constructed
+   --> crates\server\src\probe.rs:786:12
+    |
+786 | pub struct EventCorrelationDetail {
+    |            ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ReportResponse` is never constructed
+  --> crates\server\src\report.rs:56:12
+   |
+56 | pub struct ReportResponse {
+   |            ^^^^^^^^^^^^^^
+
+warning: methods `with_generated_at` and `with_time_window` are never used
+   --> crates\server\src\report.rs:832:12
+    |
+782 | impl ReportBundleBuilder {
+    | ------------------------ methods in this implementation
+...
+832 |     pub fn with_generated_at(mut self, ts: DateTime<Utc>) -> Self {
+    |            ^^^^^^^^^^^^^^^^^
+...
+848 |     pub fn with_time_window(mut self, t_min: DateTime<Utc>, t_max: DateTime<Utc>) -> Self {
+    |            ^^^^^^^^^^^^^^^^
+
+warning: function `compute_sha256` is never used
+   --> crates\server\src\support_bundle.rs:161:8
+    |
+161 | pub fn compute_sha256(data: &[u8]) -> String {
+    |        ^^^^^^^^^^^^^^
+
+warning: method `with_incident` is never used
+   --> crates\server\src\support_bundle.rs:286:12
+    |
+247 | impl SupportBundleBuilder {
+    | ------------------------- method in this implementation
+...
+286 |     pub fn with_incident(mut self, incident_json: String) -> Self {
+    |            ^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+   --> crates\server\src\verification_pack.rs:350:12
+    |
+349 | impl VerificationState {
+    | ---------------------- associated function in this implementation
+350 |     pub fn new() -> Self {
+    |            ^^^
+
+warning: `edr-locald` (lib) generated 50 warnings (run `cargo fix --lib -p edr-locald` to apply 40 suggestions)
+warning: unused import: `ExplanationBundle`
+  --> crates\locald\src\main.rs:13:36
+   |
+13 | use edr_core::{Event, EvidencePtr, ExplanationBundle};
+   |                                    ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `edr_locald::evidence_deref`
+  --> crates\locald\src\main.rs:14:5
+   |
+14 | use edr_locald::evidence_deref;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `HypothesisState`
+  --> crates\locald\src\main.rs:16:36
+   |
+16 | use edr_locald::hypothesis::{Fact, HypothesisState};
+   |                                    ^^^^^^^^^^^^^^^
+
+warning: unreachable pattern
+  --> crates\locald\src\main.rs:57:5
+   |
+54 |     #[serde(alias = "path", alias = "rel_path")]
+   |                                     ---------- matches all the relevant values
+...
+57 |     rel_path: Option<String>,
+   |     ^^^^^^^^ no value can reach this
+   |
+   = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `host`, `ts`, and `evidence_ptrs` are never read
+  --> crates\locald\src\bin\explain_harness.rs:59:5
+   |
+55 | struct Signal {
+   |        ------ fields in this struct
+...
+59 |     host: String,
+   |     ^^^^
+60 |     ts: String,
+   |     ^^
+61 |     evidence_ptrs: Option<Vec<serde_json::Value>>,
+   |     ^^^^^^^^^^^^^
+   |
+   = note: `Signal` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: fields `signal_id`, `playbook_title`, `entities`, `limitations`, and `summary` are never read
+  --> crates\locald\src\bin\explain_harness.rs:66:5
+   |
+65 | struct ExplanationBundle {
+   |        ----------------- fields in this struct
+66 |     signal_id: String,
+   |     ^^^^^^^^^
+67 |     playbook_id: String,
+68 |     playbook_title: Option<String>,
+   |     ^^^^^^^^^^^^^^
+...
+71 |     entities: Option<EntityBundle>,
+   |     ^^^^^^^^
+...
+74 |     limitations: Option<Vec<String>>,
+   |     ^^^^^^^^^^^
+75 |     summary: Option<String>,
+   |     ^^^^^^^
+   |
+   = note: `ExplanationBundle` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: field `matched_facts` is never read
+  --> crates\locald\src\bin\explain_harness.rs:84:5
+   |
+79 | struct SlotExplanation {
+   |        --------------- field in this struct
+...
+84 |     matched_facts: Option<Vec<serde_json::Value>>,
+   |     ^^^^^^^^^^^^^
+   |
+   = note: `SlotExplanation` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `proc_keys`, `file_keys`, `identity_keys`, `net_keys`, and `registry_keys` are never read
+  --> crates\locald\src\bin\explain_harness.rs:89:5
+   |
+88 | struct EntityBundle {
+   |        ------------ fields in this struct
+89 |     proc_keys: Option<Vec<String>>,
+   |     ^^^^^^^^^
+90 |     file_keys: Option<Vec<String>>,
+   |     ^^^^^^^^^
+91 |     identity_keys: Option<Vec<String>>,
+   |     ^^^^^^^^^^^^^
+92 |     net_keys: Option<Vec<String>>,
+   |     ^^^^^^^^
+93 |     registry_keys: Option<Vec<String>>,
+   |     ^^^^^^^^^^^^^
+   |
+   = note: `EntityBundle` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `source`, `ts_ms`, and `excerpt` are never read
+   --> crates\locald\src\bin\explain_harness.rs:99:5
+    |
+ 97 | struct EvidenceExcerpt {
+    |        --------------- fields in this struct
+ 98 |     ptr: EvidencePtr,
+ 99 |     source: String,
+    |     ^^^^^^
+100 |     ts_ms: i64,
+    |     ^^^^^
+101 |     excerpt: Option<String>,
+    |     ^^^^^^^
+    |
+    = note: `EvidenceExcerpt` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `segment_id` and `record_index` are never read
+   --> crates\locald\src\bin\explain_harness.rs:107:5
+    |
+105 | struct EvidencePtr {
+    |        ----------- fields in this struct
+106 |     stream_id: String,
+107 |     segment_id: u32,
+    |     ^^^^^^^^^^
+108 |     record_index: usize,
+    |     ^^^^^^^^^^^^
+    |
+    = note: `EvidencePtr` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `required_slots_filled`, `optional_slots_filled`, `optional_slots_total`, and `facts_emitted` are never read
+   --> crates\locald\src\bin\explain_harness.rs:113:5
+    |
+112 | struct ExplanationCounters {
+    |        ------------------- fields in this struct
+113 |     required_slots_filled: u32,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+114 |     required_slots_total: u32,
+115 |     optional_slots_filled: u32,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+116 |     optional_slots_total: u32,
+    |     ^^^^^^^^^^^^^^^^^^^^
+117 |     facts_emitted: u32,
+    |     ^^^^^^^^^^^^^
+    |
+    = note: `ExplanationCounters` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: `edr-server` (bin "edr-server") generated 41 warnings (1 duplicate) (run `cargo fix --bin "edr-server" -p edr-server` to apply 9 suggestions)
+warning: `edr-locald` (bin "edr-locald") generated 4 warnings (run `cargo fix --bin "edr-locald" -p edr-locald` to apply 3 suggestions)
+warning: `edr-locald` (bin "explain_harness") generated 7 warnings
+    Finished `release` profile [optimized] target(s) in 2m 38s

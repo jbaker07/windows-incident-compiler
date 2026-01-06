@@ -1,3 +1,4 @@
+use chrono::Utc;
 use forensic_hooks::services::playbook_engine::{load_playbooks_from_dir, PlaybookEngine};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -1778,15 +1779,30 @@ fn ingest_segment(
         
         // === Windows Signal Processing ===
         // If Windows signal detection is enabled, process through WindowsSignalEngine
-        if stream_id == "windows" || event_data.event_type.contains("Windows") {
+        // Check if this is a Windows event (via stream_id, event_type, or tags)
+        let is_windows_event = stream_id == "windows" 
+            || stream_id == "core"  // Windows events come through core stream
+            || event_data.event_type.contains("Windows")
+            || event_data.data.get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().any(|v| v.as_str() == Some("event_log") || v.as_str() == Some("windows")))
+                .unwrap_or(false);
+                
+        if is_windows_event {
+            // Build tags from both the data tags and event_type
+            let mut tags: Vec<String> = event_data.data.get("tags")
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect())
+                .unwrap_or_default();
+            if !tags.contains(&event_data.event_type) {
+                tags.push(event_data.event_type.clone());
+            }
+            
             // Build canonical Event for Windows signal processing
             let canonical_event = forensic_hooks::Event {
                 ts_ms: ts as i64,
                 host: host.to_string(),
-                tags: event_data.data.get("tags")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect())
-                    .unwrap_or_else(|| vec![event_data.event_type.clone()]),
+                tags,
                 proc_key: None,
                 file_key: None,
                 identity_key: Some(user.to_string()),
@@ -1801,19 +1817,63 @@ fn ingest_segment(
             // Process event through Windows signal engine
             let win_signals = windows_signal_engine.process_event(&canonical_event);
             
-            // Score and persist Windows signals
-            let mut scored_signals = Vec::new();
+            // Score and persist Windows signals to database
             for win_signal in win_signals {
-                let scored = scoring_engine.score(win_signal);
-                scored_signals.push(scored);
-            }
-
-            // Persist scored signals (for now just log them)
-            for scored_signal in &scored_signals {
+                let scored = scoring_engine.score(win_signal.clone());
                 eprintln!(
                     "[windows_signal] {} (risk={:.2}): {}",
-                    scored_signal.signal.signal_type, scored_signal.risk_score, scored_signal.signal.host
+                    scored.signal.signal_type, scored.risk_score, scored.signal.host
                 );
+                
+                // Persist signal to both signal_facts and signals tables
+                if let Ok(db_conn_lock) = db.lock() {
+                    let evidence_json = serde_json::to_string(&win_signal.evidence_ptrs).unwrap_or_else(|_| "[]".to_string());
+                    let metadata_json = win_signal.metadata.to_string();
+                    let created_at = chrono::Utc::now().to_rfc3339();
+                    
+                    // Insert into signal_facts (legacy)
+                    let _ = db_conn_lock.execute(
+                        "INSERT OR REPLACE INTO signal_facts (signal_id, stream_id, signal_type, severity, host, user, exe, entity_key, ts_start, ts_end, evidence_ptrs, metadata) 
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        params![
+                            win_signal.signal_id, 
+                            stream_id, 
+                            win_signal.signal_type, 
+                            win_signal.severity, 
+                            win_signal.host, 
+                            user, 
+                            exe, 
+                            format!("{}|{}", win_signal.host, win_signal.signal_type),
+                            win_signal.ts_start, 
+                            win_signal.ts_end, 
+                            evidence_json.clone(), 
+                            metadata_json.clone()
+                        ],
+                    );
+                    
+                    // Insert into signals table (for server /api/signals endpoint)
+                    let _ = db_conn_lock.execute(
+                        "INSERT OR REPLACE INTO signals (signal_id, signal_type, severity, host, ts, ts_start, ts_end, proc_key, file_key, identity_key, metadata, evidence_ptrs, dropped_evidence_count, created_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                        params![
+                            win_signal.signal_id,
+                            win_signal.signal_type,
+                            win_signal.severity,
+                            win_signal.host,
+                            win_signal.ts,
+                            win_signal.ts_start,
+                            win_signal.ts_end,
+                            win_signal.proc_key,
+                            win_signal.file_key,
+                            win_signal.identity_key,
+                            metadata_json,
+                            evidence_json,
+                            win_signal.dropped_evidence_count as i64,
+                            created_at
+                        ],
+                    );
+                    metrics.record_event();
+                }
             }
         }
         // === End Windows Signal Processing ===
@@ -2308,6 +2368,29 @@ fn main() {
                 );
                 CREATE INDEX IF NOT EXISTS idx_signal_facts_entity ON signal_facts(entity_key);
                 CREATE INDEX IF NOT EXISTS idx_signal_facts_stream_ts ON signal_facts(stream_id, ts_start);
+                
+                -- Server-compatible signals table for /api/signals endpoint
+                CREATE TABLE IF NOT EXISTS signals (
+                    signal_id TEXT PRIMARY KEY,
+                    signal_type TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    ts INTEGER NOT NULL,
+                    ts_start INTEGER NOT NULL,
+                    ts_end INTEGER NOT NULL,
+                    proc_key TEXT,
+                    file_key TEXT,
+                    identity_key TEXT,
+                    metadata TEXT NOT NULL,
+                    evidence_ptrs TEXT NOT NULL,
+                    dropped_evidence_count INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(ts DESC);
+                CREATE INDEX IF NOT EXISTS idx_signals_host ON signals(host);
+                CREATE INDEX IF NOT EXISTS idx_signals_type ON signals(signal_type);
+                CREATE INDEX IF NOT EXISTS idx_signals_severity ON signals(severity);
+                
                 CREATE TABLE IF NOT EXISTS episodes (
                     episode_id TEXT PRIMARY KEY,
                     stream_id TEXT NOT NULL DEFAULT 'core',

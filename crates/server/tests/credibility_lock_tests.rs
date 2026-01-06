@@ -6,9 +6,9 @@
 //! 3. Selfcheck returns BLOCKED verdict on real failures
 //! 4. Support bundle redaction removes sensitive paths
 
-use std::collections::HashMap;
+#![allow(dead_code)] // Test scaffolding may define unused structures
+
 use std::path::PathBuf;
-use tempfile::TempDir;
 
 // ============================================================================
 // TEST 1: Namespace Isolation Proof

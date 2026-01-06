@@ -576,7 +576,7 @@ mod tests {
         let mut lifecycle = IncidentLifecycle::new("inc_123");
 
         // Close and reopen twice
-        for i in 0..2 {
+        for _i in 0..2 {
             lifecycle
                 .transition(
                     IncidentLifecycleState::ClosedInactivity,

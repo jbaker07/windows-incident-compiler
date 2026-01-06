@@ -452,7 +452,7 @@ pub fn sort_by_global_order<T, F>(items: &mut [T], key_fn: F)
 where
     F: Fn(&T) -> GlobalOrderKey,
 {
-    items.sort_by(|a, b| key_fn(a).cmp(&key_fn(b)));
+    items.sort_by_key(|a| key_fn(a));
 }
 
 /// Merge multiple sorted iterators deterministically

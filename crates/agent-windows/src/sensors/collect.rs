@@ -21,13 +21,13 @@ pub fn collect_all(host: &HostCtx) -> Vec<Event> {
 }
 
 /// Collect EVTX events using real WEVTAPI reader
-fn collect_evtx_events(host: &HostCtx) -> Vec<Event> {
+fn collect_evtx_events(_host: &HostCtx) -> Vec<Event> {
     let mut events = Vec::new();
 
     #[cfg(target_os = "windows")]
     {
         eprintln!("[collect_evtx] Starting WEVTAPI collection");
-        
+
         // Create reader with default channels (Security, System, Sysmon enabled by default)
         let mut reader = crate::wevt_reader::WevtReader::new();
 
@@ -68,7 +68,7 @@ fn collect_evtx_events(host: &HostCtx) -> Vec<Event> {
                 eprintln!("[collect_evtx] WEVTAPI error: {}", e);
             }
         }
-        
+
         eprintln!("[collect_evtx] Returning {} total events", events.len());
     }
 
@@ -136,6 +136,6 @@ pub fn should_collect_module_pub(module: &str) -> bool {
     should_collect_module(module)
 }
 
-fn sort_events(events: &mut Vec<Event>) {
+fn sort_events(events: &mut [Event]) {
     events.sort_by(|a, b| a.ts_ms.cmp(&b.ts_ms));
 }

@@ -1,0 +1,62 @@
+[package]
+name = "edr-desktop"
+version = "0.1.0"
+description = "EDR Desktop Application - Local workbench with embedded server"
+authors = ["EDR Team"]
+license = "MIT"
+repository = "https://github.com/jbaker07/git-glue"
+edition = "2021"
+
+# Keep this package out of the parent workspace
+[workspace]
+
+[lib]
+name = "edr_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "import_bundle"
+path = "src/bin/import_bundle.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-process = "2"
+reqwest = { version = "0.12", default-features = false, features = ["native-tls", "json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+dirs = "5"
+portable-pty = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+hostname = "0.4"
+# Import adapters dependencies
+regex = "1"
+csv = "1"
+quick-xml = "0.37"
+sha2 = "0.10"
+zip = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true

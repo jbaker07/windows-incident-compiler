@@ -78,8 +78,8 @@ impl EllipticEnvelopeLite {
         }
 
         // Normalize distance to [0, 1] using sigmoid
-        let sigmoid = 1.0 / (1.0 + (-dist).exp());
-        sigmoid
+
+        1.0 / (1.0 + (-dist).exp())
     }
 }
 

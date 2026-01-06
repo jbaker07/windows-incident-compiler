@@ -5,7 +5,7 @@
 //!
 //! Ship Hardening: All segment paths are validated to prevent directory traversal.
 
-use super::evidence_ptr::{EvidenceIntegrityError, EvidencePtr};
+use super::evidence_ptr::EvidencePtr;
 use super::path_safety::{validate_path_within_root, validate_segment_id, PathValidationError};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -209,19 +209,16 @@ impl EvidenceStore {
             .prepare("SELECT canonical_json, ingested_at FROM canonical_events WHERE ptr_key = ?1")
             .ok()?;
 
-        let result = stmt
-            .query_row([&ptr_key], |row| {
-                Ok(StoredRecord {
-                    ptr: ptr.clone(),
-                    canonical_json: row.get(0)?,
-                    raw_bytes: None,
-                    ingested_at: row.get(1)?,
-                    source: RecordSource::Database,
-                })
+        stmt.query_row([&ptr_key], |row| {
+            Ok(StoredRecord {
+                ptr: ptr.clone(),
+                canonical_json: row.get(0)?,
+                raw_bytes: None,
+                ingested_at: row.get(1)?,
+                source: RecordSource::Database,
             })
-            .ok();
-
-        result
+        })
+        .ok()
     }
 
     /// Check if segment exists and is available
@@ -291,7 +288,7 @@ impl EvidenceStore {
     /// Returns None if segment not found or path validation fails
     pub fn get_segment_path(&self, segment_id: &str) -> Option<PathBuf> {
         // Validate segment_id format first
-        if let Err(_) = validate_segment_id(segment_id) {
+        if validate_segment_id(segment_id).is_err() {
             log::warn!("Invalid segment_id format: {}", segment_id);
             return None;
         }

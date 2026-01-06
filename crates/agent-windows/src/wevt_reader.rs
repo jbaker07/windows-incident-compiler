@@ -8,7 +8,8 @@
 // - Dedup by (channel, source_record_id) prevents duplicates on restart
 // - Per-channel budgets enforce bounded memory rendering
 // - Compiles cleanly on non-Windows with cfg module boundaries
-
+// Many functions used conditionally via cfg(target_os="windows")
+#![allow(dead_code)]
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
@@ -133,6 +134,7 @@ pub struct WevtStats {
 }
 
 /// Main Windows event log reader
+#[allow(clippy::type_complexity)]
 pub struct WevtReader {
     channels: Vec<ChannelConfig>,
     stats: std::sync::Mutex<WevtStats>,
@@ -142,6 +144,12 @@ pub struct WevtReader {
     /// Windows WEVTAPI render context (created once, reused for efficiency)
     #[cfg(target_os = "windows")]
     render_context: std::sync::Mutex<Option<std::ffi::c_void>>,
+}
+
+impl Default for WevtReader {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WevtReader {
@@ -287,7 +295,6 @@ mod imp {
     use super::*;
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
-    use std::ptr;
 
     /// RAII wrapper for EVT_HANDLE - ensures EvtClose is called on drop, prevents double-close
     struct EvtHandleGuard(Option<windows::Win32::System::EventLog::EVT_HANDLE>);
@@ -359,16 +366,15 @@ mod imp {
             if let Some(end) = xml[pos..].find('>') {
                 let tag_content = &xml[pos..pos + end];
                 // Look for attribute pattern: attr='value' or attr="value"
-                let patterns = [
-                    format!("{}='", attr),
-                    format!("{}=\"", attr),
-                ];
+                let patterns = [format!("{}='", attr), format!("{}=\"", attr)];
                 for pattern in &patterns {
                     if let Some(attr_pos) = tag_content.find(pattern) {
                         let value_start = attr_pos + pattern.len();
                         let quote_char = if pattern.ends_with("'") { '\'' } else { '"' };
                         if let Some(value_end) = tag_content[value_start..].find(quote_char) {
-                            return Some(tag_content[value_start..value_start + value_end].to_string());
+                            return Some(
+                                tag_content[value_start..value_start + value_end].to_string(),
+                            );
                         }
                     }
                 }
@@ -380,35 +386,35 @@ mod imp {
     /// Extract event fields from XML string (reliable fallback)
     fn extract_fields_from_xml(xml: &str) -> (String, u32, DateTime<Utc>, String, Option<u64>) {
         // Provider Name attribute: <Provider Name='Microsoft-Windows-Kernel-General'/>
-        let provider = extract_xml_attr(xml, "Provider", "Name")
-            .unwrap_or_else(|| "Unknown".to_string());
-        
+        let provider =
+            extract_xml_attr(xml, "Provider", "Name").unwrap_or_else(|| "Unknown".to_string());
+
         // EventID: <EventID>16</EventID> or <EventID Qualifiers='0'>16</EventID>
         let event_id = extract_xml_field(xml, "EventID")
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(0);
-        
+
         // Computer: <Computer>DESKTOP-ABC123</Computer>
-        let computer = extract_xml_field(xml, "Computer")
-            .unwrap_or_else(|| "Unknown".to_string());
-        
+        let computer = extract_xml_field(xml, "Computer").unwrap_or_else(|| "Unknown".to_string());
+
         // EventRecordID: <EventRecordID>12345</EventRecordID>
-        let record_id = extract_xml_field(xml, "EventRecordID")
-            .and_then(|s| s.parse::<u64>().ok());
-        
+        let record_id = extract_xml_field(xml, "EventRecordID").and_then(|s| s.parse::<u64>().ok());
+
         // TimeCreated: <TimeCreated SystemTime='2025-01-15T10:30:45.123456789Z'/>
         let timestamp = extract_xml_attr(xml, "TimeCreated", "SystemTime")
             .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
             .map(|dt| dt.with_timezone(&Utc))
             .unwrap_or_else(Utc::now);
-        
+
         (provider, event_id, timestamp, computer, record_id)
     }
 
     /// Render event as XML string
-    fn render_event_xml(event_handle: windows::Win32::System::EventLog::EVT_HANDLE) -> Result<String, String> {
+    fn render_event_xml(
+        event_handle: windows::Win32::System::EventLog::EVT_HANDLE,
+    ) -> Result<String, String> {
         use windows::Win32::System::EventLog::*;
-        
+
         // First call to get required size
         let mut required_sz = 0u32;
         let _ = unsafe {
@@ -422,15 +428,15 @@ mod imp {
                 std::ptr::null_mut(),
             )
         };
-        
+
         if required_sz == 0 {
             return Err("EvtRender size probe returned 0".to_string());
         }
-        
+
         // Allocate buffer and render
-        let mut xml_buffer = vec![0u16; (required_sz as usize + 1) / 2 + 1];
+        let mut xml_buffer = vec![0u16; (required_sz as usize).div_ceil(2) + 1];
         let mut rendered_sz = 0u32;
-        
+
         let render_res = unsafe {
             EvtRender(
                 EVT_HANDLE::default(),
@@ -442,23 +448,26 @@ mod imp {
                 std::ptr::null_mut(),
             )
         };
-        
+
         if render_res.is_err() {
             return Err("EvtRender XML failed".to_string());
         }
-        
+
         // Convert UTF-16 to String
-        let len = xml_buffer.iter().position(|&c| c == 0).unwrap_or(xml_buffer.len());
+        let len = xml_buffer
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(xml_buffer.len());
         Ok(from_wide(&xml_buffer[..len]))
     }
 
     /// Extract core fields using EvtRender(EvtRenderEventValues) with render context
     /// Returns: (provider, event_id, timestamp, computer, record_id) or error
+    #[allow(clippy::type_complexity)]
     fn extract_event_values(
         event_handle: windows::Win32::System::EventLog::EVT_HANDLE,
         render_ctx: windows::Win32::System::EventLog::EVT_HANDLE,
     ) -> Result<(String, u32, DateTime<Utc>, String, Option<u64>), String> {
-        use windows::Win32::Foundation::*;
         use windows::Win32::System::EventLog::*;
 
         let mut values_buffer = vec![0u8; 8192]; // 8KB buffer for variant array
@@ -479,7 +488,7 @@ mod imp {
         };
 
         if render_result.is_err() {
-            return Err(format!("EvtRenderEventValues failed"));
+            return Err("EvtRenderEventValues failed".to_string());
         }
 
         // Simplified EVT_VARIANT decoding (production would use proper struct layouts)
@@ -666,7 +675,6 @@ mod imp {
 
     /// Windows implementation using real WEVTAPI (EvtQuery + EvtNext)
     pub fn poll_windows(reader: &mut WevtReader) -> Result<Vec<WevtRecord>, String> {
-        use windows::Win32::Foundation::*;
         use windows::Win32::System::EventLog::*;
 
         let mut all_records = Vec::new();
@@ -720,7 +728,9 @@ mod imp {
                             "[wevt] ERROR: EvtQuery failed for channel {}: {:?}",
                             &channel_cfg.name, e
                         );
-                        if let Ok(mut s) = reader.stats.lock() { s.render_failed_total += 1; }
+                        if let Ok(mut s) = reader.stats.lock() {
+                            s.render_failed_total += 1;
+                        }
                         continue;
                     }
                 };
@@ -730,7 +740,9 @@ mod imp {
                         "[wevt] ERROR: Invalid query handle for channel {}",
                         &channel_cfg.name
                     );
-                    if let Ok(mut s) = reader.stats.lock() { s.render_failed_total += 1; }
+                    if let Ok(mut s) = reader.stats.lock() {
+                        s.render_failed_total += 1;
+                    }
                     continue;
                 }
 
@@ -738,22 +750,27 @@ mod imp {
                 let mut bookmark_handle: EVT_HANDLE = EVT_HANDLE::default();
                 if channel_cfg.use_bookmarks && !bookmark_xml.is_empty() {
                     let bookmark_wide = to_wide(&bookmark_xml);
-                    match EvtCreateBookmark(windows::core::PCWSTR(bookmark_wide.as_ptr())) {
-                        Ok(bh) => bookmark_handle = bh,
-                        Err(_) => {} // Ignore bookmark creation errors
+                    if let Ok(bh) = EvtCreateBookmark(windows::core::PCWSTR(bookmark_wide.as_ptr()))
+                    {
+                        bookmark_handle = bh;
                     }
 
                     if !bookmark_handle.is_invalid() {
                         // Seek to bookmark position
-                        let _seek_result =
-                            EvtSeek(query_handle, 0, bookmark_handle, 0, EvtSeekRelativeToBookmark.0);
+                        let _seek_result = EvtSeek(
+                            query_handle,
+                            0,
+                            bookmark_handle,
+                            0,
+                            EvtSeekRelativeToBookmark.0,
+                        );
                         // Ignore seek errors; we'll just start from current position
                     }
                 }
 
                 // Poll events in batches
                 let mut events_this_batch = 0u32;
-                let mut xml_buffer = vec![0u16; 65536]; // 128KB UTF-16 buffer
+                let _xml_buffer = vec![0u16; 65536]; // 128KB UTF-16 buffer
                 let mut last_record_id = 0u64;
 
                 loop {
@@ -791,8 +808,8 @@ mod imp {
                         break;
                     }
 
-                    for i in 0..returned as usize {
-                        let evt_handle = EVT_HANDLE(event_handles[i]);
+                    for &evt_raw in event_handles.iter().take(returned as usize) {
+                        let evt_handle = EVT_HANDLE(evt_raw);
                         if evt_handle.is_invalid() {
                             continue;
                         }
@@ -808,9 +825,9 @@ mod imp {
                                 continue;
                             }
                         };
-                        
+
                         // Extract fields from XML
-                        let (provider, event_id, timestamp, computer, record_id) = 
+                        let (provider, event_id, timestamp, computer, record_id) =
                             extract_fields_from_xml(&xml_string);
 
                         // Check dedup
@@ -832,7 +849,7 @@ mod imp {
                                 xml_truncated: false,
                                 xml_required_bytes: None,
                             };
-                            
+
                             reader.record_event(&channel_cfg.name, timestamp);
                             all_records.push(record);
                             events_this_batch += 1;
@@ -841,7 +858,7 @@ mod imp {
                             if channel_cfg.use_bookmarks && !bookmark_handle.is_invalid() {
                                 let _ = EvtUpdateBookmark(bookmark_handle, evt_handle);
                             }
-                            
+
                             // Update last_record_id for watermark
                             if let Some(rid) = record_id {
                                 if rid > last_record_id {
@@ -881,17 +898,20 @@ mod imp {
                         bookmark_mgr.set_bookmark(&channel_cfg.name, &bm_xml, Some(last_record_id));
                     }
 
-                    let _ = unsafe { EvtClose(bookmark_handle) };
+                    let _ = EvtClose(bookmark_handle);
                 }
 
-                let _ = unsafe { EvtClose(query_handle) };
+                let _ = EvtClose(query_handle);
             }
         }
 
         // Close render context
         let _ = unsafe { EvtClose(render_ctx) };
 
-        eprintln!("[wevt] poll_windows returning {} records", all_records.len());
+        eprintln!(
+            "[wevt] poll_windows returning {} records",
+            all_records.len()
+        );
         Ok(all_records)
     }
 }

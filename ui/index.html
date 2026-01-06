@@ -274,11 +274,102 @@
       </div>
     </header>
 
+    <!-- ============ ADMIN WARNING BANNER ============ -->
+    <div id="adminWarningBanner" class="hidden bg-amber-700/90 text-amber-100 px-4 py-2 rounded-lg mb-4">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">⚠️</span>
+        <div>
+          <span class="font-medium">Limited Telemetry Mode</span>
+          <span class="text-amber-200 text-sm ml-2">Running without admin rights. Some Windows event channels unavailable.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ RUN CONTROL PANEL (Tauri Desktop) ============ -->
+    <div id="runControlPanel" class="hidden bg-slate-900/80 border border-emerald-700/50 rounded-lg p-4 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <span id="runStatusIcon" class="text-2xl">⏹️</span>
+          <div>
+            <div id="runStatusText" class="font-semibold text-slate-100">Stack Stopped</div>
+            <div id="runStatusSub" class="text-xs text-slate-400">Ready to start capture</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="adminBadge" class="px-2 py-1 rounded text-xs bg-slate-700 text-slate-400">Checking...</span>
+          <button id="btnOpenTelemetry" onclick="window.__edrDesktop?.openTelemetryFolder()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">📂 Telemetry</button>
+          <button id="btnOpenLogs" onclick="window.__edrDesktop?.openLogsFolder()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">📋 Logs</button>
+        </div>
+      </div>
+      
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <!-- Time Window -->
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Duration</label>
+          <select id="runDuration" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm">
+            <option value="2">2 minutes</option>
+            <option value="5">5 minutes</option>
+            <option value="10" selected>10 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+          </select>
+        </div>
+        
+        <!-- Playbooks Selection -->
+        <div class="md:col-span-2">
+          <label class="block text-xs font-medium text-slate-300 mb-1">Playbooks (optional, all if empty)</label>
+          <div id="playbookSelector" class="flex flex-wrap gap-1 max-h-20 overflow-auto bg-slate-800 border border-slate-700 rounded p-1.5">
+            <span class="text-xs text-slate-500">Loading...</span>
+          </div>
+        </div>
+        
+        <!-- Live Stats -->
+        <div class="text-right">
+          <div class="text-xs text-slate-400 mb-1">Live Stats</div>
+          <div class="grid grid-cols-2 gap-x-2 text-xs">
+            <span class="text-slate-500">Segments:</span><span id="runSegments" class="text-slate-200">--</span>
+            <span class="text-slate-500">Signals:</span><span id="runSignals" class="text-emerald-400">--</span>
+            <span class="text-slate-500">Remaining:</span><span id="runRemaining" class="text-slate-200">--</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Control Buttons -->
+      <div class="flex items-center gap-3">
+        <button id="btnStartRun" onclick="window.__edrDesktop?.startRun()" class="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+          <span>▶️</span> Start Run
+        </button>
+        <button id="btnStopRun" onclick="window.__edrDesktop?.stopRun()" class="hidden flex-1 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+          <span>⏹️</span> Stop Run
+        </button>
+        <button id="btnGenerateActivity" onclick="window.__edrDesktop?.openScenarioRunner()" class="px-4 py-2.5 rounded-lg bg-amber-700 hover:bg-amber-600 text-sm" title="Generate safe test activity to trigger playbook matches">
+          🧪 Scenarios
+        </button>
+        <button id="btnReadiness" onclick="window.__edrDesktop?.openReadinessCheck()" class="px-4 py-2.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-sm" title="Check system telemetry readiness">
+          🔧 Readiness
+        </button>
+        <button id="btnHistory" onclick="window.__edrDesktop?.openRunHistory()" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm" title="View run history">
+          📁 History
+        </button>
+        <button id="btnMetrics" onclick="window.__edrDesktop?.showMetrics()" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm">
+          📊 Metrics
+        </button>
+      </div>
+      
+      <!-- Error Display -->
+      <div id="runErrorBox" class="hidden mt-3 p-3 rounded bg-red-900/50 border border-red-700 text-sm text-red-200"></div>
+      
+      <!-- Activity Generation Status -->
+      <div id="activityStatusBox" class="hidden mt-3 p-3 rounded bg-amber-900/30 border border-amber-700 text-sm text-amber-200"></div>
+    </div>
+
     <!-- KPI row (app.js refreshKPIs fills this) -->
     <div id="kpis" class="kpi-row mb-4"></div>
 
     <nav class="flex gap-2 text-sm mb-4">
       <button id="tabDash" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Dashboard</button>
+      <button id="tabImport" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">📦 Import Cases</button>
       <button id="tabIntegrations" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Integrations</button>
     </nav>
 
@@ -324,6 +415,190 @@
           </div>
           <p class="text-xs text-slate-400 mb-2">No incidents yet.</p>
           <ul id="incList" class="divide-y divide-slate-800"></ul>
+        </div>
+
+        <!-- Signals Panel with Explain Button -->
+        <div id="signalsPanel" class="rounded border border-emerald-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-medium text-emerald-400">🔔 Playbook Signals</div>
+            <button id="refreshSignalsBtn" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Refresh</button>
+          </div>
+          <p id="signalsEmpty" class="text-xs text-slate-400 mb-2">No signals yet. Run playbook-based detection to generate signals.</p>
+          <ul id="signalsList" class="divide-y divide-slate-800 max-h-64 overflow-auto"></ul>
+        </div>
+
+        <!-- Signal Explanation Modal -->
+        <dialog id="explainModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+          <div class="p-6">
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <h2 id="explainModalTitle" class="text-xl font-semibold text-slate-100">Signal Explanation</h2>
+                <p id="explainModalSubtitle" class="text-sm text-slate-400 mt-1">Loading...</p>
+              </div>
+              <button id="closeExplainModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+            </div>
+
+            <!-- Summary -->
+            <div id="explainSummary" class="p-3 rounded-lg bg-slate-800/50 mb-4 text-sm"></div>
+
+            <!-- Slots Table -->
+            <div class="mb-4">
+              <h3 class="text-sm font-medium text-slate-300 mb-2">Slot Fills</h3>
+              <div id="explainSlots" class="overflow-auto max-h-48">
+                <table class="w-full text-xs">
+                  <thead class="text-slate-400 border-b border-slate-700">
+                    <tr>
+                      <th class="text-left py-1 px-2">Slot</th>
+                      <th class="text-left py-1 px-2">Required</th>
+                      <th class="text-left py-1 px-2">Status</th>
+                      <th class="text-left py-1 px-2">Predicate</th>
+                      <th class="text-left py-1 px-2">Facts</th>
+                    </tr>
+                  </thead>
+                  <tbody id="explainSlotsBody" class="divide-y divide-slate-800"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Evidence Pointers -->
+            <div class="mb-4">
+              <h3 class="text-sm font-medium text-slate-300 mb-2">Evidence</h3>
+              <div id="explainEvidence" class="text-xs font-mono bg-slate-950/70 rounded p-2 max-h-40 overflow-auto space-y-2"></div>
+            </div>
+
+            <!-- Entities -->
+            <div class="mb-4">
+              <h3 class="text-sm font-medium text-slate-300 mb-2">Entities</h3>
+              <div id="explainEntitiesBundle" class="text-xs grid grid-cols-2 md:grid-cols-4 gap-2"></div>
+            </div>
+
+            <!-- Limitations -->
+            <div id="explainLimitations" class="hidden mb-4">
+              <h3 class="text-sm font-medium text-amber-400 mb-2">⚠️ Limitations</h3>
+              <ul id="explainLimitationsList" class="text-xs text-slate-400 list-disc list-inside"></ul>
+            </div>
+
+            <!-- Counters -->
+            <div class="text-xs text-slate-500 flex gap-4">
+              <span>Required: <span id="counterReqFilled">0</span>/<span id="counterReqTotal">0</span></span>
+              <span>Optional: <span id="counterOptFilled">0</span>/<span id="counterOptTotal">0</span></span>
+              <span>Facts: <span id="counterFacts">0</span></span>
+            </div>
+
+            <div class="flex justify-end mt-6 pt-4 border-t border-slate-800">
+              <button id="explainDoneBtn" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">Done</button>
+            </div>
+          </div>
+        </dialog>
+
+        <!-- Narrative Panel Modal -->
+        <dialog id="narrativeModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-4xl w-full backdrop:bg-slate-950/80">
+          <div class="p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <h2 id="narrativeModalTitle" class="text-xl font-semibold text-slate-100">📜 Signal Narrative</h2>
+                <p id="narrativeModalSubtitle" class="text-sm text-slate-400 mt-1">Evidence-cited explanation</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="narrativeModeTag" class="px-2 py-0.5 text-xs rounded bg-emerald-600/20 text-emerald-400">Discovery</span>
+                <button id="closeNarrativeModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+              </div>
+            </div>
+
+            <!-- Narrative Sentences -->
+            <div class="mb-6">
+              <h3 class="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                <span>📋 Narrative</span>
+                <span id="narrativeValidation" class="text-xs px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400">✓ Valid</span>
+              </h3>
+              <div id="narrativeSentences" class="space-y-2"></div>
+            </div>
+
+            <!-- Top 3 Hypotheses Arbitration -->
+            <div class="mb-6 p-4 rounded-lg bg-slate-800/50">
+              <h3 class="text-sm font-medium text-amber-400 mb-3">⚖️ Top 3 Hypotheses Arbitration</h3>
+              <div id="arbitrationSection" class="space-y-3">
+                <!-- Winner -->
+                <div class="p-3 rounded-lg border border-emerald-600/50 bg-emerald-900/20">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-medium text-emerald-400">#1 Winner</span>
+                    <span id="arbWinnerName" class="text-sm text-slate-200">—</span>
+                  </div>
+                  <div class="text-xs text-slate-300 mb-2">
+                    <span class="text-slate-400">Slots:</span>
+                    <span id="arbWinnerSlots">—</span>
+                  </div>
+                  <div class="text-xs">
+                    <div class="text-emerald-400 mb-1">Why it won:</div>
+                    <ul id="arbWinReasons" class="list-disc list-inside text-slate-300"></ul>
+                  </div>
+                </div>
+                <!-- Runner Up -->
+                <div id="arbRunnerUpSection" class="p-3 rounded-lg border border-slate-700 bg-slate-800/30">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-medium text-slate-400">#2 Runner Up</span>
+                    <span id="arbRunnerUpName" class="text-sm text-slate-300">—</span>
+                  </div>
+                  <div class="text-xs text-slate-300 mb-2">
+                    <span class="text-slate-400">Slots:</span>
+                    <span id="arbRunnerUpSlots">—</span>
+                  </div>
+                  <div class="text-xs">
+                    <div class="text-rose-400 mb-1">Why it lost:</div>
+                    <ul id="arbRunnerUpLoss" class="list-disc list-inside text-slate-400"></ul>
+                  </div>
+                </div>
+                <!-- Third -->
+                <div id="arbThirdSection" class="hidden p-3 rounded-lg border border-slate-700/50 bg-slate-800/20">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-medium text-slate-500">#3</span>
+                    <span id="arbThirdName" class="text-sm text-slate-400">—</span>
+                  </div>
+                  <div class="text-xs">
+                    <div class="text-rose-400/70 mb-1">Why it lost:</div>
+                    <ul id="arbThirdLoss" class="list-disc list-inside text-slate-500"></ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Disambiguation Questions -->
+            <div id="disambiguationSection" class="mb-6 p-4 rounded-lg bg-slate-800/50">
+              <h3 class="text-sm font-medium text-sky-400 mb-3 flex items-center gap-2">
+                <span>❓ Questions & Next Steps</span>
+                <span id="ambiguityScore" class="text-xs px-2 py-0.5 rounded bg-sky-600/20 text-sky-300">Low ambiguity</span>
+              </h3>
+              <div id="disambiguationQuestions" class="space-y-2 mb-4"></div>
+              <div id="pivotActions" class="space-y-2"></div>
+              <div id="capabilitySuggestions" class="mt-3 pt-3 border-t border-slate-700"></div>
+            </div>
+
+            <!-- User Actions -->
+            <div class="mb-4 flex flex-wrap gap-2">
+              <button id="btnPinSentence" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
+                <span>📌</span> Pin Selected
+              </button>
+              <button id="btnHideSentence" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
+                <span>👁️</span> Hide Selected
+              </button>
+              <button id="btnVerifyEvidence" class="px-3 py-1.5 text-xs rounded bg-emerald-700 hover:bg-emerald-600 flex items-center gap-1">
+                <span>✓</span> Verify Evidence
+              </button>
+              <button id="btnExportNarrative" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
+                <span>📤</span> Export JSON
+              </button>
+            </div>
+
+            <div class="flex justify-end mt-6 pt-4 border-t border-slate-800">
+              <button id="narrativeDoneBtn" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">Done</button>
+            </div>
+          </div>
+        </dialog>
+
+        <!-- Evidence Receipt Tooltip (reusable) -->
+        <div id="evidenceReceiptTooltip" class="hidden fixed z-50 p-3 max-w-md bg-slate-800 border border-slate-600 rounded-lg shadow-xl text-xs">
+          <div class="font-medium text-sky-400 mb-2">📄 Evidence Receipt</div>
+          <div id="receiptContent" class="space-y-2"></div>
         </div>
 
         <!-- Entity Filter Sidebar -->
@@ -566,12 +841,379 @@
           </div>
         </div>
 
+        <!-- ============ RUN METRICS PANEL ============ -->
+        <div id="runMetricsPanel" class="rounded border border-violet-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-violet-400">📊 Run Metrics</div>
+            <div class="flex items-center gap-2">
+              <button id="btnRefreshMetrics" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄 Refresh</button>
+              <button id="btnLoadMetricsFile" type="button" class="px-2 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-xs">📂 Load File</button>
+              <input id="metricsFileInput" type="file" accept=".json" class="hidden" />
+            </div>
+          </div>
+
+          <!-- No Metrics State -->
+          <div id="metricsEmpty" class="text-xs text-slate-400 py-4 text-center">
+            No eval metrics loaded. Run <code class="bg-slate-800 px-1 rounded">scripts/eval_windows.ps1</code> or click "Load File" to view results.
+          </div>
+
+          <!-- Metrics Content (hidden until loaded) -->
+          <div id="metricsContent" class="hidden">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <!-- Summary Stats -->
+              <div class="border border-slate-700 rounded p-2">
+                <div class="text-xs font-medium text-slate-300 mb-2">Summary</div>
+                <div class="space-y-1 text-xs">
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Run ID:</span>
+                    <span id="metricsRunId" class="text-violet-400 font-mono">--</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Timestamp:</span>
+                    <span id="metricsTimestamp" class="text-slate-300">--</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Duration:</span>
+                    <span id="metricsDuration" class="text-slate-300">--</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Status:</span>
+                    <span id="metricsStatus" class="text-emerald-400">--</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Detection Stats -->
+              <div class="border border-slate-700 rounded p-2">
+                <div class="text-xs font-medium text-slate-300 mb-2">Detections</div>
+                <div class="space-y-1 text-xs">
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Signals:</span>
+                    <span id="metricsSignals" class="text-emerald-400 font-bold">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Explained:</span>
+                    <span id="metricsExplained" class="text-sky-400 font-bold">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Playbooks hit:</span>
+                    <span id="metricsPlaybooksHit" class="text-amber-400">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">False positives:</span>
+                    <span id="metricsFalsePos" class="text-rose-400">0</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Telemetry Stats -->
+              <div class="border border-slate-700 rounded p-2">
+                <div class="text-xs font-medium text-slate-300 mb-2">Telemetry</div>
+                <div class="space-y-1 text-xs">
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Events:</span>
+                    <span id="metricsEvents" class="text-slate-300">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Segments:</span>
+                    <span id="metricsSegments" class="text-slate-300">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Channels:</span>
+                    <span id="metricsChannels" class="text-slate-300">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">EPS:</span>
+                    <span id="metricsEps" class="text-slate-300">--</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pass/Fail Indicators -->
+              <div class="border border-slate-700 rounded p-2">
+                <div class="text-xs font-medium text-slate-300 mb-2">Verdict</div>
+                <div class="space-y-1 text-xs">
+                  <div id="verdictTelemetry" class="flex items-center gap-1">
+                    <span class="w-4">⏳</span><span class="text-slate-400">Telemetry flowing</span>
+                  </div>
+                  <div id="verdictDetections" class="flex items-center gap-1">
+                    <span class="w-4">⏳</span><span class="text-slate-400">Detections fired</span>
+                  </div>
+                  <div id="verdictExplain" class="flex items-center gap-1">
+                    <span class="w-4">⏳</span><span class="text-slate-400">Explanations valid</span>
+                  </div>
+                  <div id="verdictNoFake" class="flex items-center gap-1">
+                    <span class="w-4">⏳</span><span class="text-slate-400">No fake detections</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detailed Results -->
+            <details class="border border-slate-700 rounded">
+              <summary class="cursor-pointer text-xs font-medium text-slate-300 p-2 hover:bg-slate-800/50">
+                📋 Detailed Results
+              </summary>
+              <div class="p-2 border-t border-slate-700 max-h-40 overflow-auto">
+                <pre id="metricsDetails" class="text-[10px] font-mono text-slate-400"></pre>
+              </div>
+            </details>
+          </div>
+        </div>
+        <!-- ============ END RUN METRICS PANEL ============ -->
+
+        <!-- ============ PIVOT/SEARCH CONTROLS ============ -->
+        <div id="pivotSearchPanel" class="rounded border border-cyan-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-cyan-400">🔎 Pivot & Search</div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Quick Search -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Quick Search</div>
+              <div class="space-y-2 text-xs">
+                <input id="pivotSearchInput" type="text" placeholder="process name, hash, IP, user..." class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs" />
+                <div class="flex gap-1">
+                  <button id="btnSearchEvents" type="button" class="flex-1 px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs">Events</button>
+                  <button id="btnSearchSignals" type="button" class="flex-1 px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs">Signals</button>
+                  <button id="btnSearchFacts" type="button" class="flex-1 px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs">Facts</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pivot by Entity -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Pivot by Entity</div>
+              <div class="space-y-2 text-xs">
+                <select id="pivotEntityType" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs">
+                  <option value="">-- select entity type --</option>
+                  <option value="process">Process</option>
+                  <option value="file">File</option>
+                  <option value="network">Network</option>
+                  <option value="user">User</option>
+                  <option value="registry">Registry</option>
+                </select>
+                <input id="pivotEntityValue" type="text" placeholder="entity value..." class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs" />
+                <button id="btnPivotEntity" type="button" class="w-full px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs">Pivot</button>
+              </div>
+            </div>
+
+            <!-- Search Results -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Results</div>
+              <div id="pivotResults" class="text-xs text-slate-400 max-h-24 overflow-auto">
+                Enter a search term or select an entity to pivot.
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- ============ END PIVOT/SEARCH CONTROLS ============ -->
+
         <div class="rounded border border-slate-800 lg:col-span-3">
           <div class="p-3 border-b border-slate-800 text-sm font-medium">Selected alert (JSON)</div>
           <pre id="detail" class="text-xs p-3 overflow-auto max-h-[300px]"></pre>
         </div>
       </div>
     </section>
+
+    <!-- ============ IMPORT CASES SECTION ============ -->
+    <section id="screenImport" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <!-- Left Panel: Import Zone + Cases List -->
+        <div class="lg:col-span-1 space-y-4">
+          <!-- Drag-Drop Import Zone -->
+          <div id="importDropZone" class="border-2 border-dashed border-slate-700 rounded-lg p-6 text-center hover:border-violet-500 hover:bg-violet-500/5 transition-colors cursor-pointer">
+            <div class="text-4xl mb-2">📦</div>
+            <div class="text-sm font-medium text-slate-200 mb-1">Import Evidence Bundle</div>
+            <div class="text-xs text-slate-400 mb-3">Drag & drop folder or zip file</div>
+            <div class="text-xs text-slate-500">Supported: HAR, Zeek logs, JSONL, JSON</div>
+            <label class="mt-3 inline-block px-4 py-2 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm cursor-pointer">
+              Browse Files
+              <input id="importFilePicker" type="file" accept=".zip,.har,.json,.jsonl,.log" multiple class="hidden" />
+            </label>
+            <input id="importFolderPicker" type="file" webkitdirectory directory multiple class="hidden" />
+            <button id="importFolderBtn" type="button" class="ml-2 px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm">
+              Browse Folder
+            </button>
+          </div>
+
+          <!-- Import Progress (hidden by default) -->
+          <div id="importProgress" class="hidden border border-slate-700 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium text-slate-200">Importing...</span>
+              <span id="importProgressPercent" class="text-xs text-slate-400">0%</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-2 mb-2">
+              <div id="importProgressBar" class="bg-violet-500 h-2 rounded-full" style="width: 0%"></div>
+            </div>
+            <div id="importProgressStatus" class="text-xs text-slate-400">Analyzing files...</div>
+          </div>
+
+          <!-- Cases List -->
+          <div class="border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
+              <div class="text-sm font-medium text-slate-200">📁 Imported Cases</div>
+              <button id="refreshCasesBtn" type="button" class="text-xs text-slate-400 hover:text-slate-200">🔄</button>
+            </div>
+            <div id="casesList" class="max-h-[400px] overflow-y-auto">
+              <div class="p-4 text-center text-xs text-slate-500">
+                No cases imported yet.<br/>
+                Import a bundle to get started.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Panel: Case Details -->
+        <div class="lg:col-span-3">
+          <!-- Case Header -->
+          <div id="caseHeader" class="hidden border border-slate-700 rounded-lg p-4 mb-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 id="caseTitle" class="text-lg font-semibold text-slate-100">Case: --</h2>
+                <div class="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                  <span id="caseFileCount">0 files</span>
+                  <span>•</span>
+                  <span id="caseEventCount">0 events</span>
+                  <span>•</span>
+                  <span id="caseSignalCount">0 signals</span>
+                  <span>•</span>
+                  <span id="caseTimeRange">--</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="reprocessCaseBtn" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-sm">
+                  🔄 Reprocess
+                </button>
+                <button id="exportCaseBtn" type="button" class="px-3 py-1 rounded bg-sky-600 hover:bg-sky-500 text-sm">
+                  📤 Export
+                </button>
+                <button id="deleteCaseBtn" type="button" class="px-3 py-1 rounded bg-red-600/50 hover:bg-red-600 text-sm">
+                  🗑️ Delete
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sub-tabs for case details -->
+          <div id="caseTabs" class="hidden flex gap-2 text-sm mb-4">
+            <button id="caseTabTimeline" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Timeline</button>
+            <button id="caseTabSignals" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Signals</button>
+            <button id="caseTabEntities" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Entities</button>
+            <button id="caseTabManifest" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Manifest</button>
+            <button id="caseTabNarrative" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Narrative</button>
+          </div>
+
+          <!-- Empty State -->
+          <div id="caseEmptyState" class="border border-slate-700 rounded-lg p-8 text-center">
+            <div class="text-4xl mb-3">🔍</div>
+            <div class="text-lg font-medium text-slate-200 mb-2">No Case Selected</div>
+            <div class="text-sm text-slate-400">Import a bundle or select a case from the list to view details.</div>
+          </div>
+
+          <!-- Timeline View -->
+          <div id="caseTimelineView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
+              <div class="text-sm font-medium text-slate-200">📅 Event Timeline</div>
+              <div class="flex items-center gap-2">
+                <select id="timelineFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+                  <option value="">All events</option>
+                  <option value="http">HTTP</option>
+                  <option value="dns">DNS</option>
+                  <option value="network">Network</option>
+                  <option value="file">File</option>
+                </select>
+                <input id="timelineSearch" type="text" placeholder="Search..." class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs w-32" />
+              </div>
+            </div>
+            <div id="timelineContent" class="max-h-[500px] overflow-y-auto p-2">
+              <div class="text-center text-xs text-slate-500 py-4">Loading timeline...</div>
+            </div>
+          </div>
+
+          <!-- Signals View -->
+          <div id="caseSignalsView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
+              <div class="text-sm font-medium text-slate-200">⚡ Generated Signals</div>
+              <select id="signalSeverityFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+                <option value="">All severities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div id="signalsContent" class="max-h-[500px] overflow-y-auto">
+              <div class="text-center text-xs text-slate-500 py-4">Loading signals...</div>
+            </div>
+          </div>
+
+          <!-- Entities View -->
+          <div id="caseEntitiesView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700">
+              <div class="text-sm font-medium text-slate-200">🔗 Extracted Entities</div>
+            </div>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4">
+              <div class="border border-slate-700 rounded p-3">
+                <div class="text-xs text-slate-400 mb-2">🌐 Domains</div>
+                <div id="entitiesDomains" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
+              </div>
+              <div class="border border-slate-700 rounded p-3">
+                <div class="text-xs text-slate-400 mb-2">📍 IP Addresses</div>
+                <div id="entitiesIPs" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
+              </div>
+              <div class="border border-slate-700 rounded p-3">
+                <div class="text-xs text-slate-400 mb-2">🔗 URLs</div>
+                <div id="entitiesURLs" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
+              </div>
+              <div class="border border-slate-700 rounded p-3">
+                <div class="text-xs text-slate-400 mb-2">#️⃣ Hashes</div>
+                <div id="entitiesHashes" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Manifest View -->
+          <div id="caseManifestView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700">
+              <div class="text-sm font-medium text-slate-200">📋 Import Manifest</div>
+            </div>
+            <div class="overflow-auto max-h-[500px]">
+              <table class="w-full text-xs">
+                <thead class="text-slate-400 sticky top-0 bg-slate-900">
+                  <tr>
+                    <th class="text-left px-3 py-2">File</th>
+                    <th class="text-left px-3 py-2">Type</th>
+                    <th class="text-left px-3 py-2">Size</th>
+                    <th class="text-left px-3 py-2">SHA256</th>
+                    <th class="text-left px-3 py-2">Parsed</th>
+                    <th class="text-left px-3 py-2">Events</th>
+                  </tr>
+                </thead>
+                <tbody id="manifestContent"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Narrative View -->
+          <div id="caseNarrativeView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
+              <div class="text-sm font-medium text-slate-200">📝 Investigation Narrative</div>
+              <button id="generateNarrativeBtn" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs">
+                ✨ Generate
+              </button>
+            </div>
+            <div id="narrativeContent" class="p-4 prose prose-invert prose-sm max-w-none">
+              <div class="text-center text-xs text-slate-500">
+                Click "Generate" to create an investigation narrative from the signals and evidence.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ============ END IMPORT CASES SECTION ============ -->
 
     <section id="screenIntegrations" class="hidden">
       <div class="flex items-center justify-between mb-3">
@@ -1865,6 +2507,1096 @@
       // Expose functions globally
       window.refreshThrottleVisibility = refreshThrottleVisibility;
       window.refreshCaptureConfig = refreshCaptureConfig;
+    })();
+  </script>
+
+  <!-- ============ METRICS MODAL ============ -->
+  <dialog id="metricsModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <h2 class="text-xl font-semibold text-slate-100">📊 Run Metrics</h2>
+        <button id="closeMetricsModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+      <div id="metricsContent" class="space-y-4">
+        <div class="text-slate-400 text-center py-8">No metrics available. Complete a run first.</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-800">
+        <button id="btnOpenMetricsFolder" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Open Folder</button>
+        <button id="btnCopyMetrics" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Copy JSON</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ READINESS MODAL ============ -->
+  <dialog id="readinessModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 class="text-xl font-semibold text-slate-100">🔧 System Readiness</h2>
+          <p class="text-sm text-slate-400 mt-1">Check your system's telemetry capabilities</p>
+        </div>
+        <button id="closeReadinessModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+      
+      <!-- Overall Readiness Status -->
+      <div id="readinessOverall" class="p-4 rounded-lg mb-4 bg-slate-800">
+        <div class="flex items-center gap-3">
+          <span id="readinessIcon" class="text-3xl">⏳</span>
+          <div>
+            <div id="readinessLevel" class="font-medium text-lg">Checking...</div>
+            <div id="readinessDesc" class="text-sm text-slate-400">Analyzing system capabilities</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Capability Checks -->
+      <div class="space-y-3 mb-4">
+        <div id="checkAdmin" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkAdminIcon" class="text-lg">⏳</span>
+            <span>Administrator privileges</span>
+          </div>
+          <span id="checkAdminStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+        <div id="checkSecurityLog" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkSecurityLogIcon" class="text-lg">⏳</span>
+            <span>Security Event Log access</span>
+          </div>
+          <span id="checkSecurityLogStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+        <div id="checkSysmon" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkSysmonIcon" class="text-lg">⏳</span>
+            <span>Sysmon installed</span>
+          </div>
+          <span id="checkSysmonStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+        <div id="checkCmdLine" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkCmdLineIcon" class="text-lg">⏳</span>
+            <span>Command-line logging</span>
+          </div>
+          <span id="checkCmdLineStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+        <div id="checkPsLogging" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkPsLoggingIcon" class="text-lg">⏳</span>
+            <span>PowerShell script block logging</span>
+          </div>
+          <span id="checkPsLoggingStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+      </div>
+
+      <!-- Playbook Capability Mapping -->
+      <div id="playbookCapabilitySection" class="border-t border-slate-700 pt-4 mb-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-3">📋 Playbook Capability Map (30 Playbooks)</h3>
+        <div class="text-xs text-slate-400 mb-2">Shows which playbooks can fire based on current capabilities</div>
+        <div id="playbookCapabilityList" class="space-y-2 max-h-64 overflow-auto pr-2">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Health Gate Diagnosis -->
+      <div id="gatesDiagnosisSection" class="hidden border-t border-slate-700 pt-4 mb-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-3">🚦 Health Gate Diagnosis</h3>
+        <div id="gatesDiagnosisList" class="space-y-2 text-xs">
+          <!-- Populated dynamically when gates fail -->
+        </div>
+      </div>
+
+      <!-- Recommended Fixes -->
+      <div id="readinessFixesSection" class="hidden border-t border-slate-700 pt-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-3">Recommended Fixes</h3>
+        <div id="readinessFixesList" class="space-y-2 max-h-48 overflow-auto"></div>
+      </div>
+
+      <div class="flex justify-between mt-4 pt-4 border-t border-slate-800">
+        <button id="btnRefreshReadiness" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">🔄 Refresh</button>
+        <button id="readinessDoneBtn" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Done</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ RUN HISTORY MODAL ============ -->
+  <dialog id="historyModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-3xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 class="text-xl font-semibold text-slate-100">📁 Run History</h2>
+          <p class="text-sm text-slate-400 mt-1">Previous runs and their metrics</p>
+        </div>
+        <button id="closeHistoryModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+      
+      <div id="historyContent" class="overflow-auto max-h-96">
+        <table class="w-full text-sm">
+          <thead class="text-slate-400 border-b border-slate-700 sticky top-0 bg-slate-900">
+            <tr>
+              <th class="text-left py-2 px-2">Run ID</th>
+              <th class="text-left py-2 px-2">Started</th>
+              <th class="text-left py-2 px-2">Duration</th>
+              <th class="text-left py-2 px-2">Segments</th>
+              <th class="text-left py-2 px-2">Signals</th>
+              <th class="text-left py-2 px-2">Admin</th>
+              <th class="text-left py-2 px-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody" class="divide-y divide-slate-800">
+            <tr><td colspan="7" class="py-4 text-center text-slate-400">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-end mt-4 pt-4 border-t border-slate-800">
+        <button id="historyDoneBtn" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ SCENARIO RUNNER MODAL ============ -->
+  <dialog id="scenarioModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 class="text-xl font-semibold text-slate-100">🧪 Scenario Runner</h2>
+          <p class="text-sm text-slate-400 mt-1">Generate safe test activity for detection testing</p>
+        </div>
+        <button id="closeScenarioModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+
+      <!-- Scenario Tier Selection -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-300 mb-2">Select Scenario Tier</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-tier="A" class="scenario-tier-btn p-3 rounded-lg border-2 border-emerald-600 bg-emerald-600/10 text-left">
+            <div class="font-medium text-emerald-400">Tier A</div>
+            <div class="text-xs text-slate-400">Safe (whoami, hostname)</div>
+          </button>
+          <button data-tier="B" class="scenario-tier-btn p-3 rounded-lg border-2 border-slate-700 hover:border-amber-500 text-left">
+            <div class="font-medium text-slate-200">Tier B</div>
+            <div class="text-xs text-slate-400">Moderate (reg, schtasks)</div>
+          </button>
+          <button data-tier="C" class="scenario-tier-btn p-3 rounded-lg border-2 border-slate-700 hover:border-red-500 text-left">
+            <div class="font-medium text-slate-200">Tier C</div>
+            <div class="text-xs text-slate-400">Advanced (net, sc)</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Scenario List -->
+      <div id="scenarioList" class="space-y-2 max-h-48 overflow-auto mb-4">
+        <!-- Populated dynamically -->
+      </div>
+
+      <!-- Run Results -->
+      <div id="scenarioResults" class="hidden border-t border-slate-700 pt-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-2">Execution Results</h3>
+        <div id="scenarioResultsContent" class="text-xs font-mono bg-slate-950 rounded p-3 max-h-40 overflow-auto"></div>
+      </div>
+
+      <div class="flex justify-between mt-4 pt-4 border-t border-slate-800">
+        <button id="btnRunScenarios" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">▶️ Run Selected Scenarios</button>
+        <button id="scenarioDoneBtn" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ E2E CHECK MODAL ============ -->
+  <dialog id="e2eCheckModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <h2 class="text-xl font-semibold text-slate-100">🔍 E2E Self Check</h2>
+        <button id="closeE2EModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+      <div id="e2eCheckContent" class="space-y-3">
+        <div id="e2eCheckList" class="space-y-2">
+          <!-- Checks will be populated dynamically -->
+        </div>
+      </div>
+      <div id="e2eCheckSummary" class="mt-4 p-3 rounded bg-slate-800 text-sm hidden"></div>
+      <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-800">
+        <button id="btnRunE2EAgain" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Run Again</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ DESKTOP APP ENHANCED INTEGRATION (Agent-UI) ============ -->
+  <script>
+    (function() {
+      // Only activate if running inside Tauri
+      if (!window.__TAURI__) {
+        console.log('Not in Tauri, desktop features disabled');
+        return;
+      }
+
+      const { invoke } = window.__TAURI__.core;
+      
+      // Show run control panel for desktop mode
+      const runControlPanel = document.getElementById('runControlPanel');
+      if (runControlPanel) {
+        runControlPanel.classList.remove('hidden');
+      }
+
+      // ========== SCENARIO STATE ==========
+      // Scenarios are now loaded from backend (scenario_profiles.rs)
+      let scenariosCache = { A: [], B: [], C: [] };
+      let selectedTier = 'A';
+      let scenarioResults = [];
+
+      // ========== READINESS CHECK FUNCTIONS ==========
+      async function openReadinessCheck() {
+        const modal = document.getElementById('readinessModal');
+        modal.showModal();
+        await refreshReadinessCheck();
+      }
+
+      // Playbook capability requirements (which capabilities each playbook needs)
+      // Updated to include all 30 playbooks in the Detection Engineer Pack
+      const PLAYBOOK_CAPABILITIES = {
+        // === EXECUTION FAMILY ===
+        'signal_lolbin_abuse': { name: 'LOLBin Abuse', family: 'execution', requires: ['admin', 'security_log'], optional: ['cmdline'] },
+        'signal_encoded_powershell': { name: 'Encoded PowerShell', family: 'execution', requires: ['ps_logging'], optional: ['cmdline'] },
+        'signal_certutil_abuse': { name: 'Certutil Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_mshta_abuse': { name: 'MSHTA Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_rundll32_abuse': { name: 'Rundll32 Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_regsvr32_abuse': { name: 'Regsvr32 Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_wmic_abuse': { name: 'WMIC Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline'] },
+        'signal_bitsadmin_abuse': { name: 'BITSAdmin Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline'] },
+        'signal_powershell_download': { name: 'PowerShell Download', family: 'execution', requires: ['ps_logging'], optional: ['cmdline'] },
+        'signal_wscript_cscript_abuse': { name: 'WScript/CScript Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_office_child_process': { name: 'Office Child Process', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        
+        // === PERSISTENCE FAMILY ===
+        'signal_persistence_windows': { name: 'Windows Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+        'signal_service_persistence': { name: 'Service Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: [] },
+        'signal_task_persistence': { name: 'Task Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: [] },
+        'signal_registry_persistence': { name: 'Registry Persistence', family: 'persistence', requires: ['admin'], optional: ['sysmon'] },
+        'signal_schtasks_abuse': { name: 'Schtasks Abuse', family: 'persistence', requires: ['admin', 'security_log'], optional: ['cmdline'] },
+        'signal_sc_abuse': { name: 'SC Command Abuse', family: 'persistence', requires: ['admin', 'security_log'], optional: ['cmdline'] },
+        
+        // === IDENTITY/AUTH FAMILY ===
+        'signal_logon_anomaly': { name: 'Logon Anomaly', family: 'identity', requires: ['admin', 'security_log'], optional: [] },
+        'signal_group_membership_change': { name: 'Group Membership Change', family: 'identity', requires: ['admin', 'security_log'], optional: [] },
+        'signal_lateral_movement_detection': { name: 'Lateral Movement', family: 'identity', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+        
+        // === DISCOVERY FAMILY ===
+        'signal_discovery_burst': { name: 'Discovery Burst', family: 'discovery', requires: [], optional: ['cmdline'] },
+        'signal_net_command_abuse': { name: 'Net Command Abuse', family: 'discovery', requires: [], optional: ['cmdline'] },
+        
+        // === DEFENSE EVASION FAMILY ===
+        'signal_defense_evasion': { name: 'Defense Evasion', family: 'defense_evasion', requires: ['admin'], optional: ['sysmon', 'ps_logging'] },
+        'signal_log_tampering': { name: 'Log Tampering', family: 'defense_evasion', requires: ['admin', 'security_log'], optional: [] },
+        'signal_log_tamper_detection': { name: 'Log Tamper Detection', family: 'defense_evasion', requires: ['admin', 'security_log'], optional: [] },
+        'signal_dll_side_loading': { name: 'DLL Side-Loading', family: 'defense_evasion', requires: ['sysmon'], optional: [] },
+        'signal_process_injection': { name: 'Process Injection', family: 'defense_evasion', requires: ['sysmon'], optional: [] },
+        'signal_security_tool_disable': { name: 'Security Tool Disable', family: 'defense_evasion', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        
+        // === CREDENTIAL ACCESS FAMILY ===
+        'signal_credential_access': { name: 'Credential Access', family: 'credential_access', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+        
+        // === COLLECTION FAMILY ===
+        'signal_file_staging': { name: 'File Staging', family: 'collection', requires: ['sysmon'], optional: [] },
+      };
+
+      async function refreshReadinessCheck() {
+        try {
+          const readiness = await invoke('get_readiness');
+          console.log('Readiness check result:', readiness);
+          
+          // Update overall status
+          const overallEl = document.getElementById('readinessOverall');
+          const iconEl = document.getElementById('readinessIcon');
+          const levelEl = document.getElementById('readinessLevel');
+          const descEl = document.getElementById('readinessDesc');
+          
+          const levelMap = {
+            'Full': { icon: '✅', color: 'bg-emerald-700', desc: 'All telemetry sources available' },
+            'Good': { icon: '👍', color: 'bg-sky-700', desc: 'Basic telemetry available, some enhancements missing' },
+            'Limited': { icon: '⚠️', color: 'bg-amber-700', desc: 'Limited telemetry, consider running as admin' },
+            'Blocked': { icon: '❌', color: 'bg-red-700', desc: 'Cannot capture meaningful telemetry' },
+          };
+          
+          const level = readiness.overall_readiness || 'Limited';
+          const info = levelMap[level] || levelMap['Limited'];
+          
+          iconEl.textContent = info.icon;
+          levelEl.textContent = `Readiness: ${level}`;
+          descEl.textContent = info.desc;
+          overallEl.className = `p-4 rounded-lg mb-4 ${info.color}`;
+          
+          // Update individual checks
+          updateCheckRow('Admin', readiness.is_admin);
+          updateCheckRow('SecurityLog', readiness.can_read_security_log);
+          updateCheckRow('Sysmon', readiness.sysmon_installed);
+          updateCheckRow('CmdLine', readiness.audit_policy_state?.command_line_logging);
+          updateCheckRow('PsLogging', readiness.powershell_logging_enabled);
+          
+          // Update playbook capability map
+          const capMap = {
+            admin: readiness.is_admin,
+            security_log: readiness.can_read_security_log,
+            sysmon: readiness.sysmon_installed,
+            cmdline: readiness.audit_policy_state?.command_line_logging,
+            ps_logging: readiness.powershell_logging_enabled,
+          };
+          updatePlaybookCapabilityMap(capMap);
+          
+          // Update recommended fixes
+          const fixesSection = document.getElementById('readinessFixesSection');
+          const fixesList = document.getElementById('readinessFixesList');
+          
+          if (readiness.recommended_fixes && readiness.recommended_fixes.length > 0) {
+            fixesSection.classList.remove('hidden');
+            fixesList.innerHTML = readiness.recommended_fixes.map(fix => `
+              <div class="p-3 rounded bg-slate-800/50 border border-slate-700">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="font-medium text-sm">${fix.title}</span>
+                  ${fix.requires_admin ? '<span class="text-xs px-1.5 py-0.5 rounded bg-amber-700/50 text-amber-300">Requires Admin</span>' : ''}
+                </div>
+                <p class="text-xs text-slate-400 mb-2">${fix.description}</p>
+                <div class="text-xs text-slate-500">Impact: ${fix.impact}</div>
+                ${fix.command ? `<button onclick="applyFix('${fix.id}')" class="mt-2 px-2 py-1 rounded bg-sky-700 hover:bg-sky-600 text-xs">Apply Fix</button>` : ''}
+              </div>
+            `).join('');
+          } else {
+            fixesSection.classList.add('hidden');
+          }
+        } catch (e) {
+          console.error('Readiness check failed:', e);
+        }
+      }
+      
+      function updatePlaybookCapabilityMap(capMap) {
+        const container = document.getElementById('playbookCapabilityList');
+        
+        // Group playbooks by family
+        const families = {};
+        let enabledCount = 0;
+        let totalCount = 0;
+        
+        for (const [id, pb] of Object.entries(PLAYBOOK_CAPABILITIES)) {
+          const family = pb.family || 'other';
+          if (!families[family]) families[family] = [];
+          
+          const requiredMet = pb.requires.every(cap => capMap[cap]);
+          const optionalMet = pb.optional.filter(cap => capMap[cap]).length;
+          const missingRequired = pb.requires.filter(cap => !capMap[cap]);
+          
+          families[family].push({ id, ...pb, requiredMet, optionalMet, missingRequired });
+          totalCount++;
+          if (requiredMet) enabledCount++;
+        }
+        
+        // Family display names and colors
+        const familyMeta = {
+          execution: { name: '⚡ Execution', color: 'text-sky-400' },
+          persistence: { name: '🔒 Persistence', color: 'text-amber-400' },
+          identity: { name: '👤 Identity', color: 'text-purple-400' },
+          discovery: { name: '🔍 Discovery', color: 'text-emerald-400' },
+          defense_evasion: { name: '🛡️ Defense Evasion', color: 'text-red-400' },
+          credential_access: { name: '🔑 Credential Access', color: 'text-orange-400' },
+          collection: { name: '📦 Collection', color: 'text-cyan-400' },
+        };
+        
+        // Build summary row
+        const summaryHtml = `
+          <div class="col-span-2 p-2 rounded bg-slate-800 border border-slate-700 mb-2">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium">Detection Coverage</span>
+              <span class="text-sm font-mono ${enabledCount === totalCount ? 'text-emerald-400' : 'text-amber-400'}">${enabledCount}/${totalCount} playbooks enabled</span>
+            </div>
+            <div class="mt-1 h-2 bg-slate-700 rounded overflow-hidden">
+              <div class="h-full bg-emerald-500" style="width: ${(enabledCount/totalCount*100).toFixed(0)}%"></div>
+            </div>
+          </div>
+        `;
+        
+        // Build family sections
+        const familyHtml = Object.entries(families).map(([family, playbooks]) => {
+          const meta = familyMeta[family] || { name: family, color: 'text-slate-400' };
+          const enabled = playbooks.filter(p => p.requiredMet).length;
+          
+          const playbooksHtml = playbooks.map(pb => {
+            const color = pb.requiredMet ? 'border-emerald-700/50 bg-emerald-900/20' : 'border-red-700/50 bg-red-900/20';
+            const icon = pb.requiredMet ? '✅' : '❌';
+            const tooltip = pb.missingRequired.length > 0 ? `Missing: ${pb.missingRequired.join(', ')}` : 'All requirements met';
+            
+            return `
+              <div class="p-1.5 rounded border ${color} text-xs" title="${tooltip}">
+                <span>${icon}</span> ${pb.name}
+              </div>
+            `;
+          }).join('');
+          
+          return `
+            <div class="col-span-2 mb-2">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-medium ${meta.color}">${meta.name}</span>
+                <span class="text-xs text-slate-500">${enabled}/${playbooks.length}</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                ${playbooksHtml}
+              </div>
+            </div>
+          `;
+        }).join('');
+        
+        container.innerHTML = summaryHtml + familyHtml;
+      }
+
+      function updateCheckRow(name, passed) {
+        const iconEl = document.getElementById(`check${name}Icon`);
+        const statusEl = document.getElementById(`check${name}Status`);
+        
+        if (passed) {
+          iconEl.textContent = '✅';
+          statusEl.textContent = 'OK';
+          statusEl.className = 'text-xs px-2 py-0.5 rounded bg-emerald-700';
+        } else {
+          iconEl.textContent = '❌';
+          statusEl.textContent = 'Missing';
+          statusEl.className = 'text-xs px-2 py-0.5 rounded bg-red-700';
+        }
+      }
+
+      async function applyFix(fixId) {
+        try {
+          const result = await invoke('apply_telemetry_fix', { fixId });
+          alert(result);
+          await refreshReadinessCheck();
+        } catch (e) {
+          alert('Failed to apply fix: ' + e);
+        }
+      }
+
+      // ========== RUN HISTORY FUNCTIONS ==========
+      async function openRunHistory() {
+        const modal = document.getElementById('historyModal');
+        modal.showModal();
+        await refreshRunHistory();
+      }
+
+      async function refreshRunHistory() {
+        try {
+          const runs = await invoke('list_runs');
+          const tbody = document.getElementById('historyTableBody');
+          
+          if (!runs || runs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-slate-400">No previous runs found</td></tr>';
+            return;
+          }
+          
+          tbody.innerHTML = runs.map(run => `
+            <tr class="hover:bg-slate-800/50">
+              <td class="py-2 px-2 font-mono text-xs">${run.run_id}</td>
+              <td class="py-2 px-2 text-xs">${formatDateTime(run.started)}</td>
+              <td class="py-2 px-2">${run.duration_minutes}m</td>
+              <td class="py-2 px-2">${run.segments_count}</td>
+              <td class="py-2 px-2 ${run.signals_count > 0 ? 'text-emerald-400' : ''}">${run.signals_count}</td>
+              <td class="py-2 px-2">${run.is_admin ? '✅' : '❌'}</td>
+              <td class="py-2 px-2">
+                <button onclick="openRunFolder('${run.run_id}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs mr-1">📂</button>
+                <button onclick="viewRunMetrics('${run.run_id}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">📊</button>
+              </td>
+            </tr>
+          `).join('');
+        } catch (e) {
+          console.error('Failed to load run history:', e);
+          document.getElementById('historyTableBody').innerHTML = 
+            '<tr><td colspan="7" class="py-4 text-center text-red-400">Error loading history</td></tr>';
+        }
+      }
+
+      async function openRunFolder(runId) {
+        try {
+          await invoke('open_run_folder', { runId });
+        } catch (e) {
+          console.error('Failed to open run folder:', e);
+        }
+      }
+
+      async function viewRunMetrics(runId) {
+        try {
+          const metrics = await invoke('get_run_metrics', { runId });
+          document.getElementById('historyModal').close();
+          showMetricsData(metrics);
+        } catch (e) {
+          alert('Failed to load metrics: ' + e);
+        }
+      }
+
+      function formatDateTime(isoString) {
+        if (!isoString) return '--';
+        try {
+          const d = new Date(isoString);
+          return d.toLocaleString();
+        } catch {
+          return isoString;
+        }
+      }
+
+      // ========== SCENARIO RUNNER FUNCTIONS ==========
+      async function openScenarioRunner() {
+        const modal = document.getElementById('scenarioModal');
+        modal.showModal();
+        await loadScenarios();
+        selectTier('A');
+      }
+      
+      async function loadScenarios() {
+        try {
+          // Load scenarios from backend
+          const all = await invoke('get_scenarios');
+          
+          // Group by tier
+          scenariosCache = { A: [], B: [], C: [] };
+          for (const s of all) {
+            if (s.tier === 'A' || s.tier.A) scenariosCache.A.push(s);
+            else if (s.tier === 'B' || s.tier.B) scenariosCache.B.push(s);
+            else if (s.tier === 'C' || s.tier.C) scenariosCache.C.push(s);
+          }
+          console.log('Loaded scenarios:', scenariosCache);
+        } catch (e) {
+          console.error('Failed to load scenarios:', e);
+        }
+      }
+
+      function selectTier(tier) {
+        selectedTier = tier;
+        
+        // Update tier buttons
+        document.querySelectorAll('.scenario-tier-btn').forEach(btn => {
+          const btnTier = btn.getAttribute('data-tier');
+          if (btnTier === tier) {
+            btn.classList.remove('border-slate-700');
+            btn.classList.add('border-emerald-600', 'bg-emerald-600/10');
+          } else {
+            btn.classList.remove('border-emerald-600', 'bg-emerald-600/10');
+            btn.classList.add('border-slate-700');
+          }
+        });
+        
+        // Update scenario list
+        const scenarioList = document.getElementById('scenarioList');
+        const scenarios = scenariosCache[tier] || [];
+        
+        scenarioList.innerHTML = scenarios.map(s => `
+          <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-800/50 cursor-pointer">
+            <input type="checkbox" class="scenario-checkbox mt-1 rounded bg-slate-800 border-slate-600" data-id="${s.id}" checked />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium">${s.name}</div>
+              <div class="text-xs text-slate-400">${s.description}</div>
+              ${s.expectations?.playbooks?.length > 0 ? `
+                <div class="text-xs text-emerald-400 mt-1">Expected playbooks: ${s.expectations.playbooks.join(', ')}</div>
+              ` : ''}
+              ${s.expectations?.mitre_techniques?.length > 0 ? `
+                <div class="text-xs text-violet-400">MITRE: ${s.expectations.mitre_techniques.join(', ')}</div>
+              ` : ''}
+            </div>
+            <div class="text-right flex-shrink-0">
+              <div class="text-xs font-mono bg-slate-800 px-1.5 py-0.5 rounded">${s.steps?.length || 0} steps</div>
+            </div>
+          </label>
+        `).join('');
+      }
+
+      async function runSelectedScenarios() {
+        const checkboxes = document.querySelectorAll('.scenario-checkbox:checked');
+        const selectedIds = Array.from(checkboxes).map(cb => cb.getAttribute('data-id'));
+        const scenarios = scenariosCache[selectedTier].filter(s => selectedIds.includes(s.id));
+        
+        if (scenarios.length === 0) {
+          alert('No scenarios selected');
+          return;
+        }
+        
+        const resultsSection = document.getElementById('scenarioResults');
+        const resultsContent = document.getElementById('scenarioResultsContent');
+        resultsSection.classList.remove('hidden');
+        resultsContent.innerHTML = '<div class="text-slate-400">Running scenarios with expectations tracking...</div>';
+        
+        scenarioResults = [];
+        
+        for (const scenario of scenarios) {
+          try {
+            resultsContent.innerHTML += `<div class="text-sky-400 mt-2">▶ Running ${scenario.name}...</div>`;
+            
+            // Use the new run_scenario command from backend
+            const stepResults = await invoke('run_scenario', { scenarioId: scenario.id });
+            
+            const allSuccess = stepResults.every(r => r.success);
+            scenarioResults.push({ scenario, success: allSuccess, stepResults });
+            
+            if (allSuccess) {
+              resultsContent.innerHTML += `<div class="text-emerald-400">✓ ${scenario.name} - all ${stepResults.length} steps completed</div>`;
+            } else {
+              const failed = stepResults.filter(r => !r.success);
+              resultsContent.innerHTML += `<div class="text-amber-400">⚠ ${scenario.name} - ${failed.length}/${stepResults.length} steps had issues</div>`;
+            }
+            
+            // Show expected outcomes
+            if (scenario.expectations?.playbooks?.length > 0) {
+              resultsContent.innerHTML += `<div class="text-xs text-slate-500 ml-4">Expected: ${scenario.expectations.playbooks.join(', ')}</div>`;
+            }
+            
+          } catch (e) {
+            scenarioResults.push({ scenario, success: false, error: e });
+            resultsContent.innerHTML += `<div class="text-red-400">✗ ${scenario.name} failed: ${e}</div>`;
+          }
+        }
+        
+        const successCount = scenarioResults.filter(r => r.success).length;
+        resultsContent.innerHTML += `
+          <div class="text-slate-300 mt-3 font-medium border-t border-slate-700 pt-3">
+            Done: ${successCount}/${scenarios.length} scenarios succeeded
+          </div>
+          <div class="text-amber-400 text-xs mt-1">
+            ⏳ Wait for playbooks to process these events, then check Signals panel or view Metrics for gate validation.
+          </div>
+        `;
+      }
+
+      // ========== METRICS DISPLAY ==========
+      function showMetricsData(metrics) {
+        const modal = document.getElementById('metricsModal');
+        const content = document.getElementById('metricsContent');
+        
+        // Helper function for gate status display
+        const gateStatusBadge = (status) => {
+          const colors = {
+            'PASS': 'bg-emerald-700 text-emerald-100',
+            'PARTIAL': 'bg-amber-700 text-amber-100',
+            'FAIL': 'bg-red-700 text-red-100',
+            'NO_DATA': 'bg-slate-700 text-slate-300'
+          };
+          const icons = { 'PASS': '✅', 'PARTIAL': '⚠️', 'FAIL': '❌', 'NO_DATA': '⏸️' };
+          return `<span class="px-2 py-1 rounded text-xs ${colors[status] || colors['NO_DATA']}">${icons[status] || '?'} ${status}</span>`;
+        };
+        
+        // Build health gates section if available (Metrics v3)
+        const hasGates = metrics.gates?.telemetry || metrics.gates?.extraction;
+        const gatesSection = hasGates ? `
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-3 flex items-center gap-2">
+              <span>🚦 Health Gates</span>
+              ${metrics.gates?.overall_healthy 
+                ? '<span class="text-emerald-400 text-xs">All gates passing</span>'
+                : '<span class="text-red-400 text-xs">Issues detected</span>'}
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <!-- Gate A: Telemetry -->
+              <div class="p-3 rounded bg-slate-800 border-l-4 ${metrics.gates?.telemetry?.status === 'PASS' ? 'border-emerald-500' : metrics.gates?.telemetry?.status === 'PARTIAL' ? 'border-amber-500' : 'border-red-500'}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-400">Gate A</span>
+                  ${gateStatusBadge(metrics.gates?.telemetry?.status || 'NO_DATA')}
+                </div>
+                <div class="text-sm font-medium">Telemetry</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  ${metrics.gates?.telemetry?.events_count || 0} events
+                </div>
+                ${metrics.gates?.telemetry?.diagnosis ? `<div class="text-xs text-amber-400 mt-1 truncate">${metrics.gates?.telemetry?.diagnosis}</div>` : ''}
+              </div>
+              
+              <!-- Gate B: Extraction -->
+              <div class="p-3 rounded bg-slate-800 border-l-4 ${metrics.gates?.extraction?.status === 'PASS' ? 'border-emerald-500' : metrics.gates?.extraction?.status === 'PARTIAL' ? 'border-amber-500' : 'border-red-500'}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-400">Gate B</span>
+                  ${gateStatusBadge(metrics.gates?.extraction?.status || 'NO_DATA')}
+                </div>
+                <div class="text-sm font-medium">Extraction</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  ${metrics.gates?.extraction?.facts_count || 0} facts
+                </div>
+                ${metrics.gates?.extraction?.diagnosis ? `<div class="text-xs text-amber-400 mt-1 truncate">${metrics.gates?.extraction?.diagnosis}</div>` : ''}
+              </div>
+              
+              <!-- Gate C: Detection -->
+              <div class="p-3 rounded bg-slate-800 border-l-4 ${metrics.gates?.detection?.status === 'PASS' ? 'border-emerald-500' : metrics.gates?.detection?.status === 'PARTIAL' ? 'border-amber-500' : 'border-red-500'}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-400">Gate C</span>
+                  ${gateStatusBadge(metrics.gates?.detection?.status || 'NO_DATA')}
+                </div>
+                <div class="text-sm font-medium">Detection</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  ${metrics.gates?.detection?.signals_count || 0} signals
+                </div>
+                ${metrics.gates?.detection?.diagnosis ? `<div class="text-xs text-amber-400 mt-1 truncate">${metrics.gates?.detection?.diagnosis}</div>` : ''}
+              </div>
+              
+              <!-- Gate D: Explainability -->
+              <div class="p-3 rounded bg-slate-800 border-l-4 ${metrics.gates?.explainability?.status === 'PASS' ? 'border-emerald-500' : metrics.gates?.explainability?.status === 'PARTIAL' ? 'border-amber-500' : 'border-red-500'}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-400">Gate D</span>
+                  ${gateStatusBadge(metrics.gates?.explainability?.status || 'NO_DATA')}
+                </div>
+                <div class="text-sm font-medium">Explainability</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  ${Math.round((metrics.gates?.explainability?.explain_valid_rate || 0) * 100)}% valid
+                </div>
+                ${metrics.gates?.explainability?.diagnosis ? `<div class="text-xs text-amber-400 mt-1 truncate">${metrics.gates?.explainability?.diagnosis}</div>` : ''}
+              </div>
+            </div>
+            ${metrics.gates?.overall_diagnosis && !metrics.gates?.overall_healthy ? `
+              <div class="mt-3 p-2 rounded bg-red-900/30 border border-red-700/50 text-xs text-red-300">
+                <strong>Diagnosis:</strong> ${metrics.gates?.overall_diagnosis}
+              </div>
+            ` : ''}
+          </div>
+        ` : '';
+        
+        // Build rates section if available (Metrics v3)
+        const ratesSection = metrics.rates ? `
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-2">📈 Quality Rates</div>
+            <div class="grid grid-cols-3 gap-2 text-xs">
+              <div class="p-2 rounded bg-slate-800">
+                <div class="text-slate-400">Explain Valid</div>
+                <div class="text-lg font-bold text-emerald-400">${Math.round((metrics.rates?.explain_valid_rate || 0) * 100)}%</div>
+              </div>
+              <div class="p-2 rounded bg-slate-800">
+                <div class="text-slate-400">Evidence PTR</div>
+                <div class="text-lg font-bold text-sky-400">${Math.round((metrics.rates?.evidence_ptr_rate || 0) * 100)}%</div>
+              </div>
+              <div class="p-2 rounded bg-slate-800">
+                <div class="text-slate-400">Slots Filled</div>
+                <div class="text-lg font-bold text-amber-400">${Math.round((metrics.rates?.required_slot_filled_rate || 0) * 100)}%</div>
+              </div>
+            </div>
+          </div>
+        ` : '';
+        
+        // Build breakdowns section if available (Metrics v3)
+        const breakdownsSection = metrics.breakdowns ? `
+          <div class="border-t border-slate-700 pt-4">
+            <details>
+              <summary class="cursor-pointer text-sm font-medium mb-2">📊 Detailed Breakdowns</summary>
+              <div class="grid grid-cols-2 gap-4 mt-3">
+                ${metrics.breakdowns?.events_by_channel ? `
+                <div>
+                  <div class="text-xs text-slate-400 mb-1">Events by Channel</div>
+                  <div class="space-y-1">
+                    ${Object.entries(metrics.breakdowns.events_by_channel).map(([k, v]) => `
+                      <div class="flex justify-between text-xs">
+                        <span class="truncate">${k}</span>
+                        <span class="text-slate-300">${v}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+                ` : ''}
+                ${metrics.breakdowns?.facts_by_type ? `
+                <div>
+                  <div class="text-xs text-slate-400 mb-1">Facts by Type</div>
+                  <div class="space-y-1">
+                    ${Object.entries(metrics.breakdowns.facts_by_type).map(([k, v]) => `
+                      <div class="flex justify-between text-xs">
+                        <span class="truncate">${k}</span>
+                        <span class="text-emerald-400">${v}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+                ` : ''}
+                ${metrics.breakdowns?.signals_by_playbook ? `
+                <div class="col-span-2">
+                  <div class="text-xs text-slate-400 mb-1">Signals by Playbook</div>
+                  <div class="grid grid-cols-2 gap-1">
+                    ${Object.entries(metrics.breakdowns.signals_by_playbook).map(([k, v]) => `
+                      <div class="flex justify-between text-xs p-1 rounded bg-slate-800">
+                        <span class="truncate">${k}</span>
+                        <span class="text-violet-400 font-medium">${v}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+                ` : ''}
+              </div>
+            </details>
+          </div>
+        ` : '';
+        
+        content.innerHTML = `
+          <div class="grid grid-cols-2 gap-4">
+            <div class="p-3 rounded bg-slate-800">
+              <div class="text-xs text-slate-400 mb-1">Run ID</div>
+              <div class="font-mono text-sm">${metrics.run_id || '--'}</div>
+            </div>
+            <div class="p-3 rounded bg-slate-800">
+              <div class="text-xs text-slate-400 mb-1">Schema</div>
+              <div class="font-mono text-sm">${metrics.schema_version || '1.0'}</div>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-3 gap-4">
+            <div class="p-3 rounded bg-emerald-900/30 border border-emerald-700/50">
+              <div class="text-xs text-emerald-400 mb-1">Signals</div>
+              <div class="text-2xl font-bold text-emerald-400">${metrics.gates?.detection?.signals_count || metrics.pipeline?.signals_count || 0}</div>
+            </div>
+            <div class="p-3 rounded bg-sky-900/30 border border-sky-700/50">
+              <div class="text-xs text-sky-400 mb-1">Segments</div>
+              <div class="text-2xl font-bold text-sky-400">${metrics.gates?.telemetry?.segments_count || metrics.telemetry?.segments_count || 0}</div>
+            </div>
+            <div class="p-3 rounded bg-slate-800">
+              <div class="text-xs text-slate-400 mb-1">Duration</div>
+              <div class="text-2xl font-bold">${metrics.timing?.elapsed_seconds || 0}s</div>
+            </div>
+          </div>
+          
+          ${gatesSection}
+          ${ratesSection}
+          
+          ${!hasGates && metrics.pipeline?.signals_by_playbook ? `
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-2">Signals by Playbook</div>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              ${Object.entries(metrics.pipeline.signals_by_playbook).map(([k, v]) => `
+                <div class="flex justify-between p-2 rounded bg-slate-800">
+                  <span class="truncate">${k}</span>
+                  <span class="text-emerald-400 font-medium">${v}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
+          
+          ${breakdownsSection}
+          
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-2">Environment</div>
+            <div class="text-xs grid grid-cols-2 gap-2">
+              <div><span class="text-slate-400">Admin:</span> ${metrics.environment?.is_admin ? 'Yes' : 'No'}</div>
+              <div><span class="text-slate-400">Host:</span> ${metrics.host || '--'}</div>
+              <div class="col-span-2"><span class="text-slate-400">Run Dir:</span> <span class="font-mono truncate">${metrics.environment?.run_dir || '--'}</span></div>
+            </div>
+          </div>
+          
+          ${metrics.validation ? `
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-2">Legacy Validation</div>
+            <div class="flex flex-wrap gap-2">
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.has_signals ? 'bg-emerald-700' : 'bg-red-700'}">${metrics.validation.has_signals ? '✓ Has Signals' : '✗ No Signals'}</span>
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.has_segments ? 'bg-emerald-700' : 'bg-amber-700'}">${metrics.validation.has_segments ? '✓ Has Segments' : '⚠ No Segments'}</span>
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.pipeline_working ? 'bg-emerald-700' : 'bg-red-700'}">${metrics.validation.pipeline_working ? '✓ Pipeline OK' : '✗ Pipeline Issue'}</span>
+            </div>
+          </div>
+          ` : ''}
+        `;
+        
+        modal.showModal();
+        
+        // Store metrics for copy
+        window.__currentMetrics = metrics;
+      }
+
+      // ========== SETUP EVENT LISTENERS ==========
+      // Readiness modal
+      document.getElementById('closeReadinessModal')?.addEventListener('click', () => {
+        document.getElementById('readinessModal').close();
+      });
+      document.getElementById('readinessDoneBtn')?.addEventListener('click', () => {
+        document.getElementById('readinessModal').close();
+      });
+      document.getElementById('btnRefreshReadiness')?.addEventListener('click', refreshReadinessCheck);
+
+      // History modal
+      document.getElementById('closeHistoryModal')?.addEventListener('click', () => {
+        document.getElementById('historyModal').close();
+      });
+      document.getElementById('historyDoneBtn')?.addEventListener('click', () => {
+        document.getElementById('historyModal').close();
+      });
+
+      // Scenario modal
+      document.getElementById('closeScenarioModal')?.addEventListener('click', () => {
+        document.getElementById('scenarioModal').close();
+      });
+      document.getElementById('scenarioDoneBtn')?.addEventListener('click', () => {
+        document.getElementById('scenarioModal').close();
+      });
+      document.getElementById('btnRunScenarios')?.addEventListener('click', runSelectedScenarios);
+      
+      // Scenario tier buttons
+      document.querySelectorAll('.scenario-tier-btn').forEach(btn => {
+        btn.addEventListener('click', () => selectTier(btn.getAttribute('data-tier')));
+      });
+
+      // Metrics copy button
+      document.getElementById('btnCopyMetrics')?.addEventListener('click', () => {
+        if (window.__currentMetrics) {
+          navigator.clipboard.writeText(JSON.stringify(window.__currentMetrics, null, 2))
+            .then(() => alert('Metrics copied to clipboard'))
+            .catch(e => alert('Failed to copy: ' + e));
+        }
+      });
+
+      // ========== EXPOSE DESKTOP API ==========
+      window.__edrDesktop = {
+        openReadinessCheck,
+        openRunHistory,
+        openScenarioRunner,
+        
+        async startRun() {
+          try {
+            const duration = parseInt(document.getElementById('runDuration').value) || 10;
+            const selectedPlaybooks = Array.from(document.querySelectorAll('#playbookSelector input:checked'))
+              .map(cb => cb.value);
+            
+            const status = await invoke('start_run', { 
+              durationMinutes: duration,
+              selectedPlaybooks: selectedPlaybooks.length > 0 ? selectedPlaybooks : null
+            });
+            
+            updateRunUI(status);
+          } catch (e) {
+            document.getElementById('runErrorBox').classList.remove('hidden');
+            document.getElementById('runErrorBox').textContent = e;
+          }
+        },
+        
+        async stopRun() {
+          try {
+            const status = await invoke('stop_all');
+            updateRunUI(status);
+          } catch (e) {
+            console.error('Stop failed:', e);
+          }
+        },
+        
+        async showMetrics() {
+          try {
+            const status = await invoke('get_status');
+            if (status.run_id) {
+              const metrics = await invoke('get_run_metrics', { runId: status.run_id });
+              showMetricsData(metrics);
+            } else {
+              // No current run, try to get latest
+              const runs = await invoke('list_runs');
+              if (runs && runs.length > 0) {
+                const metrics = await invoke('get_run_metrics', { runId: runs[0].run_id });
+                showMetricsData(metrics);
+              } else {
+                document.getElementById('metricsContent').innerHTML = 
+                  '<div class="text-slate-400 text-center py-8">No metrics available. Complete a run first.</div>';
+                document.getElementById('metricsModal').showModal();
+              }
+            }
+          } catch (e) {
+            console.error('Failed to show metrics:', e);
+          }
+        },
+        
+        async openTelemetryFolder() {
+          await invoke('open_telemetry_folder');
+        },
+        
+        async openLogsFolder() {
+          await invoke('open_logs_folder');
+        }
+      };
+
+      // ========== STATUS POLLING ==========
+      function updateRunUI(status) {
+        const statusIcon = document.getElementById('runStatusIcon');
+        const statusText = document.getElementById('runStatusText');
+        const statusSub = document.getElementById('runStatusSub');
+        const adminBadge = document.getElementById('adminBadge');
+        const btnStart = document.getElementById('btnStartRun');
+        const btnStop = document.getElementById('btnStopRun');
+        
+        // Update admin badge
+        if (status.is_admin) {
+          adminBadge.textContent = '🔓 Admin';
+          adminBadge.className = 'px-2 py-1 rounded text-xs bg-emerald-700';
+        } else {
+          adminBadge.textContent = '🔒 Limited';
+          adminBadge.className = 'px-2 py-1 rounded text-xs bg-amber-700';
+        }
+        
+        // Update run stats
+        document.getElementById('runSegments').textContent = status.segments_count || '--';
+        document.getElementById('runSignals').textContent = status.signals_count || '--';
+        
+        if (status.running) {
+          statusIcon.textContent = '▶️';
+          statusText.textContent = `Running: ${status.run_id || 'active'}`;
+          statusSub.textContent = status.run_dir ? `Output: ${status.run_dir}` : 'Capturing telemetry...';
+          
+          btnStart.classList.add('hidden');
+          btnStop.classList.remove('hidden');
+          
+          // Update remaining time
+          if (status.run_remaining_seconds !== undefined) {
+            const mins = Math.floor(status.run_remaining_seconds / 60);
+            const secs = status.run_remaining_seconds % 60;
+            document.getElementById('runRemaining').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+          }
+        } else {
+          statusIcon.textContent = '⏹️';
+          statusText.textContent = 'Stack Stopped';
+          statusSub.textContent = 'Ready to start capture';
+          document.getElementById('runRemaining').textContent = '--';
+          
+          btnStart.classList.remove('hidden');
+          btnStop.classList.add('hidden');
+        }
+        
+        // Show/hide error
+        if (status.last_error) {
+          document.getElementById('runErrorBox').classList.remove('hidden');
+          document.getElementById('runErrorBox').textContent = 
+            `${status.crashed_process || 'Error'}: ${status.last_error}`;
+        } else {
+          document.getElementById('runErrorBox').classList.add('hidden');
+        }
+        
+        // Update admin warning banner
+        const adminBanner = document.getElementById('adminWarningBanner');
+        if (status.limited_mode && adminBanner) {
+          adminBanner.classList.remove('hidden');
+        }
+      }
+
+      async function pollStatus() {
+        try {
+          const status = await invoke('get_status');
+          updateRunUI(status);
+        } catch (e) {
+          console.error('Status poll failed:', e);
+        }
+      }
+
+      // Load playbooks
+      async function loadPlaybooks() {
+        try {
+          const playbooks = await invoke('get_available_playbooks');
+          const selector = document.getElementById('playbookSelector');
+          
+          if (!playbooks || playbooks.length === 0) {
+            selector.innerHTML = '<span class="text-xs text-slate-500">No playbooks found</span>';
+            return;
+          }
+          
+          selector.innerHTML = playbooks.map(p => `
+            <label class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700/50 hover:bg-slate-700 cursor-pointer text-xs">
+              <input type="checkbox" value="${p}" class="rounded-sm bg-slate-800 border-slate-600" />
+              ${p}
+            </label>
+          `).join('');
+        } catch (e) {
+          console.error('Failed to load playbooks:', e);
+        }
+      }
+
+      // Initialize
+      loadPlaybooks();
+      pollStatus();
+      setInterval(pollStatus, 3000);
+
+      // Expose applyFix globally for inline onclick
+      window.applyFix = applyFix;
+      window.openRunFolder = openRunFolder;
+      window.viewRunMetrics = viewRunMetrics;
     })();
   </script>
 </body>

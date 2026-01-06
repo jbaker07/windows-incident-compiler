@@ -121,7 +121,6 @@ impl BaselineQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_is_new_remote_ip() {

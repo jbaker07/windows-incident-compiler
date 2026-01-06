@@ -1,0 +1,167 @@
+---
+# playbooks/import/signal_dns_tunneling.yaml
+# Detection of DNS tunneling/exfiltration patterns
+
+id: "import_dns_tunneling_001"
+title: "DNS Tunneling Detection"
+name: "DNS Exfiltration and Tunneling"
+family: "exfiltration"
+version: "1.0"
+description: |
+  Detects DNS tunneling and data exfiltration attempts by analyzing:
+  - Unusually long DNS queries (encoded data)
+  - High volume of TXT record queries
+  - High entropy subdomain patterns
+  - Consistent periodic DNS requests (beaconing)
+  - NXDOMAIN storms (DGA activity)
+  
+  Works with Zeek DNS logs and JSONL DNS events.
+
+enabled: true
+confidence_threshold: 0.75
+
+sources:
+  - zeek_dns
+  - jsonl_dns
+
+input_tags:
+  - dns
+  - long_query
+  - dns_txt
+  - nxdomain
+
+mitre:
+  tactics:
+    - exfiltration
+    - command_and_control
+  techniques:
+    - T1048.003  # Exfiltration Over Alternative Protocol
+    - T1071.004  # DNS Application Layer Protocol
+    - T1568.002  # Domain Generation Algorithms
+
+input_facts:
+  required:
+    - dns_query
+
+slots:
+  required:
+    - name: query
+      type: string
+      extract_from: query
+    - name: qtype
+      type: string
+      extract_from: qtype_name
+
+rules:
+  - name: "Long DNS Query"
+    description: "DNS query with unusually long subdomain (potential encoded data)"
+    conditions:
+      - field: query
+        length: ">50"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "long_query"
+          - "potential_tunnel"
+    evidence:
+      - field: query
+        description: "Suspicious DNS query"
+
+  - name: "DNS TXT Record Burst"
+    description: "High volume of TXT record queries to same domain"
+    window: 300  # 5 minutes
+    threshold: 10
+    conditions:
+      - field: qtype_name
+        equals: "TXT"
+    aggregation:
+      group_by: [query_domain]  # base domain
+      count: ">=10"
+    actions:
+      - severity: HIGH
+        tags:
+          - "txt_burst"
+          - "tunnel_suspect"
+
+  - name: "High Entropy Subdomain"
+    description: "Subdomain appears to contain encoded/encrypted data"
+    conditions:
+      - field: query
+        entropy: ">3.5"  # High entropy suggests encoding
+      - field: query
+        length: ">30"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "high_entropy"
+          - "encoded_data"
+
+  - name: "NXDOMAIN Storm"
+    description: "Many failed DNS lookups (potential DGA)"
+    window: 600  # 10 minutes
+    threshold: 20
+    conditions:
+      - field: rcode_name
+        equals: "NXDOMAIN"
+    aggregation:
+      group_by: [client_ip]
+      count: ">=20"
+    actions:
+      - severity: HIGH
+        tags:
+          - "nxdomain_storm"
+          - "dga_suspect"
+
+  - name: "DNS Beaconing Pattern"
+    description: "Regular periodic DNS queries suggesting C2 beacon"
+    window: 3600  # 1 hour
+    conditions:
+      - field: query
+        matches: ".*"  # Any query
+    aggregation:
+      group_by: [query_domain, client_ip]
+      timing_analysis: periodic
+      min_count: 10
+    actions:
+      - severity: HIGH
+        tags:
+          - "beaconing"
+          - "c2_suspect"
+
+  - name: "Suspicious TLD DNS"
+    description: "DNS queries to suspicious TLDs"
+    conditions:
+      - field: query
+        matches: "(?i)\\.(xyz|top|tk|ml|ga|cf|gq|pw|cc|ws|bit|onion)$"
+    actions:
+      - severity: LOW
+        tags:
+          - "suspicious_tld"
+
+  - name: "Numeric Subdomain Pattern"
+    description: "Subdomains that look like encoded IPs or data"
+    conditions:
+      - field: query
+        matches: "^[0-9a-f]{8,}\\."
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "encoded_subdomain"
+          - "tunnel_suspect"
+
+response:
+  - type: "signal"
+    signal_name: "DNS Tunneling Suspected"
+    priority: "high"
+    narrative_template: |
+      Potential DNS tunneling or data exfiltration detected.
+      Domain: {query_domain}
+      Pattern: {detection_pattern}
+      Query count: {query_count}
+      Average query length: {avg_query_length}
+
+false_positives:
+  - "Cloud service DKIM/SPF lookups"
+  - "CDN health checks"
+  - "Anti-spam DNS blocklist lookups"
+  - "Legitimate encoded identifiers in DNS"

@@ -284,8 +284,15 @@ mod tests {
 
     #[test]
     fn test_validate_relative_path_absolute() {
+        // Use platform-appropriate absolute path
+        #[cfg(unix)]
         assert!(matches!(
             validate_relative_path("/etc/passwd"),
+            Err(PathValidationError::AbsolutePathNotAllowed { .. })
+        ));
+        #[cfg(windows)]
+        assert!(matches!(
+            validate_relative_path("C:\\Windows\\System32\\config"),
             Err(PathValidationError::AbsolutePathNotAllowed { .. })
         ));
     }

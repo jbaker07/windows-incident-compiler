@@ -268,7 +268,10 @@ fn check_wiring() -> WiringCheck {
         } else {
             "agent-linux"
         };
-        Some(format!("Optional: run 'cargo build --release -p {}' to build agent", pkg))
+        Some(format!(
+            "Optional: run 'cargo build --release -p {}' to build agent",
+            pkg
+        ))
     } else {
         None
     };
@@ -292,10 +295,22 @@ fn check_endpoints() -> Vec<EndpointCheck> {
 
     // Core endpoints (required) vs optional endpoints
     let endpoints = vec![
-        EndpointDef { path: "/health", optional: false },
-        EndpointDef { path: "/api/signals", optional: false },
-        EndpointDef { path: "/api/capabilities", optional: true },
-        EndpointDef { path: "/api/app/state", optional: true },
+        EndpointDef {
+            path: "/health",
+            optional: false,
+        },
+        EndpointDef {
+            path: "/api/signals",
+            optional: false,
+        },
+        EndpointDef {
+            path: "/api/capabilities",
+            optional: true,
+        },
+        EndpointDef {
+            path: "/api/app/state",
+            optional: true,
+        },
     ];
 
     endpoints
@@ -327,7 +342,16 @@ fn check_single_endpoint(base_url: &str, endpoint: &str, optional: bool) -> Endp
 fn check_endpoint_windows(url: &str, endpoint: &str) -> EndpointCheck {
     // First try curl (available on Windows 10+)
     let curl_result = Command::new("curl")
-        .args(["-s", "--max-time", "2", "-o", "NUL", "-w", "%{http_code}", url])
+        .args([
+            "-s",
+            "--max-time",
+            "2",
+            "-o",
+            "NUL",
+            "-w",
+            "%{http_code}",
+            url,
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output();
@@ -339,7 +363,7 @@ fn check_endpoint_windows(url: &str, endpoint: &str) -> EndpointCheck {
                 return EndpointCheck {
                     endpoint: endpoint.to_string(),
                     status_code: Some(code),
-                    ok: code >= 200 && code < 400,
+                    ok: (200..400).contains(&code),
                     optional: false, // Will be set by caller
                     error: None,
                 };
@@ -374,7 +398,11 @@ fn check_endpoint_windows(url: &str, endpoint: &str) -> EndpointCheck {
                     error: Some(format!(
                         "PowerShell request failed for {}: {}",
                         url,
-                        if stderr.is_empty() { "connection refused or timeout" } else { &stderr }
+                        if stderr.is_empty() {
+                            "connection refused or timeout"
+                        } else {
+                            &stderr
+                        }
                     )),
                 };
             }
@@ -383,7 +411,7 @@ fn check_endpoint_windows(url: &str, endpoint: &str) -> EndpointCheck {
                 Ok(code) => EndpointCheck {
                     endpoint: endpoint.to_string(),
                     status_code: Some(code),
-                    ok: code >= 200 && code < 400,
+                    ok: (200..400).contains(&code),
                     optional: false, // Will be set by caller
                     error: None,
                 },
@@ -404,7 +432,10 @@ fn check_endpoint_windows(url: &str, endpoint: &str) -> EndpointCheck {
             status_code: None,
             ok: false,
             optional: false, // Will be set by caller
-            error: Some(format!("Both curl and PowerShell failed for {}: {}", url, e)),
+            error: Some(format!(
+                "Both curl and PowerShell failed for {}: {}",
+                url, e
+            )),
         },
     }
 }
@@ -413,7 +444,16 @@ fn check_endpoint_windows(url: &str, endpoint: &str) -> EndpointCheck {
 #[cfg(not(target_os = "windows"))]
 fn check_endpoint_unix(url: &str, endpoint: &str) -> EndpointCheck {
     let result = Command::new("curl")
-        .args(["-s", "--max-time", "2", "-o", "/dev/null", "-w", "%{http_code}", url])
+        .args([
+            "-s",
+            "--max-time",
+            "2",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            url,
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output();
@@ -502,12 +542,29 @@ fn print_summary(output: &ProofRunOutput, artifact_path: &Path) {
 
     println!("Run ID:        {}", output.run_id);
     println!("Collected:     {}", output.collected_at);
-    println!("Host:          {} ({}/{})", output.host_info.hostname, output.host_info.os, output.host_info.arch);
+    println!(
+        "Host:          {} ({}/{})",
+        output.host_info.hostname, output.host_info.os, output.host_info.arch
+    );
     println!("Telemetry:     {}\n", output.telemetry_root);
 
     println!("─── Binary Wiring ───────────────────────────────────────────────");
-    println!("  Server:  {}", if output.wiring_check.server_binary_exists { "✓" } else { "✗" });
-    println!("  Locald:  {}", if output.wiring_check.locald_binary_exists { "✓" } else { "✗" });
+    println!(
+        "  Server:  {}",
+        if output.wiring_check.server_binary_exists {
+            "✓"
+        } else {
+            "✗"
+        }
+    );
+    println!(
+        "  Locald:  {}",
+        if output.wiring_check.locald_binary_exists {
+            "✓"
+        } else {
+            "✗"
+        }
+    );
     if output.wiring_check.agent_binary_exists {
         println!("  Agent:   ✓");
     } else {
@@ -536,10 +593,18 @@ fn print_summary(output: &ProofRunOutput, artifact_path: &Path) {
     println!("\n─── Export Status ───────────────────────────────────────────────");
     println!("  Path:            {}", output.export_status.path);
     println!("  File count:      {}", output.export_status.file_count);
-    println!("  incidents.jsonl: {}", if output.export_status.incidents_jsonl_exists { "✓" } else { "—" });
+    println!(
+        "  incidents.jsonl: {}",
+        if output.export_status.incidents_jsonl_exists {
+            "✓"
+        } else {
+            "—"
+        }
+    );
 
     println!("\n─── Summary ─────────────────────────────────────────────────────");
-    println!("  Total: {}  Passed: {}  Failed: {}  Warnings: {}",
+    println!(
+        "  Total: {}  Passed: {}  Failed: {}  Warnings: {}",
         output.summary.total_checks,
         output.summary.passed,
         output.summary.failed,

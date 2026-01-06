@@ -15,19 +15,15 @@ use std::collections::HashMap;
 /// Fidelity level for fact support
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Fidelity {
     /// Hard provenance: full telemetry, deterministic scope keys
     Hard,
     /// Soft provenance: partial data, requires joins for attribution
     Soft,
     /// Not supported by this integration
+    #[default]
     None,
-}
-
-impl Default for Fidelity {
-    fn default() -> Self {
-        Fidelity::None
-    }
 }
 
 /// Integration mode
@@ -94,7 +90,7 @@ impl JoinKeySupport {
     /// Create support profile for Wazuh
     pub fn wazuh() -> Self {
         Self {
-            proc_key: true,  // via Windows Event Log
+            proc_key: true, // via Windows Event Log
             file_key: true,
             socket_key: true,
             identity_key: true,
@@ -108,9 +104,9 @@ impl JoinKeySupport {
         Self {
             proc_key: false,
             file_key: false,
-            socket_key: true,  // primary strength
+            socket_key: true, // primary strength
             identity_key: false,
-            dns_attribution: true,  // dns.log correlation
+            dns_attribution: true, // dns.log correlation
             thread_key: false,
         }
     }
@@ -118,8 +114,8 @@ impl JoinKeySupport {
     /// Create support profile for Osquery
     pub fn osquery() -> Self {
         Self {
-            proc_key: true,  // process_events table
-            file_key: true,  // file_events table
+            proc_key: true,   // process_events table
+            file_key: true,   // file_events table
             socket_key: true, // socket_events table
             identity_key: true,
             dns_attribution: false,
@@ -208,6 +204,7 @@ pub struct IntegrationProfile {
 /// Health status for integrations
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum HealthStatus {
     /// Healthy: receiving events, low error rate
     Healthy,
@@ -216,13 +213,8 @@ pub enum HealthStatus {
     /// Error: not receiving events or critical failure
     Error,
     /// Unknown: not enough data to determine
+    #[default]
     Unknown,
-}
-
-impl Default for HealthStatus {
-    fn default() -> Self {
-        HealthStatus::Unknown
-    }
 }
 
 impl IntegrationProfile {
@@ -268,13 +260,27 @@ impl IntegrationProfile {
         profile.mapping_version = "wazuh_4.x".to_string();
 
         // Wazuh fact support (via Windows Event Log forwarding)
-        profile.facts_supported.insert("exec".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("proc_spawn".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("write_path".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("outbound_connect".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("inbound_connect".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("privilege_boundary".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("vendor_alert".to_string(), Fidelity::Hard);
+        profile
+            .facts_supported
+            .insert("exec".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("proc_spawn".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("write_path".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("outbound_connect".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("inbound_connect".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("privilege_boundary".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("vendor_alert".to_string(), Fidelity::Hard);
 
         profile
     }
@@ -291,10 +297,18 @@ impl IntegrationProfile {
         profile.mapping_version = "zeek_6.x".to_string();
 
         // Zeek fact support (network only)
-        profile.facts_supported.insert("outbound_connect".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("inbound_connect".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("dns_resolve".to_string(), Fidelity::Hard);
-        profile.facts_supported.insert("vendor_alert".to_string(), Fidelity::Hard);
+        profile
+            .facts_supported
+            .insert("outbound_connect".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("inbound_connect".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("dns_resolve".to_string(), Fidelity::Hard);
+        profile
+            .facts_supported
+            .insert("vendor_alert".to_string(), Fidelity::Hard);
 
         profile
     }
@@ -311,12 +325,24 @@ impl IntegrationProfile {
         profile.mapping_version = "osquery_5.x".to_string();
 
         // Osquery fact support
-        profile.facts_supported.insert("exec".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("proc_spawn".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("write_path".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("read_path".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("outbound_connect".to_string(), Fidelity::Soft);
-        profile.facts_supported.insert("vendor_alert".to_string(), Fidelity::Hard);
+        profile
+            .facts_supported
+            .insert("exec".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("proc_spawn".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("write_path".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("read_path".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("outbound_connect".to_string(), Fidelity::Soft);
+        profile
+            .facts_supported
+            .insert("vendor_alert".to_string(), Fidelity::Hard);
 
         profile
     }
@@ -332,11 +358,23 @@ impl IntegrationProfile {
         profile.mapping_version = "export_1.0".to_string();
         // Export supports all fact types
         for fact_type in [
-            "exec", "proc_spawn", "write_path", "read_path", "create_path",
-            "delete_path", "outbound_connect", "inbound_connect", "dns_resolve",
-            "privilege_boundary", "mem_wx", "persist_artifact", "vendor_alert",
+            "exec",
+            "proc_spawn",
+            "write_path",
+            "read_path",
+            "create_path",
+            "delete_path",
+            "outbound_connect",
+            "inbound_connect",
+            "dns_resolve",
+            "privilege_boundary",
+            "mem_wx",
+            "persist_artifact",
+            "vendor_alert",
         ] {
-            profile.facts_supported.insert(fact_type.to_string(), Fidelity::Hard);
+            profile
+                .facts_supported
+                .insert(fact_type.to_string(), Fidelity::Hard);
         }
         profile
     }
@@ -353,8 +391,7 @@ impl IntegrationProfile {
 
         // Update error rate (rolling)
         if self.events_processed > 0 {
-            self.parse_error_rate =
-                self.events_errored as f64 / self.events_processed as f64;
+            self.parse_error_rate = self.events_errored as f64 / self.events_processed as f64;
         }
 
         // Update health status
@@ -371,7 +408,8 @@ impl IntegrationProfile {
     /// Compute health status based on metrics
     fn update_health_status(&mut self) {
         // Stale check: no events in 5 minutes
-        let stale = self.last_seen_ts
+        let stale = self
+            .last_seen_ts
             .map(|ts| (Utc::now() - ts).num_minutes() > 5)
             .unwrap_or(true);
 
@@ -414,7 +452,7 @@ impl IntegrationProfile {
         hasher.update(self.mapping_version.as_bytes());
         for (fact_type, fidelity) in &self.facts_supported {
             hasher.update(fact_type.as_bytes());
-            hasher.update(&[*fidelity as u8]);
+            hasher.update([*fidelity as u8]);
         }
         hex::encode(&hasher.finalize()[..8])
     }
@@ -544,7 +582,8 @@ impl IntegrationProfileStore {
 
     /// Register or update a profile
     pub fn upsert(&mut self, profile: IntegrationProfile) {
-        self.profiles.insert(profile.integration_id.clone(), profile);
+        self.profiles
+            .insert(profile.integration_id.clone(), profile);
     }
 
     /// Get a profile by ID
@@ -567,7 +606,7 @@ impl IntegrationProfileStore {
         let samples = self
             .sample_events
             .entry(integration_id.to_string())
-            .or_insert_with(Vec::new);
+            .or_default();
 
         samples.push(event);
 
@@ -670,7 +709,7 @@ impl CapabilitiesMatrix {
             let entry = self
                 .join_key_support
                 .entry(key_name.to_string())
-                .or_insert_with(HashMap::new);
+                .or_default();
             entry.insert(source_id.to_string(), supported);
         }
     }
@@ -693,10 +732,7 @@ impl CapabilitiesMatrix {
 
         // Add hard fidelity for all supported facts
         for fact_type in facts {
-            let entry = self
-                .fact_support
-                .entry(fact_type.to_string())
-                .or_insert_with(HashMap::new);
+            let entry = self.fact_support.entry(fact_type.to_string()).or_default();
             entry.insert(id.clone(), Fidelity::Hard);
         }
 

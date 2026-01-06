@@ -39,6 +39,12 @@ pub struct RateBaseline {
     pub sample_count: u32,
 }
 
+impl Default for RateBaseline {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RateBaseline {
     pub fn new() -> Self {
         Self {
@@ -100,11 +106,11 @@ impl FeatureVectorBaseline {
         for (feature_name, value) in features {
             let mean = self.means.entry(feature_name.clone()).or_insert(0.0);
             let delta = value - *mean;
-            *mean = *mean + delta / n;
+            *mean += delta / n;
 
             let variance = self.variances.entry(feature_name.clone()).or_insert(0.0);
             let delta2 = value - *mean;
-            *variance = *variance + delta * delta2;
+            *variance += delta * delta2;
         }
 
         self.sample_count += 1;

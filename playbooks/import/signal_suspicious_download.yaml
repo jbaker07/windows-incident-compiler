@@ -1,0 +1,175 @@
+---
+# playbooks/import/signal_suspicious_download.yaml
+# Detection of suspicious file downloads from HTTP traffic
+
+id: "import_suspicious_download_001"
+title: "Suspicious File Download"
+name: "Malware Download Detection"
+family: "command_and_control"
+version: "1.0"
+description: |
+  Detects potentially malicious file downloads by analyzing HTTP traffic for:
+  - Executable files (.exe, .dll, .scr)
+  - Script files (.ps1, .bat, .vbs, .js)
+  - Archives from suspicious sources
+  - Binary content types to unusual paths
+  
+  Works with HAR files, Zeek HTTP/Files logs, and JSONL.
+
+enabled: true
+confidence_threshold: 0.70
+
+sources:
+  - har
+  - zeek_http
+  - zeek_files
+  - jsonl_http
+
+input_tags:
+  - suspicious_download
+  - binary_content
+  - executable
+  - http_request
+
+mitre:
+  tactics:
+    - command_and_control
+    - execution
+  techniques:
+    - T1105  # Ingress Tool Transfer
+    - T1204  # User Execution
+    - T1059  # Command and Scripting Interpreter
+
+input_facts:
+  required:
+    - http_request
+  optional:
+    - file_info
+
+slots:
+  required:
+    - name: download_url
+      type: string
+      extract_from: url
+  optional:
+    - name: content_type
+      type: string
+      extract_from: content_type
+    - name: file_name
+      type: string
+      extract_from: filename
+
+rules:
+  - name: "Executable Download"
+    description: "Direct executable download detected"
+    conditions:
+      - field: url
+        matches: "(?i)\\.(exe|dll|scr|com|pif|msi)$"
+      - field: status
+        equals: 200
+    actions:
+      - severity: HIGH
+        tags:
+          - "executable"
+          - "download"
+          - "dropper"
+    evidence:
+      - field: url
+        description: "Download URL"
+      - field: content_type
+        description: "Response content type"
+
+  - name: "Script Download"
+    description: "Script file download detected"
+    conditions:
+      - field: url
+        matches: "(?i)\\.(ps1|bat|cmd|vbs|vbe|js|jse|wsf|wsh|hta)$"
+      - field: status
+        equals: 200
+    actions:
+      - severity: HIGH
+        tags:
+          - "script"
+          - "download"
+    evidence:
+      - field: url
+        description: "Script URL"
+
+  - name: "Binary Content Type"
+    description: "Binary/executable content type response"
+    conditions:
+      - field: content_type
+        matches: "(?i)application/(x-msdownload|x-msdos-program|x-executable|octet-stream)"
+      - field: status
+        equals: 200
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "binary"
+          - "download"
+
+  - name: "Archive Download"
+    description: "Archive file download (potential payload)"
+    conditions:
+      - field: url
+        matches: "(?i)\\.(zip|rar|7z|tar|gz|iso)$"
+      - field: status
+        equals: 200
+    actions:
+      - severity: LOW
+        tags:
+          - "archive"
+          - "download"
+
+  - name: "Unusual TLD Download"
+    description: "Download from suspicious TLD"
+    conditions:
+      - field: domain
+        matches: "(?i)\\.(xyz|top|tk|ml|ga|cf|gq|pw|cc|ws)$"
+      - field: status
+        equals: 200
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "suspicious_tld"
+          - "download"
+
+  - name: "IP-based Download"
+    description: "Direct IP download (no domain)"
+    conditions:
+      - field: url
+        matches: "https?://\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
+      - field: status
+        equals: 200
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "ip_based"
+          - "suspicious"
+
+  - name: "Zeek Extracted Executable"
+    description: "Executable file extracted by Zeek"
+    conditions:
+      - event_type: zeek_files
+      - field: mime_type
+        matches: "(?i)application/(x-dosexec|x-executable|x-msdownload)"
+    actions:
+      - severity: HIGH
+        tags:
+          - "zeek_extract"
+          - "executable"
+
+response:
+  - type: "signal"
+    signal_name: "Suspicious Download Detected"
+    priority: "high"
+    narrative_template: |
+      Suspicious file download detected from {domain}.
+      URL: {download_url}
+      File type: {detected_type}
+      Content-Type: {content_type}
+
+false_positives:
+  - "Legitimate software updates"
+  - "Developer downloading tools"
+  - "Package manager installations"

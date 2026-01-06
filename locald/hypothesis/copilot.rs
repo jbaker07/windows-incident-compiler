@@ -4,16 +4,10 @@
 //! exploit/flag/walkthrough instructions. It only explains what the compiler has
 //! determined, always with evidence citations.
 
-use super::arbitration::ArbitrationResponse;
 use super::canonical_event::EvidencePtr;
 use super::disambiguator::{Disambiguator, PivotAction};
-use super::explanation::{
-    Claim, ClaimCertainty, ExplanationResponse, ExplanationVisibilityState, MissingEvidence,
-    MissingReason, QueryContext, SlotStatusSummary,
-};
-use super::hypothesis_state::HypothesisStatus;
+use super::explanation::{Claim, ClaimCertainty, ExplanationResponse, MissingReason};
 use super::promotion::Severity;
-use super::session::SessionMode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -413,6 +407,7 @@ pub fn build_grounding_context(explanation: &ExplanationResponse) -> GroundingCo
 /// Templated renderer for guaranteed output even if model fails
 pub struct TemplatedRenderer {
     /// Citation counter for generating tokens
+    #[allow(dead_code)]
     citation_counter: usize,
     /// Generated citations
     citations: Vec<Citation>,
@@ -427,6 +422,7 @@ impl TemplatedRenderer {
     }
 
     /// Generate next citation token
+    #[allow(dead_code)]
     fn next_citation(&mut self, claim: &Claim) -> String {
         self.citation_counter += 1;
         let token = format!("[E{}]", self.citation_counter);
@@ -1248,6 +1244,8 @@ impl CopilotService for DefaultCopilot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hypothesis::explanation::QueryContext;
+    use crate::hypothesis::session::SessionMode;
 
     #[test]
     fn test_question_categorization() {

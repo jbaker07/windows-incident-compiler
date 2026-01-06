@@ -1,0 +1,109 @@
+---
+# playbooks/windows/signal_security_tool_disable.yaml
+# Detection of security tool disabling
+
+id: "windows_security_disable_001"
+title: "Security Tool Disable"
+name: "Security Tool Disable Detection"
+family: "defense_evasion"
+version: "2.0"
+description: |
+  Detects attempts to disable security tools:
+  - Windows Defender manipulation
+  - Firewall disable
+  - Event logging disable
+  - EDR/AV service termination
+
+enabled: true
+confidence_threshold: 0.90
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+mitre:
+  tactics:
+    - defense_evasion
+  techniques:
+    - T1562.001  # Disable or Modify Tools
+    - T1562.004  # Disable Windows Event Logging
+
+input_facts:
+  required:
+    - Exec
+  optional:
+    - SecurityToolDisable
+
+rules:
+  - name: "Disable Windows Defender"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)(set-mppreference.*-disablerealtimemonitoring|sc.*stop.*windefend|net.*stop.*windefend)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "defender_disable"
+          - "evasion"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "Disable Windows Firewall"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)(netsh.*firewall.*set.*opmode.*disable|netsh.*advfirewall.*set.*state.*off)"
+    actions:
+      - severity: HIGH
+        tags:
+          - "firewall_disable"
+          - "evasion"
+
+  - name: "Stop Event Log Service"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)(sc.*stop.*eventlog|net.*stop.*eventlog)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "logging_disable"
+          - "anti_forensics"
+
+  - name: "Disable AMSI"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)(amsiInitFailed|amsi\\.dll|amsiscanbuffer)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "amsi_bypass"
+          - "evasion"
+
+  - name: "Kill Security Process"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)taskkill.*/f.*(msmpeng|mssense|savservice|avp|mbam)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "security_kill"
+          - "evasion"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "Security Tool Disable Attempt"
+    priority: "critical"
+
+false_positives:
+  - "Authorized maintenance"
+  - "Software installation requiring temp disable"

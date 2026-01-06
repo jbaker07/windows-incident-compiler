@@ -4,9 +4,11 @@
 // Polls Windows Event Logs (Sysmon, Security, System, etc.) with bounded work
 
 #![cfg(target_os = "windows")]
+// Fields used by metrics/collector not exercised in all tests
+#![allow(dead_code)]
 
 use chrono::{DateTime, Utc};
-use edr_core::{Event, EvidencePtr, event_keys};
+use edr_core::{event_keys, Event, EvidencePtr};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -77,8 +79,8 @@ pub struct HeartbeatMetrics {
 
 #[derive(Debug)]
 pub struct WindowsCaptureConfig {
-    pub root_dir: PathBuf,          // segments directory (telemetry_root/segments)
-    pub telemetry_root: PathBuf,    // parent directory for index.json
+    pub root_dir: PathBuf,       // segments directory (telemetry_root/segments)
+    pub telemetry_root: PathBuf, // parent directory for index.json
     pub segment_rotation_records: u64,
     pub heartbeat_interval_secs: u64,
 }
@@ -118,7 +120,8 @@ impl WindowsEventCapture {
         fs::create_dir_all(&segments_dir).ok();
 
         // Derive telemetry_root as parent of segments directory
-        let telemetry_root = segments_dir.parent()
+        let telemetry_root = segments_dir
+            .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| segments_dir.clone());
 
@@ -160,7 +163,8 @@ impl WindowsEventCapture {
         fs::create_dir_all(&segments_dir)?;
 
         // Derive telemetry_root as parent of segments directory
-        let telemetry_root = segments_dir.parent()
+        let telemetry_root = segments_dir
+            .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| segments_dir.clone());
 
@@ -305,7 +309,7 @@ impl WindowsEventCapture {
             deduped_events.push(event);
         }
 
-        let mut all_events = deduped_events;
+        let all_events = deduped_events;
 
         // Count attack surface events before EvidencePtr assignment
         for event in &all_events {
@@ -333,15 +337,9 @@ impl WindowsEventCapture {
             } else if event.tags.contains(&"discovery".to_string()) {
                 self.discovery_exec_count += 1;
             } else if event.tags.contains(&"exfiltration".to_string()) {
-                if event
-                    .fields
-                    .contains_key(event_keys::ARCHIVE_TOOL)
-                {
+                if event.fields.contains_key(event_keys::ARCHIVE_TOOL) {
                     self.archive_tool_exec_count += 1;
-                } else if event
-                    .fields
-                    .contains_key(event_keys::FILE_PATH)
-                {
+                } else if event.fields.contains_key(event_keys::FILE_PATH) {
                     self.staging_write_count += 1;
                 }
             } else if event.tags.contains(&"network_connection".to_string()) {
@@ -356,7 +354,7 @@ impl WindowsEventCapture {
         }
 
         // STEP 4: ASSIGN EvidencePtr HERE ONLY - uses segment state
-        let mut all_events = self.assign_evidence_ptrs_with_state(all_events, self.segment_count);
+        let all_events = self.assign_evidence_ptrs_with_state(all_events, self.segment_count);
 
         // STEP 5: Validate canonical primitives contract
         for event in &all_events {
@@ -405,14 +403,17 @@ impl WindowsEventCapture {
             if let Err(e) = update_index_atomic(
                 &index_path,
                 &segment_id,
-                format!("segments/{}.jsonl", segment_id),  // relative to telemetry_root
+                format!("segments/{}.jsonl", segment_id), // relative to telemetry_root
                 ts_now,
                 ts_now,
                 all_events.len() as u32,
                 segment_data.len() as u64,
                 sha256_segment,
             ) {
-                eprintln!("[capture_windows] WARNING: Failed to update index.json: {}", e);
+                eprintln!(
+                    "[capture_windows] WARNING: Failed to update index.json: {}",
+                    e
+                );
             }
         }
 
@@ -538,7 +539,7 @@ impl WindowsEventCapture {
 }
 
 /// Sort events deterministically
-fn sort_events(events: &mut Vec<Event>) {
+fn sort_events(events: &mut [Event]) {
     events.sort_by(|a, b| {
         // Sort by ts_ms primarily, then by event_kind, then by pid
         match a.ts_ms.cmp(&b.ts_ms) {
@@ -555,8 +556,16 @@ fn sort_events(events: &mut Vec<Event>) {
                     .unwrap_or("");
                 match a_kind.cmp(b_kind) {
                     std::cmp::Ordering::Equal => {
-                        let a_pid = a.fields.get("pid").and_then(|v: &Value| v.as_u64()).unwrap_or(0);
-                        let b_pid = b.fields.get("pid").and_then(|v: &Value| v.as_u64()).unwrap_or(0);
+                        let a_pid = a
+                            .fields
+                            .get("pid")
+                            .and_then(|v: &Value| v.as_u64())
+                            .unwrap_or(0);
+                        let b_pid = b
+                            .fields
+                            .get("pid")
+                            .and_then(|v: &Value| v.as_u64())
+                            .unwrap_or(0);
                         a_pid.cmp(&b_pid)
                     }
                     other => other,
@@ -651,6 +660,7 @@ fn generate_dedup_key(event: &Event) -> String {
 }
 
 /// Atomically update index.json with new segment metadata
+#[allow(clippy::too_many_arguments)]
 fn update_index_atomic(
     index_path: &std::path::Path,
     segment_id: &str,
@@ -663,8 +673,8 @@ fn update_index_atomic(
 ) -> Result<(), String> {
     // Load existing index or create new
     let mut index = if index_path.exists() {
-        let content = fs::read_to_string(index_path)
-            .map_err(|e| format!("Failed to read index: {}", e))?;
+        let content =
+            fs::read_to_string(index_path).map_err(|e| format!("Failed to read index: {}", e))?;
         serde_json::from_str(&content).unwrap_or_else(|_| SegmentIndex {
             schema_version: 1,
             next_seq: 0,
@@ -689,7 +699,11 @@ fn update_index_atomic(
     index.next_seq += 1;
 
     // Add/update segment metadata
-    if let Some(existing) = index.segments.iter_mut().find(|s| s.segment_id == segment_id) {
+    if let Some(existing) = index
+        .segments
+        .iter_mut()
+        .find(|s| s.segment_id == segment_id)
+    {
         existing.ts_last = ts_last;
         existing.records = records;
         existing.size_bytes = size_bytes;
@@ -715,7 +729,7 @@ fn update_index_atomic(
     // Compute current index hash
     let json_str = serde_json::to_string_pretty(&index)
         .map_err(|e| format!("Failed to serialize index: {}", e))?;
-    
+
     let index_hash = {
         let mut hasher = Sha256::new();
         hasher.update(json_str.as_bytes());
@@ -728,12 +742,10 @@ fn update_index_atomic(
 
     // Write to temp file first
     let temp_path = index_path.with_extension("json.tmp");
-    fs::write(&temp_path, &final_json)
-        .map_err(|e| format!("Failed to write temp index: {}", e))?;
+    fs::write(&temp_path, &final_json).map_err(|e| format!("Failed to write temp index: {}", e))?;
 
     // Atomic rename
-    fs::rename(&temp_path, index_path)
-        .map_err(|e| format!("Failed to rename index: {}", e))?;
+    fs::rename(&temp_path, index_path).map_err(|e| format!("Failed to rename index: {}", e))?;
 
     // Write backup
     let bak_path = index_path.with_extension("json.bak");

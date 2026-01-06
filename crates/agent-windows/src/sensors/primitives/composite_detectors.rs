@@ -1,25 +1,26 @@
 // windows/sensors/primitives/composite_detectors.rs
 // High-value composite detectors for Windows combining multiple signals
 
-use edr_core::Event;
 use edr_core::event_keys;
-use std::collections::BTreeMap;
+use edr_core::Event;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 /// Detect LSASS credential harvesting pattern
 /// Indicator: Process accessing LSASS memory + procdump/minidump creation
 /// Threat level: Critical - LSASS harvesting is primary credential theft vector
-pub fn detect_lsass_memory_dump_harvesting(
-    base_event: &Event,
-) -> Option<Event> {
+pub fn detect_lsass_memory_dump_harvesting(base_event: &Event) -> Option<Event> {
     if !base_event.tags.contains(&"exec".to_string())
         && !base_event.tags.contains(&"sysmon_process".to_string())
-        && !base_event.tags.contains(&"security_process".to_string()) {
+        && !base_event.tags.contains(&"security_process".to_string())
+    {
         return None;
     }
 
     let exe = base_event.fields.get(event_keys::PROC_EXE)?.as_str()?;
-    let argv = base_event.fields.get(event_keys::PROC_ARGV)?
+    let argv = base_event
+        .fields
+        .get(event_keys::PROC_ARGV)?
         .as_array()
         .map(|arr| {
             arr.iter()
@@ -40,18 +41,22 @@ pub fn detect_lsass_memory_dump_harvesting(
     }
 
     // Check for LSASS in arguments or exe name
-    let targets_lsass = arg_str.contains("lsass") || arg_str.contains("pid")
-        || arg_str.contains("0x");
+    let targets_lsass =
+        arg_str.contains("lsass") || arg_str.contains("pid") || arg_str.contains("0x");
 
     if !targets_lsass {
         return None;
     }
 
     let host = &base_event.host;
-    let pid = base_event.fields.get(event_keys::PROC_PID)?
+    let pid = base_event
+        .fields
+        .get(event_keys::PROC_PID)?
         .as_u64()
         .map(|p| p as u32)?;
-    let uid = base_event.fields.get(event_keys::PROC_UID)?
+    let uid = base_event
+        .fields
+        .get(event_keys::PROC_UID)?
         .as_u64()
         .map(|u| u as u32)?;
 
@@ -84,36 +89,41 @@ pub fn detect_lsass_memory_dump_harvesting(
 /// Detect registry persistence pattern
 /// Indicator: Writing to HKLM\Software\Microsoft\Windows\Run registry + Sysmon registry event
 /// Threat level: High - Registry Run key is primary Windows persistence mechanism
-pub fn detect_registry_run_persistence(
-    base_event: &Event,
-) -> Option<Event> {
+pub fn detect_registry_run_persistence(base_event: &Event) -> Option<Event> {
     if !base_event.tags.contains(&"sysmon_registry".to_string())
-        && !base_event.tags.contains(&"registry".to_string()) {
+        && !base_event.tags.contains(&"registry".to_string())
+    {
         return None;
     }
 
-    let target_object = base_event.fields.get("TargetObject")
+    let target_object = base_event
+        .fields
+        .get("TargetObject")
         .or(base_event.fields.get("target_object"))?
         .as_str()?;
 
     let target_lower = target_object.to_lowercase();
 
     // Check for Run registry keys
-    let targets_run = target_lower.contains("\\run\\")
-        || target_lower.contains("run key");
+    let targets_run = target_lower.contains("\\run\\") || target_lower.contains("run key");
 
     if !targets_run {
         return None;
     }
 
     // Check that it's under HKLM or HKCU
-    let is_user_writable = target_lower.contains("hkcu") || target_lower.contains("hkey_current_user");
+    let is_user_writable =
+        target_lower.contains("hkcu") || target_lower.contains("hkey_current_user");
 
     let host = &base_event.host;
-    let pid = base_event.fields.get(event_keys::PROC_PID)
+    let pid = base_event
+        .fields
+        .get(event_keys::PROC_PID)
         .and_then(|v| v.as_u64())
         .map(|p| p as u32)?;
-    let uid = base_event.fields.get(event_keys::PROC_UID)
+    let uid = base_event
+        .fields
+        .get(event_keys::PROC_UID)
         .and_then(|v| v.as_u64())
         .map(|u| u as u32)?;
 
@@ -121,7 +131,10 @@ pub fn detect_registry_run_persistence(
     fields.insert(event_keys::PROC_PID.to_string(), json!(pid));
     fields.insert(event_keys::PROC_UID.to_string(), json!(uid));
     fields.insert("registry_target".to_string(), json!(target_object));
-    fields.insert("correlation_type".to_string(), json!("registry_run_persistence"));
+    fields.insert(
+        "correlation_type".to_string(),
+        json!("registry_run_persistence"),
+    );
     fields.insert("severity".to_string(), json!("high"));
     fields.insert("user_writable".to_string(), json!(is_user_writable));
 
@@ -145,12 +158,11 @@ pub fn detect_registry_run_persistence(
 /// Detect UAC bypass pattern
 /// Indicator: Execution bypassing UAC (fodhelper.exe, eventvwr.exe, etc.) + unsigned binary
 /// Threat level: High - UAC bypass enables unrestricted code execution
-pub fn detect_uac_bypass_with_unsigned_execution(
-    base_event: &Event,
-) -> Option<Event> {
+pub fn detect_uac_bypass_with_unsigned_execution(base_event: &Event) -> Option<Event> {
     if !base_event.tags.contains(&"exec".to_string())
         && !base_event.tags.contains(&"sysmon_process".to_string())
-        && !base_event.tags.contains(&"security_process".to_string()) {
+        && !base_event.tags.contains(&"security_process".to_string())
+    {
         return None;
     }
 
@@ -173,23 +185,31 @@ pub fn detect_uac_bypass_with_unsigned_execution(
         return None;
     }
 
-    let parent_exe = base_event.fields.get("parent_exe")
+    let parent_exe = base_event
+        .fields
+        .get("parent_exe")
         .or(base_event.fields.get("ParentImage"))?
         .as_str()?;
 
     // Check if parent is a suspicious process
     let suspicious_parents = ["powershell", "cmd.exe", "explorer.exe", "shell.exe"];
-    let has_suspicious_parent = suspicious_parents.iter().any(|p| parent_exe.to_lowercase().contains(p));
+    let has_suspicious_parent = suspicious_parents
+        .iter()
+        .any(|p| parent_exe.to_lowercase().contains(p));
 
     if !has_suspicious_parent {
         return None;
     }
 
     let host = &base_event.host;
-    let pid = base_event.fields.get(event_keys::PROC_PID)?
+    let pid = base_event
+        .fields
+        .get(event_keys::PROC_PID)?
         .as_u64()
         .map(|p| p as u32)?;
-    let uid = base_event.fields.get(event_keys::PROC_UID)?
+    let uid = base_event
+        .fields
+        .get(event_keys::PROC_UID)?
         .as_u64()
         .map(|u| u as u32)?;
 
@@ -221,17 +241,18 @@ pub fn detect_uac_bypass_with_unsigned_execution(
 /// Detect event log tampering via wevtutil
 /// Indicator: Execution of wevtutil to clear/disable security logs
 /// Threat level: High - Indicates post-compromise log covering
-pub fn detect_event_log_tampering(
-    base_event: &Event,
-) -> Option<Event> {
+pub fn detect_event_log_tampering(base_event: &Event) -> Option<Event> {
     if !base_event.tags.contains(&"exec".to_string())
         && !base_event.tags.contains(&"sysmon_process".to_string())
-        && !base_event.tags.contains(&"security_process".to_string()) {
+        && !base_event.tags.contains(&"security_process".to_string())
+    {
         return None;
     }
 
     let exe = base_event.fields.get(event_keys::PROC_EXE)?.as_str()?;
-    let argv = base_event.fields.get(event_keys::PROC_ARGV)?
+    let argv = base_event
+        .fields
+        .get(event_keys::PROC_ARGV)?
         .as_array()
         .map(|arr| {
             arr.iter()
@@ -255,10 +276,14 @@ pub fn detect_event_log_tampering(
     }
 
     let host = &base_event.host;
-    let pid = base_event.fields.get(event_keys::PROC_PID)?
+    let pid = base_event
+        .fields
+        .get(event_keys::PROC_PID)?
         .as_u64()
         .map(|p| p as u32)?;
-    let uid = base_event.fields.get(event_keys::PROC_UID)?
+    let uid = base_event
+        .fields
+        .get(event_keys::PROC_UID)?
         .as_u64()
         .map(|u| u as u32)?;
 
@@ -294,10 +319,16 @@ mod tests {
     #[test]
     fn test_lsass_dump_detection() {
         let mut fields = BTreeMap::new();
-        fields.insert(event_keys::PROC_EXE.to_string(), json!("C:\\Tools\\procdump.exe"));
+        fields.insert(
+            event_keys::PROC_EXE.to_string(),
+            json!("C:\\Tools\\procdump.exe"),
+        );
         fields.insert(event_keys::PROC_PID.to_string(), json!(1000u64));
         fields.insert(event_keys::PROC_UID.to_string(), json!(1001u64));
-        fields.insert(event_keys::PROC_ARGV.to_string(), json!(vec!["procdump.exe", "-ma", "lsass.exe", "output.dmp"]));
+        fields.insert(
+            event_keys::PROC_ARGV.to_string(),
+            json!(vec!["procdump.exe", "-ma", "lsass.exe", "output.dmp"]),
+        );
 
         let event = Event {
             ts_ms: 1000000,
@@ -320,10 +351,16 @@ mod tests {
     #[test]
     fn test_uac_bypass_detection() {
         let mut fields = BTreeMap::new();
-        fields.insert(event_keys::PROC_EXE.to_string(), json!("C:\\Windows\\System32\\fodhelper.exe"));
+        fields.insert(
+            event_keys::PROC_EXE.to_string(),
+            json!("C:\\Windows\\System32\\fodhelper.exe"),
+        );
         fields.insert(event_keys::PROC_PID.to_string(), json!(1000u64));
         fields.insert(event_keys::PROC_UID.to_string(), json!(1001u64));
-        fields.insert("parent_exe".to_string(), json!("C:\\Windows\\System32\\cmd.exe"));
+        fields.insert(
+            "parent_exe".to_string(),
+            json!("C:\\Windows\\System32\\cmd.exe"),
+        );
 
         let event = Event {
             ts_ms: 1000000,
@@ -346,10 +383,16 @@ mod tests {
     #[test]
     fn test_event_log_tampering_detection() {
         let mut fields = BTreeMap::new();
-        fields.insert(event_keys::PROC_EXE.to_string(), json!("C:\\Windows\\System32\\wevtutil.exe"));
+        fields.insert(
+            event_keys::PROC_EXE.to_string(),
+            json!("C:\\Windows\\System32\\wevtutil.exe"),
+        );
         fields.insert(event_keys::PROC_PID.to_string(), json!(1000u64));
         fields.insert(event_keys::PROC_UID.to_string(), json!(1001u64));
-        fields.insert(event_keys::PROC_ARGV.to_string(), json!(vec!["wevtutil.exe", "clear-log", "Security"]));
+        fields.insert(
+            event_keys::PROC_ARGV.to_string(),
+            json!(vec!["wevtutil.exe", "clear-log", "Security"]),
+        );
 
         let event = Event {
             ts_ms: 1000000,

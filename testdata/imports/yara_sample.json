@@ -1,0 +1,41 @@
+{
+  "matches": [
+    {
+      "rule": "Mimikatz",
+      "namespace": "memory",
+      "file": "C:\\Windows\\Temp\\sus.exe",
+      "strings": [
+        {
+          "identifier": "$s1",
+          "offset": 12345,
+          "value": "sekurlsa::logonpasswords"
+        }
+      ],
+      "meta": {
+        "author": "Test",
+        "description": "Mimikatz credential dumper",
+        "severity": "critical"
+      }
+    },
+    {
+      "rule": "CobaltStrike_Beacon",
+      "namespace": "default",
+      "file": "C:\\Users\\Public\\beacon.dll",
+      "strings": [
+        {
+          "identifier": "$beacon",
+          "offset": 5678,
+          "value": "beacon_payload"
+        }
+      ],
+      "meta": {
+        "author": "Test",
+        "description": "Cobalt Strike beacon",
+        "severity": "high"
+      }
+    }
+  ],
+  "scan_time": "2024-01-01T00:00:00Z",
+  "files_scanned": 100,
+  "rules_loaded": 50
+}

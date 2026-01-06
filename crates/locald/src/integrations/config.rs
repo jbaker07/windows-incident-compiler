@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Top-level integration configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IntegrationConfig {
     /// Export configuration
     #[serde(default)]
@@ -21,36 +21,24 @@ pub struct IntegrationConfig {
     pub metrics: MetricsConfig,
 }
 
-impl Default for IntegrationConfig {
-    fn default() -> Self {
-        Self {
-            export: ExportConfig::default(),
-            ingest: IngestConfig::default(),
-            metrics: MetricsConfig::default(),
-        }
-    }
-}
-
 impl IntegrationConfig {
     /// Load from YAML file
     pub fn from_yaml_file(path: &PathBuf) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read config: {}", e))?;
-        serde_yaml::from_str(&content)
-            .map_err(|e| format!("Failed to parse config: {}", e))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("Failed to read config: {}", e))?;
+        serde_yaml::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))
     }
 
     /// Load from JSON file
     pub fn from_json_file(path: &PathBuf) -> Result<Self, String> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read config: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse config: {}", e))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("Failed to read config: {}", e))?;
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse config: {}", e))
     }
 }
 
 /// Export configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ExportConfig {
     /// Enable export
     #[serde(default)]
@@ -59,15 +47,6 @@ pub struct ExportConfig {
     /// Export sinks
     #[serde(default)]
     pub sinks: Vec<ExportSinkConfig>,
-}
-
-impl Default for ExportConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            sinks: Vec::new(),
-        }
-    }
 }
 
 /// Configuration for a single export sink
@@ -141,7 +120,7 @@ pub enum ExportSinkType {
 }
 
 /// Ingest configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IngestConfig {
     /// Enable ingest
     #[serde(default)]
@@ -150,15 +129,6 @@ pub struct IngestConfig {
     /// Ingest sources
     #[serde(default)]
     pub sources: Vec<IngestSourceConfig>,
-}
-
-impl Default for IngestConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            sources: Vec::new(),
-        }
-    }
 }
 
 /// Configuration for a single ingest source

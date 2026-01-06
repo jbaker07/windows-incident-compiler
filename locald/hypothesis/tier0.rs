@@ -157,9 +157,10 @@ impl SuppressionPolicy {
 
     /// Create a very strict policy (Critical severity also unsuppressible)
     pub fn very_strict() -> Self {
-        let mut policy = Self::default();
-        policy.min_unsuppressible_severity = Some("critical".to_string());
-        policy
+        Self {
+            min_unsuppressible_severity: Some("critical".to_string()),
+            ..Self::default()
+        }
     }
 }
 

@@ -1,68 +1,88 @@
 // windows/sensors/primitives/discovery_exec.rs
 // Detects discovery/reconnaissance tool execution (tasklist, wmic, Get-Service, sc, ipconfig, etc.)
 
-use edr_core::Event;
 use edr_core::event_keys;
-use std::collections::BTreeMap;
+use edr_core::Event;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 /// Detect discovery tool execution from Windows process creation events
 /// Triggers on: tasklist, wmic, Get-Service, sc (service control), ipconfig, whoami, systeminfo, nslookup, netstat, etc.
 pub fn detect_discovery_exec(base_event: &Event) -> Option<Event> {
     let discovery_tools = [
-        "tasklist", "tasklist.exe",
-        "wmic", "wmic.exe",
-        "Get-Service", "get-service",
-        "sc", "sc.exe",  // Service control (sc query, sc queryex)
-        "ipconfig", "ipconfig.exe",
-        "whoami", "whoami.exe",
-        "systeminfo", "systeminfo.exe",
-        "nslookup", "nslookup.exe",
-        "netstat", "netstat.exe",
-        "Get-Process", "get-process",  // PowerShell process discovery
-        "Get-NetAdapter", "get-netadapter",
-        "Get-NetIPAddress", "get-netipaddress",
-        "arp", "arp.exe",
-        "route", "route.exe",
-        "pathping", "pathping.exe",
-        "tracert", "tracert.exe",
-        "Get-LocalUser", "get-localuser",
-        "net", "net.exe",
+        "tasklist",
+        "tasklist.exe",
+        "wmic",
+        "wmic.exe",
+        "Get-Service",
+        "get-service",
+        "sc",
+        "sc.exe", // Service control (sc query, sc queryex)
+        "ipconfig",
+        "ipconfig.exe",
+        "whoami",
+        "whoami.exe",
+        "systeminfo",
+        "systeminfo.exe",
+        "nslookup",
+        "nslookup.exe",
+        "netstat",
+        "netstat.exe",
+        "Get-Process",
+        "get-process", // PowerShell process discovery
+        "Get-NetAdapter",
+        "get-netadapter",
+        "Get-NetIPAddress",
+        "get-netipaddress",
+        "arp",
+        "arp.exe",
+        "route",
+        "route.exe",
+        "pathping",
+        "pathping.exe",
+        "tracert",
+        "tracert.exe",
+        "Get-LocalUser",
+        "get-localuser",
+        "net",
+        "net.exe",
     ];
 
     // Extract image from base event
-    let image = base_event.fields
+    let image = base_event
+        .fields
         .get(event_keys::PROC_EXE)
         .or_else(|| base_event.fields.get("image"))
         .and_then(|v| v.as_str())?;
-    
+
     let image_lower = image.to_lowercase();
-    let image_base = std::path::Path::new(&image_lower)
-        .file_name()?
-        .to_str()?;
+    let image_base = std::path::Path::new(&image_lower).file_name()?.to_str()?;
 
     // Check if image matches any discovery tool
-    let matched_tool = discovery_tools.iter().find(|tool| {
-        image_base.contains(&tool.to_lowercase())
-    })?;
+    let matched_tool = discovery_tools
+        .iter()
+        .find(|tool| image_base.contains(&tool.to_lowercase()))?;
 
     // Extract required fields
-    let pid = base_event.fields
+    let pid = base_event
+        .fields
         .get(event_keys::PROC_PID)
         .or_else(|| base_event.fields.get("ProcessId"))
         .and_then(|v| v.as_u64())
         .map(|v| v as u32)?;
-    
-    let uid = base_event.fields
+
+    let uid = base_event
+        .fields
         .get(event_keys::PROC_UID)
         .or_else(|| base_event.fields.get("User"))
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_string();
-    
+
     let euid_str = uid.clone();
 
-    let argv = base_event.fields
+    let argv = base_event
+        .fields
         .get(event_keys::PROC_ARGV)
         .or_else(|| base_event.fields.get("CommandLine"))
         .and_then(|v| v.as_str())
@@ -74,8 +94,11 @@ pub fn detect_discovery_exec(base_event: &Event) -> Option<Event> {
     fields.insert(event_keys::PROC_UID.to_string(), json!(uid));
     fields.insert(event_keys::PROC_EUID.to_string(), json!(euid_str));
     fields.insert(event_keys::PROC_EXE.to_string(), json!(image));
-    fields.insert(event_keys::DISCOVERY_TOOL.to_string(), json!(matched_tool.to_string()));
-    
+    fields.insert(
+        event_keys::DISCOVERY_TOOL.to_string(),
+        json!(matched_tool.to_string()),
+    );
+
     if !argv.is_empty() {
         fields.insert(event_keys::PROC_ARGV.to_string(), json!(argv));
     }
@@ -83,11 +106,15 @@ pub fn detect_discovery_exec(base_event: &Event) -> Option<Event> {
     Some(Event {
         ts_ms: base_event.ts_ms,
         host: base_event.host.clone(),
-        tags: vec!["windows".to_string(), "discovery".to_string(), "sysmon".to_string()],
+        tags: vec![
+            "windows".to_string(),
+            "discovery".to_string(),
+            "sysmon".to_string(),
+        ],
         proc_key: base_event.proc_key.clone(),
         file_key: None,
         identity_key: base_event.identity_key.clone(),
-        evidence_ptr: None,  // Capture will assign this
+        evidence_ptr: None, // Capture will assign this
         fields,
     })
 }

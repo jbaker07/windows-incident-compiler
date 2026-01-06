@@ -1,0 +1,183 @@
+---
+# playbooks/import/signal_web_scanning.yaml
+# Detection of web vulnerability scanning
+
+id: "import_web_scanning_001"
+title: "Web Vulnerability Scanning"
+name: "Web Scanner Detection"
+family: "reconnaissance"
+version: "1.0"
+description: |
+  Detects web vulnerability scanning by analyzing:
+  - High volume of 404 responses (directory enumeration)
+  - Known scanner user agents
+  - Requests to common vulnerability paths
+  - Rapid sequential requests
+  
+  Works with HAR files, Zeek HTTP logs, and JSONL.
+
+enabled: true
+confidence_threshold: 0.80
+
+sources:
+  - har
+  - zeek_http
+  - jsonl_http
+
+input_tags:
+  - http_request
+  - scanning
+  - directory_enumeration
+
+mitre:
+  tactics:
+    - reconnaissance
+    - initial_access
+  techniques:
+    - T1595.002  # Active Scanning: Vulnerability Scanning
+    - T1190      # Exploit Public-Facing Application
+
+input_facts:
+  required:
+    - http_request
+
+slots:
+  required:
+    - name: target_domain
+      type: string
+
+rules:
+  - name: "404 Spray"
+    description: "Many 404 responses suggesting directory enumeration"
+    window: 300
+    threshold: 20
+    conditions:
+      - field: status
+        equals: 404
+    aggregation:
+      group_by: [domain]
+      count: ">=20"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "404_spray"
+          - "dir_enum"
+    evidence:
+      - field: unique_paths
+        description: "Unique paths tried"
+
+  - name: "Scanner User Agent"
+    description: "Known vulnerability scanner user agent"
+    conditions:
+      - field: user_agent
+        matches: "(?i)(nikto|nmap|sqlmap|burp|acunetix|nessus|openvas|masscan|zgrab|gobuster|dirbuster|wfuzz|ffuf|nuclei|httpx)"
+    actions:
+      - severity: HIGH
+        tags:
+          - "scanner_ua"
+          - "tool_detected"
+    evidence:
+      - field: user_agent
+        description: "Scanner user agent"
+
+  - name: "Admin Path Probing"
+    description: "Requests to common admin/sensitive paths"
+    conditions:
+      - field: url
+        matches: "(?i)/(admin|administrator|wp-admin|phpmyadmin|cpanel|webmail|manager|console|dashboard|portal|backend|cms)"
+    aggregation:
+      group_by: [domain]
+      count: ">=5"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "admin_probe"
+          - "recon"
+
+  - name: "Config File Probing"
+    description: "Requests for configuration files"
+    conditions:
+      - field: url
+        matches: "(?i)/(web\\.config|\\.htaccess|\\.git|config\\.php|\\.env|settings\\.py|database\\.yml|wp-config)"
+    actions:
+      - severity: HIGH
+        tags:
+          - "config_probe"
+          - "sensitive_file"
+
+  - name: "Backup File Probing"
+    description: "Requests for backup files"
+    conditions:
+      - field: url
+        matches: "(?i)\\.(bak|backup|old|orig|copy|tmp|swp|~)$"
+    aggregation:
+      group_by: [domain]
+      count: ">=5"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "backup_probe"
+
+  - name: "SQL Injection Attempt"
+    description: "SQL injection patterns in URL"
+    conditions:
+      - field: url
+        matches: "(?i)('|%27|--|;|union.*select|or.*=.*--|1=1|' or ')"
+    actions:
+      - severity: HIGH
+        tags:
+          - "sqli_attempt"
+          - "attack"
+
+  - name: "XSS Attempt"
+    description: "Cross-site scripting patterns in URL"
+    conditions:
+      - field: url
+        matches: "(?i)(<script|javascript:|onerror=|onload=|%3Cscript)"
+    actions:
+      - severity: HIGH
+        tags:
+          - "xss_attempt"
+          - "attack"
+
+  - name: "Path Traversal Attempt"
+    description: "Directory traversal in URL"
+    conditions:
+      - field: url
+        matches: "(\\.\\./|%2e%2e%2f|%252e%252e%252f|\\.\\\\|%2e%2e\\\\)"
+    actions:
+      - severity: HIGH
+        tags:
+          - "path_traversal"
+          - "attack"
+
+  - name: "Rapid Request Rate"
+    description: "Very fast request rate suggesting automation"
+    window: 60
+    conditions:
+      - event_type: http_request
+    aggregation:
+      group_by: [domain]
+      count: ">=100"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "rapid_requests"
+          - "automated"
+
+response:
+  - type: "signal"
+    signal_name: "Web Scanning Detected"
+    priority: "medium"
+    narrative_template: |
+      Web vulnerability scanning detected against {target_domain}.
+      Scan type: {scan_type}
+      Requests: {request_count}
+      Unique paths: {unique_paths}
+      Scanner identified: {scanner_name}
+
+false_positives:
+  - "Legitimate security assessments"
+  - "Penetration testing (authorized)"
+  - "Web crawlers indexing"
+  - "Broken link checkers"

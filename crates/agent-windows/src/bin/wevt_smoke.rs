@@ -12,7 +12,12 @@ fn main() {
         eprintln!("\n========== PANIC ==========");
         eprintln!("{}", panic_info);
         if let Some(location) = panic_info.location() {
-            eprintln!("Location: {}:{}:{}", location.file(), location.line(), location.column());
+            eprintln!(
+                "Location: {}:{}:{}",
+                location.file(),
+                location.line(),
+                location.column()
+            );
         }
         eprintln!("Backtrace:\n{:?}", std::backtrace::Backtrace::capture());
         eprintln!("============================\n");
@@ -25,7 +30,7 @@ fn main() {
 
     // Create reader with only System channel enabled
     let mut reader = agent_windows::wevt_reader::WevtReader::new();
-    
+
     eprintln!("[smoke] Created WevtReader, calling poll()...");
     let _ = std::io::stderr().flush();
 
@@ -33,7 +38,7 @@ fn main() {
         Ok(records) => {
             eprintln!("[smoke] poll() returned {} records", records.len());
             let _ = std::io::stderr().flush();
-            
+
             for (i, record) in records.iter().enumerate().take(20) {
                 eprintln!(
                     "[smoke] Event {}: record_id={:?}, provider={}, event_id={}, xml_len={}",
@@ -45,8 +50,11 @@ fn main() {
                 );
                 let _ = std::io::stderr().flush();
             }
-            
-            eprintln!("[smoke] Successfully processed {} events", records.len().min(20));
+
+            eprintln!(
+                "[smoke] Successfully processed {} events",
+                records.len().min(20)
+            );
             eprintln!("[smoke] TEST PASSED");
         }
         Err(e) => {
@@ -55,7 +63,7 @@ fn main() {
             std::process::exit(1);
         }
     }
-    
+
     let _ = std::io::stderr().flush();
     eprintln!("[smoke] Exiting cleanly");
 }
