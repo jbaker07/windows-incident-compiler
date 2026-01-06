@@ -2,14 +2,12 @@
 //!
 //! This module provides the /api/diff endpoint.
 //! Access is gated by runtime license entitlement, not compile-time feature.
-//! The diff implementation code is still behind `#[cfg(feature = "pro")]` for compilation,
-//! but the endpoint is always present and returns 402 if entitlement is missing.
+//! The diff code is always compiled ("one binary"), but returns 402 without valid license.
 
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[cfg(feature = "pro")]
 use edr_core::{diff_snapshots, DiffResult, SignalSnapshot, SnapshotSignal};
 
 use crate::db::{Database, StoredSignal};
@@ -35,23 +33,15 @@ pub struct DiffResponse {
     pub error: Option<String>,
 }
 
-/// Diff response data (only available in pro builds with valid license)
-#[cfg(feature = "pro")]
+/// Diff response data (available with valid license)
 #[derive(Debug, Serialize)]
 pub struct DiffResponseData {
     pub diff: DiffResult,
     pub meta: DiffMeta,
 }
 
-#[cfg(not(feature = "pro"))]
-#[derive(Debug, Serialize)]
-pub struct DiffResponseData {
-    pub message: String,
-}
-
 /// Metadata about the diff operation
 #[derive(Debug, Serialize)]
-#[allow(dead_code)] // Used in pro feature
 pub struct DiffMeta {
     pub left_snapshot_size: usize,
     pub right_snapshot_size: usize,
@@ -70,7 +60,6 @@ pub struct RunInfo {
 
 /// Load signals from database for a given "run"
 /// For v1, we load all signals (runs would be filtered by time or tag in future)
-#[cfg(feature = "pro")]
 fn load_snapshot_signals(db: &Database, _run_id: &str) -> Result<Vec<StoredSignal>, String> {
     db.list_signals(None, None, None, 10000)
         .map_err(|e| format!("Database error: {}", e))
@@ -87,7 +76,6 @@ pub fn list_runs_from_db(db: &Database) -> Result<Vec<RunInfo>, String> {
     }
 
     // Group signals by hour buckets as "runs"
-    // Using a struct to avoid complex tuple type
     struct RunAccumulator<'a> {
         signals: Vec<&'a StoredSignal>,
         earliest: i64,
@@ -131,7 +119,6 @@ pub fn list_runs_from_db(db: &Database) -> Result<Vec<RunInfo>, String> {
 }
 
 /// Convert stored signals to a snapshot for diffing
-#[cfg(feature = "pro")]
 fn signals_to_snapshot(run_id: &str, signals: Vec<StoredSignal>) -> SignalSnapshot {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
@@ -173,8 +160,7 @@ fn signals_to_snapshot(run_id: &str, signals: Vec<StoredSignal>) -> SignalSnapsh
     }
 }
 
-/// Handler for GET /api/diff (Pro only)
-#[cfg(feature = "pro")]
+/// Compute diff between two snapshots (internal implementation)
 pub fn compute_diff(
     db: &Database,
     left_id: &str,
@@ -204,11 +190,11 @@ pub fn compute_diff(
     ))
 }
 
-/// HTTP response for diff endpoint (Pro build with license check)
+/// HTTP response for diff endpoint
 /// Returns 402 if diff_mode entitlement is not granted.
-#[cfg(feature = "pro")]
+/// Returns 200 with diff result if licensed.
 pub fn diff_response(db: &Database, params: &DiffQuery) -> impl IntoResponse {
-    // Check license entitlement first
+    // Check license entitlement first (runtime gate)
     if let Err(err_response) = require_diff_mode_entitlement() {
         return err_response.into_response();
     }
@@ -233,27 +219,6 @@ pub fn diff_response(db: &Database, params: &DiffQuery) -> impl IntoResponse {
         )
             .into_response(),
     }
-}
-
-/// HTTP response for diff endpoint (Core build without pro feature)
-/// Always returns 402 - the diff implementation code is not compiled in.
-#[cfg(not(feature = "pro"))]
-pub fn diff_response(_db: &Database, _params: &DiffQuery) -> impl IntoResponse {
-    // Even without pro feature compiled in, use license-based response
-    if let Err(err_response) = require_diff_mode_entitlement() {
-        return err_response.into_response();
-    }
-
-    // If somehow we have a license but no pro code compiled, return error
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(DiffResponse {
-            success: false,
-            data: None,
-            error: Some("Diff feature not available in this build".to_string()),
-        }),
-    )
-        .into_response()
 }
 
 /// HTTP response for list runs endpoint
@@ -294,7 +259,6 @@ mod tests {
         assert!(json.contains("run_123"));
     }
 
-    #[cfg(feature = "pro")]
     #[test]
     fn test_signals_to_snapshot() {
         let signals = vec![StoredSignal {

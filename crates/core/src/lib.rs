@@ -10,8 +10,8 @@ pub mod narrative;
 pub mod severity;
 pub mod signal_result;
 
-// Pro-only modules (compile-time gated for code that's only needed in pro builds)
-#[cfg(feature = "pro")]
+// Diff module: always compiled, runtime-gated via license entitlement
+// (Previously compile-time gated, now "one binary" approach)
 pub mod diff;
 
 #[cfg(test)]
@@ -63,8 +63,8 @@ pub use narrative::{
 };
 pub use severity::Severity;
 pub use signal_result::SignalResult;
-// Pro-only re-exports
-#[cfg(feature = "pro")]
+
+// Diff types: always available, usage is runtime-gated via license
 pub use diff::{
     diff_snapshots, ChangedSignal, DiffResult, DiffSignal, DiffSummary, FieldChange, SignalDelta,
     SignalSnapshot, SnapshotSignal,

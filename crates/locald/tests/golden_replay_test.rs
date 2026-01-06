@@ -302,18 +302,9 @@ fn test_determinism_with_timestamp_collision() {
     ];
 
     // Sort using EventOrderKey multiple times
-    let mut run1: Vec<_> = ptrs
-        .iter()
-        .map(EventOrderKey::from_evidence_ptr)
-        .collect();
-    let mut run2: Vec<_> = ptrs
-        .iter()
-        .map(EventOrderKey::from_evidence_ptr)
-        .collect();
-    let mut run3: Vec<_> = ptrs
-        .iter()
-        .map(EventOrderKey::from_evidence_ptr)
-        .collect();
+    let mut run1: Vec<_> = ptrs.iter().map(EventOrderKey::from_evidence_ptr).collect();
+    let mut run2: Vec<_> = ptrs.iter().map(EventOrderKey::from_evidence_ptr).collect();
+    let mut run3: Vec<_> = ptrs.iter().map(EventOrderKey::from_evidence_ptr).collect();
 
     run1.sort();
     run2.sort();

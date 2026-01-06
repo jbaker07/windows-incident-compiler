@@ -339,7 +339,10 @@ fn test_tier0_families_are_defined() {
 
     for family in &tier0_families {
         // Verify these are recognized as Tier-0
-        let is_tier0 = matches!(*family, "memory_rwx" | "lsass" | "credential_access" | "rootkit");
+        let is_tier0 = matches!(
+            *family,
+            "memory_rwx" | "lsass" | "credential_access" | "rootkit"
+        );
         assert!(is_tier0, "Family '{}' should be Tier-0", family);
     }
 }

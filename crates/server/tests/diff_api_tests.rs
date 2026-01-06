@@ -81,8 +81,8 @@ fn fixture_right_signals() -> Vec<serde_json::Value> {
     ]
 }
 
-#[cfg(feature = "pro")]
-mod pro_tests {
+// Tests for diff functionality (always compiled - "one binary")
+mod diff_tests {
     use super::*;
     use edr_core::{diff_snapshots, SignalSnapshot, SnapshotSignal};
     use std::collections::HashMap;
@@ -234,16 +234,6 @@ mod pro_tests {
         // Should deserialize back
         let _: edr_core::DiffResult =
             serde_json::from_str(&json).expect("Should deserialize from JSON");
-    }
-}
-
-#[cfg(not(feature = "pro"))]
-mod core_tests {
-    #[test]
-    fn test_diff_module_not_available_in_core() {
-        // In core build, the diff module should not be available
-        // This test just verifies the code compiles without the pro feature
-        // Core build compiles without diff module
     }
 }
 
