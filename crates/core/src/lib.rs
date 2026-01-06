@@ -10,6 +10,17 @@ pub mod signal_result;
 #[cfg(test)]
 mod event_validation_test;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pro feature gate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Returns `true` when the crate is compiled with the `pro` feature.
+/// Use this for runtime checks; prefer `#[cfg(feature = "pro")]` for compile-time gating.
+#[inline]
+pub const fn pro_enabled() -> bool {
+    cfg!(feature = "pro")
+}
+
 pub use error::{ErrorCode, ErrorReport};
 pub use event::Event;
 pub use evidence_ptr::EvidencePtr;
