@@ -8,6 +8,7 @@ use std::sync::RwLock;
 
 use crate::install_id::{get_license_path, get_or_create_install_id, read_install_id};
 use crate::license::{LicensePayload, LicenseVerifyResult, SignedLicense};
+use crate::machine_fingerprint::MachineFingerprint;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // License Status Types
@@ -33,6 +34,8 @@ pub enum LicenseStatus {
     Expired { expired_at: i64 },
     /// License is bound to a different installation
     WrongInstallation { expected: String, actual: String },
+    /// License is bound to a different machine
+    WrongMachine { expected: String, actual: Option<String> },
     /// Public key not configured (development build)
     NotConfigured,
 }
@@ -67,6 +70,8 @@ pub struct LicenseManager {
     cached_status: RwLock<Option<LicenseStatus>>,
     /// Cached install ID
     cached_install_id: RwLock<Option<String>>,
+    /// Cached machine fingerprint
+    cached_fingerprint: RwLock<Option<Option<MachineFingerprint>>>,
 }
 
 impl Default for LicenseManager {
@@ -81,6 +86,7 @@ impl LicenseManager {
         Self {
             cached_status: RwLock::new(None),
             cached_install_id: RwLock::new(None),
+            cached_fingerprint: RwLock::new(None),
         }
     }
 
@@ -104,6 +110,28 @@ impl LicenseManager {
         }
 
         Ok(id)
+    }
+    
+    /// Get the machine fingerprint (cached).
+    pub fn get_machine_fingerprint(&self) -> Option<MachineFingerprint> {
+        // Check cache first
+        {
+            let cache = self.cached_fingerprint.read().unwrap();
+            if let Some(ref fp) = *cache {
+                return fp.clone();
+            }
+        }
+        
+        // Generate fingerprint
+        let fp = MachineFingerprint::generate();
+        
+        // Cache it (even if None, to avoid repeated attempts)
+        {
+            let mut cache = self.cached_fingerprint.write().unwrap();
+            *cache = Some(fp.clone());
+        }
+        
+        fp
     }
 
     /// Get the current license status, loading from disk if needed.
@@ -266,9 +294,13 @@ impl LicenseManager {
                 }
             },
         };
+        
+        // Get machine fingerprint (may be None on VMs/restricted environments)
+        let machine_fp = self.get_machine_fingerprint();
+        let fp_str = machine_fp.as_ref().map(|fp| fp.0.as_str());
 
-        // Verify
-        let verify_result = license.verify(&install_id);
+        // Verify with fingerprint
+        let verify_result = license.verify_with_fingerprint(&install_id, fp_str);
         self.verify_result_to_status(verify_result, &license.payload)
     }
 
@@ -293,6 +325,9 @@ impl LicenseManager {
             },
             LicenseVerifyResult::InstallIdMismatch { expected, actual } => {
                 LicenseStatus::WrongInstallation { expected, actual }
+            }
+            LicenseVerifyResult::MachineFingerPrintMismatch { expected, actual } => {
+                LicenseStatus::WrongMachine { expected, actual }
             }
             LicenseVerifyResult::PublicKeyNotConfigured => LicenseStatus::NotConfigured,
             LicenseVerifyResult::InvalidPublicKey => LicenseStatus::Invalid {

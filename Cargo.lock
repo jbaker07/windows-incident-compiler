@@ -675,6 +675,7 @@ dependencies = [
  "chrono",
  "dirs",
  "ed25519-dalek",
+ "hex",
  "serde",
  "serde_json",
  "sha2",

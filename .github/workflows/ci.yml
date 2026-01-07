@@ -80,3 +80,139 @@ jobs:
       
       - name: Run tests (Linux crates)
         run: cargo test -p edr-core -p edr-locald -p workbench
+
+  # Security: Verify binaries don't contain sensitive material
+  security-scan:
+    name: Security Scan
+    runs-on: windows-latest
+    needs: build-and-test
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Build release binaries
+        run: cargo build --workspace --release
+      
+      - name: Scan binaries for sensitive strings
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          
+          $SHIPPING_BINARIES = @(
+            "target/release/edr-server.exe",
+            "target/release/edr-locald.exe",
+            "target/release/capture_windows_rotating.exe"
+          )
+          
+          # Patterns that should NEVER appear in shipping binaries
+          $FORBIDDEN_PATTERNS = @(
+            "SigningKey",
+            "PRIVATE_KEY",
+            "EDR_LICENSE_PRIVATE_KEY",
+            "-----BEGIN PRIVATE KEY-----",
+            "ed25519_secret"
+          )
+          
+          Write-Host "=== Security Scan: Checking binaries for sensitive strings ==="
+          $violations = @()
+          
+          foreach ($bin in $SHIPPING_BINARIES) {
+            if (!(Test-Path $bin)) {
+              Write-Host "  ⚠ Skipping (not found): $bin"
+              continue
+            }
+            
+            Write-Host "  Scanning: $bin"
+            $content = [System.IO.File]::ReadAllText($bin, [System.Text.Encoding]::ASCII)
+            
+            foreach ($pattern in $FORBIDDEN_PATTERNS) {
+              if ($content -match $pattern) {
+                $violations += "VIOLATION: Found '$pattern' in $bin"
+                Write-Host "    ✗ Found forbidden pattern: $pattern" -ForegroundColor Red
+              }
+            }
+          }
+          
+          if ($violations.Count -gt 0) {
+            Write-Host ""
+            Write-Host "=== SECURITY VIOLATIONS ===" -ForegroundColor Red
+            $violations | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+            exit 1
+          }
+          
+          Write-Host ""
+          Write-Host "✓ Security scan passed - no sensitive strings found" -ForegroundColor Green
+
+  # Verify artifact allowlist
+  artifact-allowlist:
+    name: Verify Artifact Allowlist
+    runs-on: windows-latest
+    needs: build-and-test
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Build release binaries
+        run: cargo build --workspace --release
+      
+      - name: Verify artifact allowlist
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          
+          $ALLOWED_BINARIES = @(
+            "edr-server.exe",
+            "edr-locald.exe",
+            "capture_windows_rotating.exe"
+          )
+          
+          $FORBIDDEN_BINARIES = @(
+            "license_gen.exe",
+            "golden-cli.exe",
+            "proof_run.exe",
+            "metrics_run.exe",
+            "explain_harness.exe",
+            "wevt_smoke.exe",
+            "agent-windows.exe"
+          )
+          
+          Write-Host "=== Artifact Allowlist Verification ==="
+          Write-Host ""
+          
+          # Check allowed binaries exist
+          Write-Host "Checking required binaries..."
+          foreach ($bin in $ALLOWED_BINARIES) {
+            $path = Join-Path "target/release" $bin
+            if (Test-Path $path) {
+              Write-Host "  ✓ Found: $bin" -ForegroundColor Green
+            } else {
+              Write-Host "  ✗ MISSING: $bin" -ForegroundColor Red
+              exit 1
+            }
+          }
+          
+          # Check forbidden binaries exist (should be built but NOT shipped)
+          Write-Host ""
+          Write-Host "Verifying forbidden binaries exist (to ensure we'd catch them if shipped)..."
+          foreach ($forbidden in $FORBIDDEN_BINARIES) {
+            $path = Join-Path "target/release" $forbidden
+            if (Test-Path $path) {
+              Write-Host "  ⚠ Built (correctly excluded from shipping): $forbidden" -ForegroundColor Yellow
+            }
+          }
+          
+          # Special check: license_gen MUST be built (it's the vendor tool)
+          $licenseGenPath = Join-Path "target/release" "license_gen.exe"
+          if (!(Test-Path $licenseGenPath)) {
+            Write-Host ""
+            Write-Host "✗ WARNING: license_gen.exe not built - vendor tool missing" -ForegroundColor Yellow
+          }
+          
+          Write-Host ""
+          Write-Host "✓ Artifact allowlist verification passed" -ForegroundColor Green

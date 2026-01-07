@@ -87,6 +87,9 @@ fn main() {
             ts
         }
     });
+    
+    // Optional machine fingerprint (for enhanced binding)
+    let machine_fingerprint = get_arg(&args, "--machine-fingerprint");
 
     // Build payload
     let payload = LicensePayload {
@@ -97,6 +100,7 @@ fn main() {
         issued_at,
         expires_at,
         bound_install_id: install_id.clone(),
+        bound_machine_fingerprint: machine_fingerprint,
     };
 
     // Sign the canonical payload

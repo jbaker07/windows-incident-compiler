@@ -248,6 +248,7 @@ mod core_license_tests {
             issued_at: 1704067200000,
             expires_at: None,
             bound_install_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            bound_machine_fingerprint: None,
         };
 
         let bytes1 = payload.to_canonical_bytes();
@@ -268,6 +269,7 @@ mod core_license_tests {
             issued_at: 1704067200000,
             expires_at: Some(1735689600000),
             bound_install_id: "unique-id-123".to_string(),
+            bound_machine_fingerprint: None,
         };
 
         let canonical = String::from_utf8(payload.to_canonical_bytes()).unwrap();

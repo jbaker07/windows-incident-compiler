@@ -30,6 +30,7 @@ pub enum LicenseStatusInfo {
     Invalid,
     Expired,
     WrongInstallation,
+    WrongMachine,
     NotConfigured,
 }
 
@@ -107,6 +108,7 @@ pub async fn license_status_handler() -> impl IntoResponse {
         LicenseStatus::Invalid { .. } => (LicenseStatusInfo::Invalid, None),
         LicenseStatus::Expired { .. } => (LicenseStatusInfo::Expired, None),
         LicenseStatus::WrongInstallation { .. } => (LicenseStatusInfo::WrongInstallation, None),
+        LicenseStatus::WrongMachine { .. } => (LicenseStatusInfo::WrongMachine, None),
         LicenseStatus::NotConfigured => (LicenseStatusInfo::NotConfigured, None),
     };
 
@@ -132,6 +134,7 @@ pub async fn install_license_handler(
                 LicenseStatus::Invalid { .. } => LicenseStatusInfo::Invalid,
                 LicenseStatus::Expired { .. } => LicenseStatusInfo::Expired,
                 LicenseStatus::WrongInstallation { .. } => LicenseStatusInfo::WrongInstallation,
+                LicenseStatus::WrongMachine { .. } => LicenseStatusInfo::WrongMachine,
                 LicenseStatus::NotConfigured => LicenseStatusInfo::NotConfigured,
             };
 
@@ -185,6 +188,7 @@ pub async fn reload_license_handler() -> impl IntoResponse {
         LicenseStatus::Invalid { .. } => (LicenseStatusInfo::Invalid, None),
         LicenseStatus::Expired { .. } => (LicenseStatusInfo::Expired, None),
         LicenseStatus::WrongInstallation { .. } => (LicenseStatusInfo::WrongInstallation, None),
+        LicenseStatus::WrongMachine { .. } => (LicenseStatusInfo::WrongMachine, None),
         LicenseStatus::NotConfigured => (LicenseStatusInfo::NotConfigured, None),
     };
 
@@ -223,6 +227,13 @@ pub fn require_diff_mode_entitlement() -> Result<(), (StatusCode, Json<ProRequir
             actual: _,
         } => Some(format!(
             "License bound to different installation: {}",
+            expected
+        )),
+        LicenseStatus::WrongMachine {
+            expected,
+            actual: _,
+        } => Some(format!(
+            "License bound to different machine: {}",
             expected
         )),
         LicenseStatus::NotConfigured => Some("License system not configured".to_string()),

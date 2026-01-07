@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ed25519 Public Key (embedded in application)
+// Ed25519 Public Keys (embedded in application)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The Ed25519 public key used to verify license signatures.
@@ -16,6 +16,26 @@ use serde::{Deserialize, Serialize};
 ///
 /// IMPORTANT: Replace this placeholder with your actual public key before shipping!
 pub const LICENSE_PUBLIC_KEY_B64: &str = "REPLACE_WITH_YOUR_PUBLIC_KEY_BASE64";
+
+/// Additional public keys for key rotation support.
+/// When rotating keys:
+/// 1. Add the new key to this list
+/// 2. Update LICENSE_PUBLIC_KEY_B64 to the new key
+/// 3. Old licenses signed with rotated keys will still verify
+///
+/// Format: Array of base64-encoded Ed25519 public keys (32 bytes each)
+pub const LICENSE_PUBLIC_KEYS_ROTATED: &[&str] = &[
+    // Add rotated keys here, e.g.:
+    // "OLD_KEY_1_BASE64",
+    // "OLD_KEY_2_BASE64",
+];
+
+/// Get all valid public keys (current + rotated) for verification.
+pub fn get_all_public_keys() -> Vec<&'static str> {
+    let mut keys = vec![LICENSE_PUBLIC_KEY_B64];
+    keys.extend(LICENSE_PUBLIC_KEYS_ROTATED.iter().copied());
+    keys
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // License Schema Types
@@ -48,6 +68,12 @@ pub struct LicensePayload {
 
     /// The installation ID this license is bound to
     pub bound_install_id: String,
+    
+    /// Optional machine fingerprint for enhanced binding.
+    /// If present, the license only validates on machines with matching fingerprint.
+    /// Set to "PORTABLE" for development/testing licenses that work on any machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_machine_fingerprint: Option<String>,
 }
 
 /// A complete signed license containing payload and signature.
@@ -81,7 +107,7 @@ impl LicensePayload {
     /// Serialize the payload to canonical JSON bytes for signing/verification.
     ///
     /// Uses a deterministic field order to ensure consistent signatures:
-    /// license_id, customer, edition, entitlements, issued_at, expires_at, bound_install_id
+    /// license_id, customer, edition, entitlements, issued_at, expires_at, bound_install_id, bound_machine_fingerprint
     pub fn to_canonical_bytes(&self) -> Vec<u8> {
         // Build canonical JSON manually to ensure field order
         let mut parts = Vec::new();
@@ -114,6 +140,13 @@ impl LicensePayload {
             r#""bound_install_id":"{}""#,
             escape_json(&self.bound_install_id)
         ));
+        
+        if let Some(ref fp) = self.bound_machine_fingerprint {
+            parts.push(format!(
+                r#""bound_machine_fingerprint":"{}""#,
+                escape_json(fp)
+            ));
+        }
 
         let canonical = format!("{{{}}}", parts.join(","));
         canonical.into_bytes()
@@ -144,6 +177,8 @@ pub enum LicenseVerifyResult {
     Expired,
     /// License is bound to a different installation
     InstallIdMismatch { expected: String, actual: String },
+    /// License is bound to a different machine fingerprint
+    MachineFingerPrintMismatch { expected: String, actual: Option<String> },
     /// Public key is not configured (placeholder still in place)
     PublicKeyNotConfigured,
     /// Failed to decode the public key
@@ -157,20 +192,23 @@ impl SignedLicense {
     ///
     /// Checks:
     /// 1. Public key is properly configured
-    /// 2. Signature is valid Ed25519 over canonical payload
+    /// 2. Signature is valid Ed25519 over canonical payload (tries all keys)
     /// 3. License has not expired
     /// 4. License is bound to the provided install_id
+    /// 5. If machine fingerprint is set, verifies it matches
     pub fn verify(&self, install_id: &str) -> LicenseVerifyResult {
+        self.verify_with_fingerprint(install_id, None)
+    }
+    
+    /// Verify the license with optional machine fingerprint.
+    ///
+    /// If the license has a bound_machine_fingerprint that is not "PORTABLE",
+    /// and machine_fingerprint is Some, they must match.
+    pub fn verify_with_fingerprint(&self, install_id: &str, machine_fingerprint: Option<&str>) -> LicenseVerifyResult {
         // Check if public key is configured
         if LICENSE_PUBLIC_KEY_B64 == "REPLACE_WITH_YOUR_PUBLIC_KEY_BASE64" {
             return LicenseVerifyResult::PublicKeyNotConfigured;
         }
-
-        // Decode public key
-        let pub_key_bytes = match base64_decode(LICENSE_PUBLIC_KEY_B64) {
-            Some(bytes) if bytes.len() == 32 => bytes,
-            _ => return LicenseVerifyResult::InvalidPublicKey,
-        };
 
         // Decode signature
         let sig_bytes = match base64_decode(&self.signature) {
@@ -178,9 +216,25 @@ impl SignedLicense {
             _ => return LicenseVerifyResult::InvalidSignatureFormat,
         };
 
-        // Verify Ed25519 signature
+        // Verify Ed25519 signature against all known public keys
         let canonical = self.payload.to_canonical_bytes();
-        if !ed25519_verify(&pub_key_bytes, &canonical, &sig_bytes) {
+        let mut signature_valid = false;
+        
+        for key_b64 in get_all_public_keys() {
+            // Skip placeholder keys
+            if key_b64 == "REPLACE_WITH_YOUR_PUBLIC_KEY_BASE64" || key_b64.is_empty() {
+                continue;
+            }
+            
+            if let Some(pub_key_bytes) = base64_decode(key_b64) {
+                if pub_key_bytes.len() == 32 && ed25519_verify(&pub_key_bytes, &canonical, &sig_bytes) {
+                    signature_valid = true;
+                    break;
+                }
+            }
+        }
+        
+        if !signature_valid {
             return LicenseVerifyResult::InvalidSignature;
         }
 
@@ -198,6 +252,29 @@ impl SignedLicense {
                 expected: self.payload.bound_install_id.clone(),
                 actual: install_id.to_string(),
             };
+        }
+        
+        // Check machine fingerprint binding (if specified in license)
+        if let Some(ref bound_fp) = self.payload.bound_machine_fingerprint {
+            // "PORTABLE" is a special value that matches any machine
+            if bound_fp != "PORTABLE" {
+                match machine_fingerprint {
+                    Some(actual_fp) if actual_fp == bound_fp => {
+                        // Match - continue
+                    }
+                    Some(actual_fp) => {
+                        return LicenseVerifyResult::MachineFingerPrintMismatch {
+                            expected: bound_fp.clone(),
+                            actual: Some(actual_fp.to_string()),
+                        };
+                    }
+                    None => {
+                        // License requires fingerprint but we couldn't generate one
+                        // This is a soft failure - log warning but allow
+                        // (graceful degradation for VMs/restricted environments)
+                    }
+                }
+            }
         }
 
         LicenseVerifyResult::Valid
@@ -312,6 +389,7 @@ mod tests {
             issued_at: 1700000000000,
             expires_at: Some(1800000000000),
             bound_install_id: "install-uuid".to_string(),
+            bound_machine_fingerprint: None,
         };
 
         let bytes1 = payload.to_canonical_bytes();
@@ -333,6 +411,7 @@ mod tests {
             issued_at: 1700000000000,
             expires_at: None,
             bound_install_id: "install-uuid".to_string(),
+            bound_machine_fingerprint: None,
         };
 
         let bytes = payload.to_canonical_bytes();
@@ -372,6 +451,7 @@ mod tests {
                 issued_at: 0,
                 expires_at: None,
                 bound_install_id: "test".to_string(),
+                bound_machine_fingerprint: None,
             },
             signature: String::new(),
         };
@@ -392,6 +472,7 @@ mod tests {
                 issued_at: 0,
                 expires_at: None,
                 bound_install_id: "test".to_string(),
+                bound_machine_fingerprint: None,
             },
             signature: String::new(),
         };

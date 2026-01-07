@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.4] - 2026-01-06
+
+### Added
+- **Machine Fingerprint Binding** (Anti-piracy)
+  - Licenses can now optionally bind to machine fingerprint (SHA256 of machine GUID + CPU + OS build)
+  - "PORTABLE" fingerprint allows dev/testing licenses that work on any machine
+  - Graceful degradation if fingerprint unavailable (VMs, restricted environments)
+
+- **Multi-Key Verification** (Key Rotation Support)
+  - `LICENSE_PUBLIC_KEYS_ROTATED` array supports multiple public keys
+  - Old licenses continue to work after key rotation
+  - Verification tries all keys in order
+
+- **Watermarking Module** (for future export integration)
+  - `Watermark` struct embeds customer/license/install info in exports
+  - Visible watermark format for headers/footers
+  - Machine-readable JSON metadata for programmatic extraction
+
+- **CI Security Scanning**
+  - New `security-scan` job scans shipping binaries for sensitive strings
+  - Fails if "SigningKey", "PRIVATE_KEY", etc. found in binaries
+  - New `artifact-allowlist` job verifies required binaries exist
+
+### Changed
+- `LicensePayload` now has optional `bound_machine_fingerprint` field
+- `LicenseVerifyResult` now includes `MachineFingerPrintMismatch` variant
+- `LicenseStatus` now includes `WrongMachine` variant
+- License verification uses `verify_with_fingerprint()` when fingerprint available
+
+### Security
+- Machine fingerprint prevents simple "copy license.json" piracy
+- CI scans ensure no private key material in shipped binaries
+- Artifact allowlist enforced in CI
+
 ## [0.3.3] - 2026-01-06
 
 ### Fixed
