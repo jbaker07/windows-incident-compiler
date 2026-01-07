@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.2] - 2026-01-06
+
+### Fixed
+- **GitHub Actions Release Workflow**
+  - Fixed PowerShell artifact collection with proper error handling (`-ErrorAction Stop`)
+  - Use `Join-Path` for Windows path compatibility
+  - Added comprehensive build diagnostics and logging
+  
+- **Security Hardening**
+  - Explicit binary allowlist in release workflow (only ship: `edr-server.exe`, `edr-locald.exe`, `capture_windows_rotating.exe`)
+  - Explicit forbidden binary list (`license_gen.exe`, `golden-cli.exe`, etc.)
+  - Security violation check fails build if forbidden binaries found in dist
+  - Added `MANIFEST.txt` to track all shipped files
+  
+- **Release Validation**
+  - Added ZIP content validation step before GitHub Release creation
+  - Automated verification that required binaries exist
+  - Automated verification that forbidden binaries are excluded
+
+## [0.3.1] - 2026-01-06
+
+### Fixed
+- Fixed GitHub Actions workflow: `dtolnay/rust-action` → `dtolnay/rust-toolchain`
+  (Note: Workflow still failed due to PowerShell copy issues, fixed in v0.3.2)
+
 ## [0.3.0] - 2026-01-06
 
 ### Added

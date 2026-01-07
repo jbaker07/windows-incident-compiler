@@ -52,30 +52,139 @@ jobs:
       - name: Collect artifacts
         shell: pwsh
         run: |
-          # Create dist directory
-          New-Item -ItemType Directory -Force -Path dist
-
-          # Copy binaries
-          Copy-Item target/release/edr-server.exe dist/
-          Copy-Item target/release/edr-locald.exe dist/
-          Copy-Item target/release/capture_windows_rotating.exe dist/
-
-          # Copy UI assets
-          Copy-Item -Recurse ui dist/
-
-          # Copy docs
-          Copy-Item docs/LICENSING.md dist/
-          Copy-Item README.md dist/
-
-          # Generate SHA256 checksums
-          Get-ChildItem dist/*.exe | ForEach-Object {
-            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-            "$hash  $($_.Name)" | Out-File -Append dist/SHA256SUMS.txt -Encoding utf8
+          $ErrorActionPreference = "Stop"
+          
+          # Allowlist of binaries to ship (security: license_gen.exe must NEVER be included)
+          $ALLOWED_BINARIES = @(
+            "edr-server.exe",
+            "edr-locald.exe", 
+            "capture_windows_rotating.exe"
+          )
+          $FORBIDDEN_BINARIES = @("license_gen.exe", "golden-cli.exe", "proof_run.exe", "metrics_run.exe", "explain_harness.exe", "wevt_smoke.exe", "agent-windows.exe")
+          
+          # Paths using Join-Path for Windows compatibility
+          $distDir = Join-Path $PWD "dist"
+          $targetRelease = Join-Path $PWD "target" "release"
+          $uiDir = Join-Path $PWD "ui"
+          $docsDir = Join-Path $PWD "docs"
+          
+          Write-Host "=== Build Diagnostics ===" -ForegroundColor Cyan
+          Write-Host "Working directory: $PWD"
+          Write-Host "Target release dir: $targetRelease"
+          Write-Host ""
+          
+          # Verify target/release exists and show contents
+          if (-not (Test-Path $targetRelease)) {
+            Write-Error "FATAL: target/release directory does not exist!"
+            exit 1
           }
-
-          # Display checksums
-          Write-Host "=== SHA256 Checksums ==="
-          Get-Content dist/SHA256SUMS.txt
+          
+          Write-Host "=== Contents of target/release ===" -ForegroundColor Cyan
+          Get-ChildItem $targetRelease -Filter "*.exe" | ForEach-Object { Write-Host "  Found: $($_.Name)" }
+          Write-Host ""
+          
+          # Create dist directory
+          Write-Host "Creating dist directory..."
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+          
+          # Copy allowed binaries only
+          Write-Host "=== Copying Allowed Binaries ===" -ForegroundColor Cyan
+          foreach ($bin in $ALLOWED_BINARIES) {
+            $srcPath = Join-Path $targetRelease $bin
+            if (Test-Path $srcPath) {
+              Copy-Item $srcPath $distDir -Force
+              Write-Host "  ✓ Copied: $bin" -ForegroundColor Green
+            } else {
+              Write-Error "FATAL: Required binary not found: $srcPath"
+              exit 1
+            }
+          }
+          
+          # Security check: Ensure forbidden binaries are NOT copied
+          Write-Host ""
+          Write-Host "=== Security Check: Forbidden Binaries ===" -ForegroundColor Yellow
+          foreach ($forbidden in $FORBIDDEN_BINARIES) {
+            $forbiddenPath = Join-Path $distDir $forbidden
+            if (Test-Path $forbiddenPath) {
+              Write-Error "SECURITY VIOLATION: Forbidden binary found in dist: $forbidden"
+              exit 1
+            }
+            $srcForbidden = Join-Path $targetRelease $forbidden
+            if (Test-Path $srcForbidden) {
+              Write-Host "  ⚠ Built but NOT shipped: $forbidden" -ForegroundColor Yellow
+            }
+          }
+          Write-Host "  ✓ Security check passed" -ForegroundColor Green
+          Write-Host ""
+          
+          # Copy UI assets
+          Write-Host "=== Copying UI Assets ===" -ForegroundColor Cyan
+          if (-not (Test-Path $uiDir)) {
+            Write-Error "FATAL: ui directory does not exist!"
+            exit 1
+          }
+          $uiDest = Join-Path $distDir "ui"
+          Copy-Item -Path $uiDir -Destination $uiDest -Recurse -Force
+          Write-Host "  ✓ Copied ui/ directory" -ForegroundColor Green
+          Write-Host ""
+          
+          # Copy docs
+          Write-Host "=== Copying Documentation ===" -ForegroundColor Cyan
+          $licensingDoc = Join-Path $docsDir "LICENSING.md"
+          $readme = Join-Path $PWD "README.md"
+          
+          if (Test-Path $licensingDoc) {
+            Copy-Item $licensingDoc $distDir -Force
+            Write-Host "  ✓ Copied: LICENSING.md" -ForegroundColor Green
+          } else {
+            Write-Warning "Optional doc not found: docs/LICENSING.md"
+          }
+          
+          if (Test-Path $readme) {
+            Copy-Item $readme $distDir -Force
+            Write-Host "  ✓ Copied: README.md" -ForegroundColor Green
+          } else {
+            Write-Warning "Optional doc not found: README.md"
+          }
+          Write-Host ""
+          
+          # Generate MANIFEST.txt (artifact allowlist verification)
+          Write-Host "=== Generating MANIFEST.txt ===" -ForegroundColor Cyan
+          $manifestPath = Join-Path $distDir "MANIFEST.txt"
+          $manifestContent = @"
+          # EDR Release Manifest
+          # This file lists all files included in the release artifact.
+          # Generated at: $(Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC")
+          
+          "@
+          Get-ChildItem $distDir -Recurse -File | ForEach-Object {
+            $relativePath = $_.FullName.Replace("$distDir\", "").Replace("\", "/")
+            $manifestContent += "$relativePath`n"
+          }
+          $manifestContent | Out-File -FilePath $manifestPath -Encoding utf8 -Force
+          Write-Host "  ✓ Generated MANIFEST.txt" -ForegroundColor Green
+          Write-Host ""
+          
+          # Generate SHA256 checksums
+          Write-Host "=== Generating SHA256SUMS.txt ===" -ForegroundColor Cyan
+          $checksumPath = Join-Path $distDir "SHA256SUMS.txt"
+          Get-ChildItem (Join-Path $distDir "*.exe") | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Out-File -Append $checksumPath -Encoding utf8
+          }
+          Write-Host ""
+          Write-Host "=== SHA256 Checksums ===" -ForegroundColor Cyan
+          Get-Content $checksumPath
+          Write-Host ""
+          
+          # Final verification
+          Write-Host "=== Final Distribution Contents ===" -ForegroundColor Cyan
+          Get-ChildItem $distDir -Recurse | ForEach-Object {
+            $indent = "  " * ($_.FullName.Split('\').Count - $distDir.Split('\').Count)
+            Write-Host "$indent$($_.Name)"
+          }
+          Write-Host ""
+          Write-Host "✓ Artifact collection complete!" -ForegroundColor Green
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -97,6 +206,61 @@ jobs:
         with:
           name: edr-windows-${{ github.ref_name }}
           path: dist/
+
+      - name: Validate artifact contents
+        run: |
+          echo "=== Artifact Validation ==="
+          
+          # Define allowlist
+          ALLOWED_BINARIES="edr-server.exe edr-locald.exe capture_windows_rotating.exe"
+          FORBIDDEN_BINARIES="license_gen.exe golden-cli.exe proof_run.exe metrics_run.exe explain_harness.exe wevt_smoke.exe agent-windows.exe"
+          
+          echo "Contents of dist/:"
+          ls -la dist/
+          echo ""
+          
+          # Check required binaries exist
+          echo "Checking required binaries..."
+          for bin in $ALLOWED_BINARIES; do
+            if [ -f "dist/$bin" ]; then
+              echo "  ✓ Found: $bin"
+            else
+              echo "  ✗ MISSING: $bin"
+              exit 1
+            fi
+          done
+          
+          # Security check: ensure forbidden binaries are NOT present
+          echo ""
+          echo "Security check: forbidden binaries..."
+          for forbidden in $FORBIDDEN_BINARIES; do
+            if [ -f "dist/$forbidden" ]; then
+              echo "  ✗ SECURITY VIOLATION: Found forbidden binary: $forbidden"
+              exit 1
+            fi
+          done
+          echo "  ✓ No forbidden binaries found"
+          
+          # Check ui folder exists
+          echo ""
+          echo "Checking UI assets..."
+          if [ -d "dist/ui" ]; then
+            echo "  ✓ ui/ directory exists"
+            ls -la dist/ui/
+          else
+            echo "  ✗ ui/ directory missing"
+            exit 1
+          fi
+          
+          # Display manifest if present
+          echo ""
+          if [ -f "dist/MANIFEST.txt" ]; then
+            echo "=== MANIFEST.txt ==="
+            cat dist/MANIFEST.txt
+          fi
+          
+          echo ""
+          echo "✓ Artifact validation passed!"
 
       - name: Create release archive
         run: |
