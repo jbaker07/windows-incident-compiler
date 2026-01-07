@@ -45,7 +45,7 @@ jobs:
         run: cargo test --workspace --release
 
       - name: Build release binaries
-        run: cargo build --release
+        run: cargo build --workspace --release
         env:
           RUSTFLAGS: "-D warnings"
 

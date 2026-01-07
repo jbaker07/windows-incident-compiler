@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3] - 2026-01-06
+
+### Fixed
+- **Build Command**: Added `--workspace` flag to `cargo build --release` in release workflow
+  - Root cause of v0.3.2 failure: `cargo build --release` alone doesn't build all workspace crates
+  - `capture_windows_rotating.exe` was not being built (lives in `agent-windows` crate)
+  - Now explicitly builds all workspace members
+
 ## [0.3.2] - 2026-01-06
 
 ### Fixed
