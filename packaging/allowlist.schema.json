@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EDR Release Allowlist",
+  "description": "Schema for the canonical artifact allowlist",
+  "type": "object",
+  "required": ["version", "allowed_binaries", "forbidden_binaries"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Schema version"
+    },
+    "description": {
+      "type": "string"
+    },
+    "allowed_binaries": {
+      "type": "array",
+      "description": "Binaries that MUST be included in release",
+      "items": { "type": "string" }
+    },
+    "forbidden_binaries": {
+      "type": "array",
+      "description": "Binaries that must NEVER be included in release",
+      "items": { "type": "string" }
+    },
+    "required_dirs": {
+      "type": "array",
+      "description": "Directories that must be included",
+      "items": { "type": "string" }
+    },
+    "required_docs": {
+      "type": "array",
+      "description": "Documentation files that must be included",
+      "items": { "type": "string" }
+    },
+    "optional_docs": {
+      "type": "array",
+      "description": "Documentation files that are optional",
+      "items": { "type": "string" }
+    },
+    "generated_files": {
+      "type": "array",
+      "description": "Files generated during packaging",
+      "items": { "type": "string" }
+    },
+    "expected_ui_files": {
+      "type": "array",
+      "description": "Expected files in ui/ directory",
+      "items": { "type": "string" }
+    },
+    "notes": {
+      "type": "object",
+      "description": "Notes about specific items",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

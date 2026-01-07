@@ -1,0 +1,53 @@
+{
+  "$schema": "./allowlist.schema.json",
+  "version": "1.0",
+  "description": "Canonical artifact allowlist for EDR release builds. This is the single source of truth for release.yml and CI validation.",
+  
+  "allowed_binaries": [
+    "edr-server.exe",
+    "edr-locald.exe",
+    "capture_windows_rotating.exe"
+  ],
+  
+  "forbidden_binaries": [
+    "license_gen.exe",
+    "golden-cli.exe",
+    "proof_run.exe",
+    "metrics_run.exe",
+    "explain_harness.exe",
+    "wevt_smoke.exe",
+    "agent-windows.exe"
+  ],
+  
+  "required_dirs": [
+    "ui"
+  ],
+  
+  "required_docs": [
+    "README.md"
+  ],
+  
+  "optional_docs": [
+    "LICENSING.md"
+  ],
+  
+  "generated_files": [
+    "MANIFEST.txt",
+    "SHA256SUMS.txt"
+  ],
+  
+  "expected_ui_files": [
+    "ui/app.js",
+    "ui/index.html",
+    "ui/graph.html",
+    "ui/loading.html",
+    "ui/workbench.html"
+  ],
+  
+  "notes": {
+    "license_gen": "NEVER SHIP - vendor-only tool that handles private key",
+    "golden-cli": "Internal testing tool only",
+    "proof_run": "Internal testing tool only",
+    "agent-windows": "Library crate artifact, not needed in release"
+  }
+}

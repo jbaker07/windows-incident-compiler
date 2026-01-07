@@ -6,6 +6,7 @@ pub mod explain;
 pub mod install_id;
 pub mod license;
 pub mod license_manager;
+pub mod license_protection;
 pub mod machine_fingerprint;
 pub mod narrative;
 pub mod severity;
@@ -49,7 +50,7 @@ pub use install_id::{
 };
 pub use license::{
     base64_encode, entitlements, get_all_public_keys, LicensePayload, LicenseVerifyResult,
-    SignedLicense, LICENSE_PUBLIC_KEY_B64, LICENSE_PUBLIC_KEYS_ROTATED,
+    SignedLicense, LICENSE_PUBLIC_KEYS_ROTATED, LICENSE_PUBLIC_KEY_B64,
 };
 pub use license_manager::{
     diff_mode_enabled as check_diff_mode, global_license_manager, has_entitlement, LicenseManager,

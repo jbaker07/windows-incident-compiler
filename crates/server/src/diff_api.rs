@@ -8,7 +8,10 @@ use axum::{http::StatusCode, response::IntoResponse, Json};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use edr_core::{diff_snapshots, DiffResult, SignalSnapshot, SnapshotSignal};
+use edr_core::{
+    diff_snapshots, watermark::create_watermark_from_license, DiffResult, SignalSnapshot,
+    SnapshotSignal,
+};
 
 use crate::db::{Database, StoredSignal};
 use crate::license_api::require_diff_mode_entitlement;
@@ -38,6 +41,22 @@ pub struct DiffResponse {
 pub struct DiffResponseData {
     pub diff: DiffResult,
     pub meta: DiffMeta,
+    /// Watermark for attribution/provenance
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watermark: Option<WatermarkInfo>,
+}
+
+/// Watermark information embedded in exports
+#[derive(Debug, Serialize)]
+pub struct WatermarkInfo {
+    /// Human-readable watermark string
+    pub visible: String,
+    /// License ID
+    pub license_id: String,
+    /// Truncated install hash
+    pub install_hash: String,
+    /// Export timestamp
+    pub exported_at: i64,
 }
 
 /// Metadata about the diff operation
@@ -200,15 +219,29 @@ pub fn diff_response(db: &Database, params: &DiffQuery) -> impl IntoResponse {
     }
 
     match compute_diff(db, &params.left, &params.right) {
-        Ok((diff, meta)) => (
-            StatusCode::OK,
-            Json(DiffResponse {
-                success: true,
-                data: Some(DiffResponseData { diff, meta }),
-                error: None,
-            }),
-        )
-            .into_response(),
+        Ok((diff, meta)) => {
+            // Generate watermark for this export
+            let watermark = create_watermark_from_license("diff_report").map(|wm| WatermarkInfo {
+                visible: wm.to_visible_string(),
+                license_id: wm.license_id,
+                install_hash: wm.install_hash,
+                exported_at: wm.exported_at,
+            });
+
+            (
+                StatusCode::OK,
+                Json(DiffResponse {
+                    success: true,
+                    data: Some(DiffResponseData {
+                        diff,
+                        meta,
+                        watermark,
+                    }),
+                    error: None,
+                }),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(DiffResponse {

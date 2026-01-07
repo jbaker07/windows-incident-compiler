@@ -3933,6 +3933,37 @@ window.attachExplainSummary = attachExplainSummary;
         return;
       }
       
+      // Check for fingerprint mismatch (license bound to different machine)
+      if (response.status === 403) {
+        if (diffProBanner) {
+          diffProBanner.classList.remove('hidden');
+          const installId = data.install_id;
+          const reason = data.reason || 'License is bound to a different machine';
+          diffProBanner.innerHTML = `
+            <div class="flex items-start gap-3">
+              <span class="text-2xl">🔄</span>
+              <div class="flex-1">
+                <h4 class="font-medium text-red-300">Machine Binding Error</h4>
+                <p class="text-sm text-red-200/80 mt-1">${reason}</p>
+                <p class="text-sm text-slate-300 mt-2">Your license is bound to a different machine. If you've upgraded hardware or reinstalled, please contact support with your Installation ID.</p>
+                ${installId ? `
+                  <div class="mt-3 p-2 rounded bg-slate-900/50">
+                    <div class="text-xs text-slate-400 mb-1">Your Installation ID:</div>
+                    <code class="text-xs font-mono text-sky-300 select-all">${installId}</code>
+                    <button onclick="navigator.clipboard.writeText('${installId}')" class="ml-2 px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs" title="Copy">📋</button>
+                  </div>
+                ` : ''}
+                <button onclick="activateTab('license')" class="mt-3 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-sm font-medium">
+                  Check License Status →
+                </button>
+              </div>
+            </div>
+          `;
+        }
+        if (diffEmpty) diffEmpty.classList.add('hidden');
+        return;
+      }
+      
       if (!data.success) {
         showToast('Diff failed', data.error || 'Unknown error', 'error');
         if (diffEmpty) diffEmpty.classList.remove('hidden');
@@ -4181,6 +4212,61 @@ window.attachExplainSummary = attachExplainSummary;
     }
     if (featureTeamStatus) {
       featureTeamStatus.textContent = entitlements.includes('team_features') ? '✅' : '🔒';
+    }
+    
+    // Update fingerprint/machine binding status
+    renderFingerprintStatus(data.fingerprint);
+  }
+  
+  function renderFingerprintStatus(fingerprint) {
+    const fingerprintStatusIcon = document.getElementById('fingerprintStatusIcon');
+    const fingerprintStatusText = document.getElementById('fingerprintStatusText');
+    const fingerprintDetail = document.getElementById('fingerprintDetail');
+    const fingerprintCard = document.getElementById('fingerprintCard');
+    
+    if (!fingerprintStatusIcon || !fingerprintStatusText) return;
+    
+    if (!fingerprint || !fingerprint.available) {
+      // Fingerprint not available (likely dev mode)
+      fingerprintStatusIcon.textContent = '❓';
+      fingerprintStatusText.textContent = 'Not Available';
+      fingerprintDetail.textContent = 'Machine binding not configured';
+      return;
+    }
+    
+    const status = fingerprint.status;
+    
+    switch (status) {
+      case 'bound':
+        fingerprintStatusIcon.textContent = '🔐';
+        fingerprintStatusText.textContent = 'Bound to this machine';
+        fingerprintDetail.textContent = `Fingerprint: ${fingerprint.value || '—'}`;
+        if (fingerprintCard) fingerprintCard.classList.remove('border-red-500', 'border-amber-500');
+        break;
+      case 'mismatch':
+        fingerprintStatusIcon.textContent = '⚠️';
+        fingerprintStatusText.textContent = 'Machine Mismatch';
+        fingerprintDetail.textContent = 'License was activated on a different machine. Please contact support.';
+        if (fingerprintCard) {
+          fingerprintCard.classList.remove('border-slate-700');
+          fingerprintCard.classList.add('border-red-500');
+        }
+        break;
+      case 'unavailable':
+        fingerprintStatusIcon.textContent = '❓';
+        fingerprintStatusText.textContent = 'Cannot verify';
+        fingerprintDetail.textContent = 'Unable to read machine fingerprint';
+        if (fingerprintCard) {
+          fingerprintCard.classList.remove('border-slate-700');
+          fingerprintCard.classList.add('border-amber-500');
+        }
+        break;
+      case 'not_checked':
+      default:
+        fingerprintStatusIcon.textContent = '⏳';
+        fingerprintStatusText.textContent = 'Not Checked';
+        fingerprintDetail.textContent = 'No valid license to verify against';
+        break;
     }
   }
 

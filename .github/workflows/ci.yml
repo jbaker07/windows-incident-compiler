@@ -166,23 +166,19 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           
-          $ALLOWED_BINARIES = @(
-            "edr-server.exe",
-            "edr-locald.exe",
-            "capture_windows_rotating.exe"
-          )
+          # Load canonical allowlist (single source of truth)
+          $allowlistPath = Join-Path $PWD "packaging" "allowlist.json"
+          if (-not (Test-Path $allowlistPath)) {
+            Write-Error "FATAL: packaging/allowlist.json not found!"
+            exit 1
+          }
+          $allowlist = Get-Content $allowlistPath | ConvertFrom-Json
           
-          $FORBIDDEN_BINARIES = @(
-            "license_gen.exe",
-            "golden-cli.exe",
-            "proof_run.exe",
-            "metrics_run.exe",
-            "explain_harness.exe",
-            "wevt_smoke.exe",
-            "agent-windows.exe"
-          )
+          $ALLOWED_BINARIES = $allowlist.allowed_binaries
+          $FORBIDDEN_BINARIES = $allowlist.forbidden_binaries
           
           Write-Host "=== Artifact Allowlist Verification ==="
+          Write-Host "Source: packaging/allowlist.json"
           Write-Host ""
           
           # Check allowed binaries exist

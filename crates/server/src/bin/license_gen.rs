@@ -87,7 +87,7 @@ fn main() {
             ts
         }
     });
-    
+
     // Optional machine fingerprint (for enhanced binding)
     let machine_fingerprint = get_arg(&args, "--machine-fingerprint");
 

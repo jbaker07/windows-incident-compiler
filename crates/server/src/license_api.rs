@@ -19,6 +19,35 @@ pub struct LicenseStatusResponse {
     pub status: LicenseStatusInfo,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<LicenseDetails>,
+    /// Machine fingerprint status for binding display
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<FingerprintInfo>,
+}
+
+/// Machine fingerprint information
+#[derive(Debug, Serialize)]
+pub struct FingerprintInfo {
+    /// Whether a fingerprint is available on this machine
+    pub available: bool,
+    /// The fingerprint value (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// Human-readable status
+    pub status: FingerprintStatus,
+}
+
+/// Fingerprint status for UI display
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FingerprintStatus {
+    /// Fingerprint available and matches license (or license has no binding)
+    Bound,
+    /// Fingerprint available but doesn't match license
+    Mismatch,
+    /// Unable to generate fingerprint (VM, restricted environment)
+    Unavailable,
+    /// No license installed, fingerprint not checked
+    NotChecked,
 }
 
 /// License status information
@@ -87,6 +116,39 @@ pub async fn license_status_handler() -> impl IntoResponse {
         .unwrap_or_else(|_| "unknown".to_string());
     let status = manager.get_status();
 
+    // Get fingerprint info
+    let machine_fp = manager.get_machine_fingerprint();
+    let fingerprint_info = match &status {
+        LicenseStatus::Valid { .. } => Some(FingerprintInfo {
+            available: machine_fp.is_some(),
+            value: machine_fp.as_ref().map(|fp| fp.0.clone()),
+            status: if machine_fp.is_some() {
+                FingerprintStatus::Bound
+            } else {
+                FingerprintStatus::Unavailable
+            },
+        }),
+        LicenseStatus::WrongMachine { .. } => Some(FingerprintInfo {
+            available: machine_fp.is_some(),
+            value: machine_fp.as_ref().map(|fp| fp.0.clone()),
+            status: FingerprintStatus::Mismatch,
+        }),
+        LicenseStatus::NotInstalled | LicenseStatus::NotConfigured => Some(FingerprintInfo {
+            available: machine_fp.is_some(),
+            value: machine_fp.as_ref().map(|fp| fp.0.clone()),
+            status: FingerprintStatus::NotChecked,
+        }),
+        _ => Some(FingerprintInfo {
+            available: machine_fp.is_some(),
+            value: machine_fp.as_ref().map(|fp| fp.0.clone()),
+            status: if machine_fp.is_some() {
+                FingerprintStatus::Bound
+            } else {
+                FingerprintStatus::Unavailable
+            },
+        }),
+    };
+
     let (status_info, license_details) = match status {
         LicenseStatus::Valid {
             license_id,
@@ -117,6 +179,7 @@ pub async fn license_status_handler() -> impl IntoResponse {
         install_id,
         status: status_info,
         license: license_details,
+        fingerprint: fingerprint_info,
     })
 }
 
@@ -197,6 +260,7 @@ pub async fn reload_license_handler() -> impl IntoResponse {
         install_id,
         status: status_info,
         license: license_details,
+        fingerprint: None, // Reload handler doesn't compute fingerprint status
     })
 }
 
@@ -232,10 +296,7 @@ pub fn require_diff_mode_entitlement() -> Result<(), (StatusCode, Json<ProRequir
         LicenseStatus::WrongMachine {
             expected,
             actual: _,
-        } => Some(format!(
-            "License bound to different machine: {}",
-            expected
-        )),
+        } => Some(format!("License bound to different machine: {}", expected)),
         LicenseStatus::NotConfigured => Some("License system not configured".to_string()),
         LicenseStatus::Valid { entitlements, .. } => {
             if !entitlements.contains(&entitlements::DIFF_MODE.to_string()) {

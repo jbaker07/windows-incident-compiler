@@ -7,6 +7,7 @@
 //! - Mechanical isolation of imported vs live data
 //! - Replay: precomputed report/explanation for instant viewing
 //! - Recompute: canonical inputs to re-run locally and verify determinism
+//! - Watermarking: license/install provenance embedded for attribution
 //!
 //! Use cases:
 //! - HTB/Atomic writeups
@@ -15,6 +16,7 @@
 
 use crate::report::{IntegrityNoteEntry, ReportBundle};
 use chrono::{DateTime, Utc};
+use edr_core::watermark::create_watermark_from_license;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -224,6 +226,22 @@ pub struct BundleMeta {
     pub checksum: String,
     /// What bytes are hashed
     pub checksum_scope: String,
+    /// Watermark for attribution/provenance (license info embedded)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watermark: Option<BundleWatermark>,
+}
+
+/// Watermark embedded in exported bundles for attribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleWatermark {
+    /// Human-readable watermark
+    pub visible: String,
+    /// License ID
+    pub license_id: String,
+    /// Truncated installation hash
+    pub install_hash: String,
+    /// Build version
+    pub build_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -610,6 +628,14 @@ pub fn build_incident_bundle(
         None
     };
 
+    // Generate watermark for this export
+    let watermark = create_watermark_from_license("bundle_export").map(|wm| BundleWatermark {
+        visible: wm.to_visible_string(),
+        license_id: wm.license_id,
+        install_hash: wm.install_hash,
+        build_version: wm.build_version,
+    });
+
     let mut incident_bundle = IncidentBundle {
         version: BUNDLE_FORMAT_VERSION.to_string(),
         bundle_meta: BundleMeta {
@@ -620,6 +646,7 @@ pub fn build_incident_bundle(
             hash_alg: HASH_ALGORITHM.to_string(),
             checksum: String::new(), // Will be computed below
             checksum_scope: CHECKSUM_SCOPE.to_string(),
+            watermark,
         },
         session_meta: SessionMeta {
             mode,

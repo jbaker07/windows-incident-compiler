@@ -35,7 +35,10 @@ pub enum LicenseStatus {
     /// License is bound to a different installation
     WrongInstallation { expected: String, actual: String },
     /// License is bound to a different machine
-    WrongMachine { expected: String, actual: Option<String> },
+    WrongMachine {
+        expected: String,
+        actual: Option<String>,
+    },
     /// Public key not configured (development build)
     NotConfigured,
 }
@@ -111,7 +114,7 @@ impl LicenseManager {
 
         Ok(id)
     }
-    
+
     /// Get the machine fingerprint (cached).
     pub fn get_machine_fingerprint(&self) -> Option<MachineFingerprint> {
         // Check cache first
@@ -121,16 +124,16 @@ impl LicenseManager {
                 return fp.clone();
             }
         }
-        
+
         // Generate fingerprint
         let fp = MachineFingerprint::generate();
-        
+
         // Cache it (even if None, to avoid repeated attempts)
         {
             let mut cache = self.cached_fingerprint.write().unwrap();
             *cache = Some(fp.clone());
         }
-        
+
         fp
     }
 
@@ -294,7 +297,7 @@ impl LicenseManager {
                 }
             },
         };
-        
+
         // Get machine fingerprint (may be None on VMs/restricted environments)
         let machine_fp = self.get_machine_fingerprint();
         let fp_str = machine_fp.as_ref().map(|fp| fp.0.as_str());

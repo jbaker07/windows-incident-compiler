@@ -226,21 +226,91 @@ HTTP/1.1 402 Payment Required
 
 ## Security Considerations
 
+### Key Security
+
 1. **Private Key Security**: The Ed25519 private key must be kept secret. Store it in a secure vault or HSM, never in source control.
 
 2. **Public Key Embedding**: The public key is embedded in the binary. Changing it requires rebuilding the application.
 
-3. **Offline Verification**: All verification happens locally. No network calls are made to validate licenses.
+3. **Key Rotation**: Multiple public keys can be configured for rotation. Old licenses signed with rotated keys continue to work.
 
-4. **Signature Verification**: Licenses are verified using Ed25519 signatures, which are secure against forgery.
+### Verification Security
 
-5. **Install ID Binding**: Licenses cannot be shared between installations due to install_id binding.
+4. **Offline Verification**: All verification happens locally. No network calls are made to validate licenses.
+
+5. **Signature Verification**: Licenses are verified using Ed25519 signatures, which are secure against forgery.
+
+### Binding Security (Anti-Copy Protection)
+
+6. **Install ID Binding**: Licenses are bound to a unique installation ID and cannot be shared.
+
+7. **Machine Fingerprint Binding** (Optional): Licenses can be bound to machine hardware characteristics (CPU, machine GUID, OS build). This prevents simple "copy license.json to another machine" attacks.
+
+8. **DPAPI Protection** (Windows): On Windows, license files can be encrypted at rest using Windows Data Protection API. This ties the license to the Windows user profile.
+
+9. **Clock Tamper Detection**: The system tracks last-seen timestamps. Large backward clock jumps are detected and flagged as suspicious, preventing expiry bypass through clock manipulation.
+
+### Privacy
+
+10. **Privacy-Preserving Fingerprint**: Machine fingerprints are derived from stable hardware characteristics but truncated and hashed to avoid identifying specific machines. No PII is collected or transmitted.
+
+11. **Local-First**: All licensing logic runs locally. No telemetry, no phone-home, no SaaS dependency.
+
+### Graceful Degradation
+
+12. **VM-Friendly**: If machine fingerprint cannot be generated (common in some VMs), the license still works with install_id binding only.
+
+13. **DPAPI Optional**: If DPAPI protection fails, the license is stored as plaintext JSON (still signature-protected).
+
+## License Binding Details
+
+### What a License is Bound To
+
+| Binding | Required | Purpose |
+|---------|----------|---------|
+| `bound_install_id` | Yes | UUID generated on first run |
+| `bound_machine_fingerprint` | Optional | SHA256 hash of machine characteristics |
+
+### Machine Fingerprint Components (Windows)
+
+The fingerprint is derived from:
+- Windows Machine GUID (from registry)
+- CPU model name
+- Windows build number
+
+These are hashed together and truncated to 16 hex characters.
+
+### Special Fingerprint Values
+
+- `"PORTABLE"`: Special value that matches any machine (for dev/testing licenses)
+- `null`/absent: No fingerprint binding (install_id only)
+
+### Example: Generate Fingerprint-Bound License
+
+```bash
+export EDR_LICENSE_PRIVATE_KEY_B64="<your-private-key>"
+
+# Generate with machine fingerprint binding
+cargo run --bin license_gen -- \
+  --install-id "550e8400-e29b-41d4-a716-446655440000" \
+  --machine-fingerprint "abc123def456" \
+  --customer "Acme Corp" \
+  --edition "pro" \
+  --entitlements "diff_mode,pro_reports" \
+  --output "acme_license.json"
+```
 
 ## Troubleshooting
 
 ### "install_id_mismatch" Error
 
 The license was generated for a different installation. Request a new license with the correct install_id.
+
+### "wrong_machine" Error
+
+The license was bound to a different machine's fingerprint. Either:
+- Request a new license with the current machine's fingerprint
+- Request a portable license (fingerprint = "PORTABLE")
 
 ### "invalid_signature" Error
 
@@ -252,6 +322,10 @@ Try reloading the license:
 ```bash
 curl -X POST http://localhost:8080/api/license/reload
 ```
+
+### Clock Tamper Warning
+
+If you see clock-related warnings, ensure your system time is accurate. The system detects large backward clock jumps.
 
 ### Finding the Install ID
 

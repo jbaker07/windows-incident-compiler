@@ -68,7 +68,7 @@ pub struct LicensePayload {
 
     /// The installation ID this license is bound to
     pub bound_install_id: String,
-    
+
     /// Optional machine fingerprint for enhanced binding.
     /// If present, the license only validates on machines with matching fingerprint.
     /// Set to "PORTABLE" for development/testing licenses that work on any machine.
@@ -140,7 +140,7 @@ impl LicensePayload {
             r#""bound_install_id":"{}""#,
             escape_json(&self.bound_install_id)
         ));
-        
+
         if let Some(ref fp) = self.bound_machine_fingerprint {
             parts.push(format!(
                 r#""bound_machine_fingerprint":"{}""#,
@@ -178,7 +178,10 @@ pub enum LicenseVerifyResult {
     /// License is bound to a different installation
     InstallIdMismatch { expected: String, actual: String },
     /// License is bound to a different machine fingerprint
-    MachineFingerPrintMismatch { expected: String, actual: Option<String> },
+    MachineFingerPrintMismatch {
+        expected: String,
+        actual: Option<String>,
+    },
     /// Public key is not configured (placeholder still in place)
     PublicKeyNotConfigured,
     /// Failed to decode the public key
@@ -199,12 +202,16 @@ impl SignedLicense {
     pub fn verify(&self, install_id: &str) -> LicenseVerifyResult {
         self.verify_with_fingerprint(install_id, None)
     }
-    
+
     /// Verify the license with optional machine fingerprint.
     ///
     /// If the license has a bound_machine_fingerprint that is not "PORTABLE",
     /// and machine_fingerprint is Some, they must match.
-    pub fn verify_with_fingerprint(&self, install_id: &str, machine_fingerprint: Option<&str>) -> LicenseVerifyResult {
+    pub fn verify_with_fingerprint(
+        &self,
+        install_id: &str,
+        machine_fingerprint: Option<&str>,
+    ) -> LicenseVerifyResult {
         // Check if public key is configured
         if LICENSE_PUBLIC_KEY_B64 == "REPLACE_WITH_YOUR_PUBLIC_KEY_BASE64" {
             return LicenseVerifyResult::PublicKeyNotConfigured;
@@ -219,21 +226,23 @@ impl SignedLicense {
         // Verify Ed25519 signature against all known public keys
         let canonical = self.payload.to_canonical_bytes();
         let mut signature_valid = false;
-        
+
         for key_b64 in get_all_public_keys() {
             // Skip placeholder keys
             if key_b64 == "REPLACE_WITH_YOUR_PUBLIC_KEY_BASE64" || key_b64.is_empty() {
                 continue;
             }
-            
+
             if let Some(pub_key_bytes) = base64_decode(key_b64) {
-                if pub_key_bytes.len() == 32 && ed25519_verify(&pub_key_bytes, &canonical, &sig_bytes) {
+                if pub_key_bytes.len() == 32
+                    && ed25519_verify(&pub_key_bytes, &canonical, &sig_bytes)
+                {
                     signature_valid = true;
                     break;
                 }
             }
         }
-        
+
         if !signature_valid {
             return LicenseVerifyResult::InvalidSignature;
         }
@@ -253,7 +262,7 @@ impl SignedLicense {
                 actual: install_id.to_string(),
             };
         }
-        
+
         // Check machine fingerprint binding (if specified in license)
         if let Some(ref bound_fp) = self.payload.bound_machine_fingerprint {
             // "PORTABLE" is a special value that matches any machine
@@ -291,7 +300,7 @@ impl SignedLicense {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Decode base64 string to bytes
-fn base64_decode(input: &str) -> Option<Vec<u8>> {
+pub fn base64_decode(input: &str) -> Option<Vec<u8>> {
     // Standard base64 alphabet
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 

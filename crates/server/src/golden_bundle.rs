@@ -795,6 +795,7 @@ pub fn generate_golden_bundle(
             hash_alg: HASH_ALGORITHM.to_string(),
             checksum: "".to_string(), // Computed after
             checksum_scope: CHECKSUM_SCOPE.to_string(),
+            watermark: None, // Golden bundles are test data, no watermark needed
         },
         included_sections: IncludedSections {
             replay: true,
