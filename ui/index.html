@@ -364,11 +364,215 @@
       <div id="activityStatusBox" class="hidden mt-3 p-3 rounded bg-amber-900/30 border border-amber-700 text-sm text-amber-200"></div>
     </div>
 
+    <!-- ============ MISSION CONTROL PANEL ============ -->
+    <div id="missionControlPanel" class="hidden bg-slate-900/80 border border-violet-700/50 rounded-lg p-4 mb-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="text-2xl">🎯</span>
+          <div>
+            <div class="font-semibold text-slate-100">Mission Control Available</div>
+            <div class="text-xs text-slate-400">Run structured telemetry workflows with quality gates and baselines</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="missionQuickStatus" class="px-2 py-1 rounded text-xs bg-slate-700 text-slate-400">Ready</span>
+          <button id="btnGoToMission" class="px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm transition-colors">
+            Open Mission Control →
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ RUN RESULTS PANEL (shown after mission completes) ============ -->
+    <div id="runResultsPanel" class="hidden bg-slate-900/80 border border-emerald-700/50 rounded-lg p-4 mb-4">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-3">
+          <span id="resultsVerdictEmoji" class="text-2xl">✅</span>
+          <div>
+            <div id="resultsTitle" class="font-semibold text-slate-100">Mission Complete</div>
+            <div id="resultsSubtitle" class="text-xs text-slate-400">run_id: --</div>
+          </div>
+        </div>
+        <button id="btnCloseResults" class="text-slate-400 hover:text-slate-200 text-xl">&times;</button>
+      </div>
+
+      <!-- Quality Gates Scoreboard -->
+      <div class="mb-4">
+        <div class="text-xs font-medium text-slate-300 mb-2">Quality Gates</div>
+        <div id="qualityGatesGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Run Summary Stats -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div class="bg-slate-800/50 rounded p-2">
+          <div class="text-xs text-slate-400">Events Captured</div>
+          <div id="resultEvents" class="text-lg font-semibold text-sky-400">--</div>
+        </div>
+        <div class="bg-slate-800/50 rounded p-2">
+          <div class="text-xs text-slate-400">Segments</div>
+          <div id="resultSegments" class="text-lg font-semibold text-emerald-400">--</div>
+        </div>
+        <div class="bg-slate-800/50 rounded p-2">
+          <div class="text-xs text-slate-400">Facts Extracted</div>
+          <div id="resultFacts" class="text-lg font-semibold text-amber-400">--</div>
+        </div>
+        <div class="bg-slate-800/50 rounded p-2">
+          <div class="text-xs text-slate-400">Signals</div>
+          <div id="resultSignals" class="text-lg font-semibold text-rose-400">--</div>
+        </div>
+      </div>
+
+      <!-- Baseline Comparison (if applicable) -->
+      <div id="baselineComparisonPanel" class="hidden mb-4 p-3 rounded bg-slate-800/50 border border-slate-700">
+        <div class="flex items-center gap-2 mb-2">
+          <span id="comparisonVerdictEmoji">📊</span>
+          <span id="comparisonVerdictText" class="text-sm font-medium">Comparison Results</span>
+        </div>
+        <div id="comparisonDeltas" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+          <!-- Populated by JS -->
+        </div>
+        <div id="comparisonRegressions" class="hidden mt-2 p-2 rounded bg-red-900/30 border border-red-700">
+          <div class="text-xs font-medium text-red-400 mb-1">⚠️ Regressions Detected</div>
+          <ul id="regressionsList" class="text-xs text-red-300 list-disc list-inside"></ul>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-wrap gap-2">
+        <button id="btnViewRunSummary" class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">
+          📄 View run_summary.json
+        </button>
+        <button id="btnViewQualityReport" class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">
+          📋 View quality_report.json
+        </button>
+        <button id="btnOpenRunFolder" class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">
+          📂 Open Run Folder
+        </button>
+      </div>
+    </div>
+
+    <!-- ============ BASELINE MANAGER MODAL ============ -->
+    <dialog id="baselineManagerModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+      <div class="p-6">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <div class="text-2xl mb-1">📋</div>
+            <h2 class="text-xl font-semibold text-slate-100">Baseline Manager</h2>
+            <p class="text-sm text-slate-400 mt-1">Manage baseline runs for regression comparison</p>
+          </div>
+          <button id="closeBaselineManagerBtn" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+        </div>
+
+        <!-- Default Baseline -->
+        <div class="mb-4 p-3 rounded bg-slate-800/50 border border-slate-700">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm font-medium text-slate-200">Default Baseline</div>
+              <div id="defaultBaselineInfo" class="text-xs text-slate-400">None set</div>
+            </div>
+            <button id="btnClearDefaultBaseline" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">Clear</button>
+          </div>
+        </div>
+
+        <!-- Baselines List -->
+        <div class="mb-4">
+          <div class="text-sm font-medium text-slate-300 mb-2">Marked Baselines</div>
+          <div id="baselinesListContainer" class="max-h-64 overflow-auto">
+            <div class="text-xs text-slate-500 text-center py-4">Loading...</div>
+          </div>
+        </div>
+
+        <div class="flex justify-end pt-4 border-t border-slate-800">
+          <button id="baselineManagerDoneBtn" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">Done</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- ============ PROVENANCE MODAL ============ -->
+    <dialog id="provenanceModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-3xl w-full backdrop:bg-slate-950/80">
+      <div class="p-6">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <div class="text-2xl mb-1">🔍</div>
+            <h2 class="text-xl font-semibold text-slate-100">Signal Provenance</h2>
+            <p class="text-sm text-slate-400 mt-1">Evidence chain from captured segments to signals</p>
+          </div>
+          <button id="closeProvenanceBtn" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+        </div>
+
+        <div id="provenanceContent" class="max-h-[60vh] overflow-auto">
+          <div class="text-xs text-slate-500 text-center py-8">Loading provenance data...</div>
+        </div>
+
+        <div class="flex justify-end pt-4 border-t border-slate-800">
+          <button id="provenanceDoneBtn" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">Done</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- ============ MARK BASELINE MODAL ============ -->
+    <dialog id="markBaselineModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-md w-full backdrop:bg-slate-950/80">
+      <div class="p-6">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <div class="text-2xl mb-1">⭐</div>
+            <h2 class="text-xl font-semibold text-slate-100">Mark as Baseline</h2>
+            <p class="text-sm text-slate-400 mt-1">Create a baseline for future comparisons</p>
+          </div>
+          <button id="closeMarkBaselineBtn" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-xs font-medium text-slate-300 mb-1">Run ID</label>
+          <input id="baselineRunId" type="text" readonly class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm text-slate-400" />
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-xs font-medium text-slate-300 mb-1">Description</label>
+          <textarea id="baselineDescription" rows="2" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm" placeholder="e.g., First successful adversary detection run"></textarea>
+        </div>
+
+        <div class="mb-4">
+          <label class="flex items-center gap-2 text-sm text-slate-300">
+            <input id="setAsDefaultBaseline" type="checkbox" class="rounded bg-slate-800 border-slate-600" checked />
+            Set as default baseline
+          </label>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-4 border-t border-slate-800">
+          <button id="cancelMarkBaselineBtn" type="button" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Cancel</button>
+          <button id="confirmMarkBaselineBtn" type="button" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 font-medium text-sm">Mark Baseline</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- ============ JSON VIEWER MODAL ============ -->
+    <dialog id="jsonViewerModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-3xl w-full backdrop:bg-slate-950/80">
+      <div class="p-6">
+        <div class="flex items-start justify-between mb-4">
+          <div>
+            <div class="text-2xl mb-1">📄</div>
+            <h2 id="jsonViewerTitle" class="text-xl font-semibold text-slate-100">JSON Viewer</h2>
+          </div>
+          <button id="closeJsonViewerBtn" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+        </div>
+
+        <pre id="jsonViewerContent" class="max-h-[60vh] overflow-auto bg-slate-950 rounded p-4 text-xs font-mono text-slate-300"></pre>
+
+        <div class="flex justify-end pt-4 border-t border-slate-800">
+          <button id="jsonViewerDoneBtn" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">Done</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- KPI row (app.js refreshKPIs fills this) -->
     <div id="kpis" class="kpi-row mb-4"></div>
 
     <nav class="flex gap-2 text-sm mb-4">
       <button id="tabDash" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Dashboard</button>
+      <button id="tabMission" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">🎯 Mission</button>
       <button id="tabImport" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">📦 Import Cases</button>
       <button id="tabIntegrations" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Integrations</button>
       <button id="tabCompare" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">🔀 Compare Runs</button>
@@ -1015,6 +1219,194 @@
         <div class="rounded border border-slate-800 lg:col-span-3">
           <div class="p-3 border-b border-slate-800 text-sm font-medium">Selected alert (JSON)</div>
           <pre id="detail" class="text-xs p-3 overflow-auto max-h-[300px]"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MISSION SECTION ============ -->
+    <section id="screenMission" class="hidden">
+      <div class="max-w-6xl mx-auto">
+        <div class="mb-6">
+          <h2 class="text-xl font-semibold text-slate-100 mb-2">🎯 Mission Control</h2>
+          <p class="text-sm text-slate-400">Run structured workflows with real telemetry, quality gates, and baseline comparisons.</p>
+        </div>
+
+        <!-- Mission Configuration -->
+        <div class="bg-slate-900/80 border border-violet-700/50 rounded-lg p-4 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Mission Profile</label>
+              <select id="missionProfileSelect" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm">
+                <option value="">Select a profile...</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Duration (minutes)</label>
+              <select id="missionDurationSelect" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm">
+                <option value="1">1 minute</option>
+                <option value="2">2 minutes</option>
+                <option value="5" selected>5 minutes</option>
+                <option value="10">10 minutes</option>
+                <option value="15">15 minutes</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-300 mb-1">Baseline for Comparison</label>
+              <select id="missionBaselineSelect" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm">
+                <option value="">No baseline (skip comparison)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Mission Control Buttons -->
+          <div class="flex flex-wrap items-center gap-3">
+            <button id="btnStartMission" class="flex-1 min-w-[140px] py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+              <span>▶️</span> Start Mission
+            </button>
+            <button id="btnStopMissionMain" class="hidden flex-1 min-w-[140px] py-2.5 rounded-lg bg-red-600 hover:bg-red-500 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+              <span>⏹️</span> Stop Mission
+            </button>
+            <button id="btnMarkBaselineMain" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+              ⭐ Mark as Baseline
+            </button>
+            <button id="btnCompareBaselineMain" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+              🔀 Compare to Baseline
+            </button>
+            <button id="btnShowProvenanceMain" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled title="Show evidence chain from segments to signals">
+              🔍 Provenance
+            </button>
+            <button id="btnOpenBaselineManager" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm">
+              📋 Manage Baselines
+            </button>
+          </div>
+        </div>
+
+        <!-- Mission Status & Progress -->
+        <div id="missionStatusPanel" class="hidden bg-slate-900/80 border border-sky-700/50 rounded-lg p-4 mb-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <span id="missionStatusIcon" class="text-2xl">▶️</span>
+              <div>
+                <div id="missionStatusTitle" class="font-semibold text-slate-100">Mission Running</div>
+                <div id="missionStatusSubtitle" class="text-xs text-slate-400">run_id: --</div>
+              </div>
+            </div>
+            <span id="missionStatusBadgeMain" class="px-2 py-1 rounded text-xs bg-sky-700 text-sky-200">Running</span>
+          </div>
+          
+          <!-- Progress Bar -->
+          <div class="mb-3">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs text-slate-400">Progress</span>
+              <span id="missionTimeRemainingMain" class="text-xs text-slate-400">--:--</span>
+            </div>
+            <div class="w-full bg-slate-700 rounded-full h-2">
+              <div id="missionProgressBarMain" class="bg-sky-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Live Counters -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-slate-800/50 rounded p-2">
+              <div class="text-xs text-slate-400">Events</div>
+              <div id="missionCounterEvents" class="text-lg font-semibold text-sky-400">--</div>
+              <div id="missionCounterEventsRate" class="text-xs text-slate-500">-- /sec</div>
+            </div>
+            <div class="bg-slate-800/50 rounded p-2">
+              <div class="text-xs text-slate-400">Segments</div>
+              <div id="missionCounterSegments" class="text-lg font-semibold text-emerald-400">--</div>
+              <div id="missionCounterBytes" class="text-xs text-slate-500">-- KB</div>
+            </div>
+            <div class="bg-slate-800/50 rounded p-2">
+              <div class="text-xs text-slate-400">Facts</div>
+              <div id="missionCounterFacts" class="text-lg font-semibold text-amber-400">--</div>
+            </div>
+            <div class="bg-slate-800/50 rounded p-2">
+              <div class="text-xs text-slate-400">Signals</div>
+              <div id="missionCounterSignals" class="text-lg font-semibold text-rose-400">--</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mission Results -->
+        <div id="missionResultsPanel" class="hidden bg-slate-900/80 border border-emerald-700/50 rounded-lg p-4 mb-4">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span id="missionResultsEmoji" class="text-2xl">✅</span>
+              <div>
+                <div id="missionResultsTitle" class="font-semibold text-slate-100">Mission Complete</div>
+                <div id="missionResultsRunId" class="text-xs text-slate-400">run_id: --</div>
+              </div>
+            </div>
+            <button id="btnCloseMissionResults" class="text-slate-400 hover:text-slate-200 text-xl">&times;</button>
+          </div>
+
+          <!-- Quality Gates -->
+          <div class="mb-4">
+            <div class="text-xs font-medium text-slate-300 mb-2">Quality Gates</div>
+            <div id="missionQualityGates" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+          <!-- Final Stats -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div class="bg-slate-800/50 rounded p-2">
+              <div class="text-xs text-slate-400">Events</div>
+              <div id="missionFinalEvents" class="text-lg font-semibold text-sky-400">--</div>
+            </div>
+            <div class="bg-slate-800/50 rounded p-2">
+              <div class="text-xs text-slate-400">Segments</div>
+              <div id="missionFinalSegments" class="text-lg font-semibold text-emerald-400">--</div>
+            </div>
+            <div class="bg-slate-800/50 rounded p-2">
+              <div class="text-xs text-slate-400">Facts</div>
+              <div id="missionFinalFacts" class="text-lg font-semibold text-amber-400">--</div>
+            </div>
+            <div class="bg-slate-800/50 rounded p-2">
+              <div class="text-xs text-slate-400">Signals</div>
+              <div id="missionFinalSignals" class="text-lg font-semibold text-rose-400">--</div>
+            </div>
+          </div>
+
+          <!-- Comparison Results (if baseline was selected) -->
+          <div id="missionComparisonResults" class="hidden mb-4 p-3 rounded bg-slate-800/50 border border-slate-700">
+            <div class="flex items-center gap-2 mb-2">
+              <span id="missionComparisonEmoji">📊</span>
+              <span id="missionComparisonTitle" class="text-sm font-medium">Baseline Comparison</span>
+            </div>
+            <div id="missionComparisonDeltas" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs mb-2">
+              <!-- Populated dynamically -->
+            </div>
+            <div id="missionRegressions" class="hidden p-2 rounded bg-red-900/30 border border-red-700">
+              <div class="text-xs font-medium text-red-400 mb-1">⚠️ Regressions Detected</div>
+              <ul id="missionRegressionsList" class="text-xs text-red-300 list-disc list-inside"></ul>
+            </div>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex flex-wrap gap-2">
+            <button id="btnViewRunSummaryMain" class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">
+              📄 View run_summary.json
+            </button>
+            <button id="btnViewQualityReportMain" class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">
+              📋 View quality_report.json
+            </button>
+            <button id="btnOpenRunFolderMain" class="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">
+              📂 Open Run Folder
+            </button>
+          </div>
+        </div>
+
+        <!-- Baselines List (Quick View) -->
+        <div class="bg-slate-900/80 border border-slate-700 rounded-lg p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-slate-300">Recent Baselines</div>
+            <button id="btnRefreshBaselines" class="text-xs text-slate-400 hover:text-slate-200">↻ Refresh</button>
+          </div>
+          <div id="missionBaselinesQuickList" class="space-y-2">
+            <div class="text-xs text-slate-500 text-center py-4">No baselines yet</div>
+          </div>
         </div>
       </div>
     </section>

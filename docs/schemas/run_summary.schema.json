@@ -1,0 +1,268 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://git-glue.io/edr/run_summary.schema.json",
+  "title": "EDR Run Summary",
+  "description": "Metrics and telemetry summary for a single EDR mission run",
+  "type": "object",
+  "required": ["schema_version", "run_id", "mission", "timing", "capture", "compiler", "explain", "perf"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version for forward compatibility"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[0-9]{8}_[0-9]{6}$",
+      "description": "Unique run identifier (YYYYMMDD_HHMMSS)"
+    },
+    "mission": {
+      "type": "object",
+      "required": ["type", "profile", "duration_requested_sec"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["discovery", "adversary_simulation", "forensic_import"],
+          "description": "Mission type"
+        },
+        "profile": {
+          "type": "string",
+          "description": "Specific profile/pack used (e.g., 'benign_admin', 'lolbin_tier_a')"
+        },
+        "duration_requested_sec": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Requested capture duration in seconds"
+        },
+        "playbooks_selected": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of playbooks explicitly selected (null = all)"
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "required": ["started_at", "ended_at", "duration_actual_sec"],
+      "properties": {
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when run started"
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when run ended"
+        },
+        "duration_actual_sec": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Actual duration in seconds"
+        },
+        "capture_start_delay_ms": {
+          "type": "integer",
+          "description": "Time from start_run to first event captured"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "os_version": { "type": "string" },
+        "hostname": { "type": "string" },
+        "is_admin": { "type": "boolean" },
+        "sysmon_installed": { "type": "boolean" },
+        "sysmon_version": { "type": ["string", "null"] },
+        "audit_policy": {
+          "type": "object",
+          "properties": {
+            "process_creation": { "type": "boolean" },
+            "command_line_logging": { "type": "boolean" },
+            "logon_events": { "type": "boolean" }
+          }
+        },
+        "powershell_logging": { "type": "boolean" },
+        "readiness_level": {
+          "type": "string",
+          "enum": ["full", "good", "limited", "blocked"]
+        }
+      }
+    },
+    "capture": {
+      "type": "object",
+      "required": ["events_read", "events_dropped", "bytes_read", "segments_written"],
+      "properties": {
+        "events_read": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total raw events read from sources"
+        },
+        "events_dropped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Events dropped due to buffer overflow or errors"
+        },
+        "bytes_read": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total bytes read from event sources"
+        },
+        "segments_written": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of segment files written"
+        },
+        "source_breakdown": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "events": { "type": "integer" },
+              "bytes": { "type": "integer" }
+            }
+          },
+          "description": "Per-source breakdown (Security, Sysmon, PowerShell, etc.)"
+        },
+        "event_id_histogram": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" },
+          "description": "Count of events by Windows Event ID"
+        }
+      }
+    },
+    "compiler": {
+      "type": "object",
+      "required": ["events_ingested", "facts_extracted", "signals_emitted", "incidents_promoted"],
+      "properties": {
+        "events_ingested": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Events successfully ingested by locald"
+        },
+        "events_parse_errors": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Events that failed to parse"
+        },
+        "facts_extracted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Facts extracted from events"
+        },
+        "fact_type_breakdown": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" },
+          "description": "Count of facts by type (Exec, FileWrite, NetConnect, etc.)"
+        },
+        "playbooks_loaded": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of playbooks loaded"
+        },
+        "playbooks_matched": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of playbooks that matched at least once"
+        },
+        "signals_emitted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total signals emitted"
+        },
+        "signals_by_severity": {
+          "type": "object",
+          "properties": {
+            "critical": { "type": "integer" },
+            "high": { "type": "integer" },
+            "medium": { "type": "integer" },
+            "low": { "type": "integer" },
+            "informational": { "type": "integer" }
+          }
+        },
+        "incidents_promoted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of incidents promoted from signals"
+        }
+      }
+    },
+    "explain": {
+      "type": "object",
+      "required": ["signals_with_explain", "deref_success_rate", "slot_fill_rate"],
+      "properties": {
+        "signals_with_explain": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Signals that have ExplanationBundle"
+        },
+        "deref_success_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Percentage of evidence pointers successfully dereferenced (0-1)"
+        },
+        "excerpt_failures": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of excerpt extraction failures"
+        },
+        "slot_fill_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Average percentage of required slots filled (0-1)"
+        },
+        "entity_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Percentage of signals with complete entity bundles (0-1)"
+        },
+        "narrative_generation_rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Percentage of signals with generated narrative (0-1)"
+        }
+      }
+    },
+    "perf": {
+      "type": "object",
+      "required": ["peak_rss_mb", "disk_written_mb"],
+      "properties": {
+        "cpu_samples": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "timestamp": { "type": "string", "format": "date-time" },
+              "cpu_percent": { "type": "number" }
+            }
+          },
+          "description": "CPU usage samples during run"
+        },
+        "peak_rss_mb": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Peak resident set size in MB"
+        },
+        "avg_rss_mb": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Average RSS during run"
+        },
+        "disk_written_mb": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total disk written in MB"
+        },
+        "events_per_second": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Average events processed per second"
+        }
+      }
+    }
+  }
+}

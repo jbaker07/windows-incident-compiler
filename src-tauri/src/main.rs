@@ -10,17 +10,26 @@
 //! - Readiness checks: admin, security log, sysmon, audit policy
 //! - Scenario profiles with expected outcomes for validation testing
 //! - 4-gate GROUNDED health validation: Telemetry, Extraction, Detection, Explainability
+//! - Mission Workflow Harness: profiles, scenario packs, quality gates, regression
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod baseline;
 mod grounded_gates;
 mod health_gates;
 mod logging;
+mod mission_commands;
+mod missions;
+mod pipeline_counters;
 mod port;
+mod quality_gates;
+mod run_metrics;
+mod scenario_packs;
 mod scenario_profiles;
 mod supervisor;
 
 use grounded_gates::E2EVerificationResult;
+use mission_commands::MissionStateHandle;
 use supervisor::{ProcessKind, RunConfig, StackStatus, SupervisorState, ReadinessCheck, RunHistoryEntry};
 use scenario_profiles::{ScenarioProfile, ScenarioTier, get_all_scenarios, get_scenarios_by_tier, get_scenario_by_id};
 use std::path::PathBuf;
@@ -494,6 +503,9 @@ fn main() {
         .setup(|app| {
             let app_handle = app.handle().clone();
 
+            // Register mission state immediately (before async spawn)
+            app.manage(MissionStateHandle::new());
+
             // Initialize supervisor state
             tauri::async_runtime::spawn(async move {
                 match SupervisorState::new().await {
@@ -602,6 +614,22 @@ fn main() {
             get_scenario,
             run_scenario,
             check_scenario_capabilities,
+            // Agent-MISSION: Mission Workflow commands
+            mission_commands::get_mission_profiles,
+            mission_commands::get_mission_profiles_by_type,
+            mission_commands::get_mission_profile,
+            mission_commands::get_scenario_packs,
+            mission_commands::get_scenario_packs_by_category,
+            mission_commands::get_scenario_pack,
+            mission_commands::execute_scenario_pack,
+            mission_commands::start_mission,
+            mission_commands::get_mission_readiness,
+            mission_commands::get_mission_metrics,
+            mission_commands::stop_mission,
+            mission_commands::evaluate_quality_gates,
+            mission_commands::get_quality_scoreboard,
+            mission_commands::compare_runs,
+            mission_commands::list_baseline_runs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

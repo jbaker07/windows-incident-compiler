@@ -61,6 +61,22 @@
     const runPanel = document.getElementById('runControlPanel');
     if (runPanel) runPanel.classList.remove('hidden');
 
+    // Show mission control banner (quick access)
+    const missionPanel = document.getElementById('missionControlPanel');
+    if (missionPanel) missionPanel.classList.remove('hidden');
+
+    // Wire up "Go to Mission" button
+    const btnGoToMission = document.getElementById('btnGoToMission');
+    if (btnGoToMission) {
+      btnGoToMission.onclick = () => {
+        if (typeof activateTab === 'function') {
+          activateTab('mission');
+        } else if (tabMission) {
+          tabMission.click();
+        }
+      };
+    }
+
     // Check admin status
     try {
       desktopState.isAdmin = await tauriInvoke('is_admin');
@@ -576,11 +592,13 @@
   const screenImport = document.getElementById('screenImport');
   const screenCompare = document.getElementById('screenCompare');
   const screenLicense = document.getElementById('screenLicense');
+  const screenMission = document.getElementById('screenMission');
   const tabDash     = document.getElementById('tabDash');
   const tabInt      = document.getElementById('tabIntegrations');
   const tabImport   = document.getElementById('tabImport');
   const tabCompare  = document.getElementById('tabCompare');
   const tabLicense  = document.getElementById('tabLicense');
+  const tabMission  = document.getElementById('tabMission');
 
   // Integrations pane (optional)
   const addDlg      = document.getElementById('addDlg');
@@ -709,12 +727,14 @@
     const onImport = which === 'import';
     const onCompare = which === 'compare';
     const onLicense = which === 'license';
+    const onMission = which === 'mission';
     
     screenDash.classList.toggle('hidden', !onDash);
     screenInt.classList.toggle('hidden', !onInt);
     if (screenImport) screenImport.classList.toggle('hidden', !onImport);
     if (screenCompare) screenCompare.classList.toggle('hidden', !onCompare);
     if (screenLicense) screenLicense.classList.toggle('hidden', !onLicense);
+    if (screenMission) screenMission.classList.toggle('hidden', !onMission);
     
     tabDash.className = onDash
       ? 'px-3 py-1 rounded bg-sky-600 text-white'
@@ -737,17 +757,24 @@
         ? 'px-3 py-1 rounded bg-sky-600 text-white'
         : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
     }
+    if (tabMission) {
+      tabMission.className = onMission
+        ? 'px-3 py-1 rounded bg-sky-600 text-white'
+        : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
+    }
     
     if (onInt) loadIntegrations();
     if (onImport) loadImportedCases();
     if (onCompare) loadRunsForCompare();
     if (onLicense) loadLicenseStatus();
+    if (onMission) initMissionUI();
   }
   if (tabDash) tabDash.onclick = () => activateTab('dash');
   if (tabInt)  tabInt.onclick  = () => activateTab('int');
   if (tabImport) tabImport.onclick = () => activateTab('import');
   if (tabCompare) tabCompare.onclick = () => activateTab('compare');
   if (tabLicense) tabLicense.onclick = () => activateTab('license');
+  if (tabMission) tabMission.onclick = () => activateTab('mission');
   activateTab('dash');
 
   // ---------- SSE Alerts ----------
@@ -4401,3 +4428,860 @@ window.attachExplainSummary = attachExplainSummary;
   // Update diff UI to handle 402 responses
   const originalRunDiffComparison = runDiffComparison;
   // Note: The runDiffComparison function already handles errors gracefully
+
+  // ============================================================================
+  // MISSION CONTROL MODULE
+  // ============================================================================
+  // Provides UI-first mission workflow with real telemetry, live counters,
+  // quality gates, baselines, and provenance tracking.
+
+  const missionState = {
+    isRunning: false,
+    runId: null,
+    runDir: null,
+    startTime: null,
+    durationSeconds: null,
+    selectedBaseline: null,
+    counterPollInterval: null,
+    progressInterval: null,
+    lastCounters: null,
+    baselines: [],
+    profiles: [],
+  };
+
+  // Mission UI elements
+  const missionUI = {
+    // Main Mission Screen elements
+    profileSelect: document.getElementById('missionProfileSelect'),
+    durationSelect: document.getElementById('missionDurationSelect'),
+    baselineSelect: document.getElementById('missionBaselineSelect'),
+    btnStart: document.getElementById('btnStartMission'),
+    btnStop: document.getElementById('btnStopMissionMain'),
+    btnMarkBaseline: document.getElementById('btnMarkBaselineMain'),
+    btnCompare: document.getElementById('btnCompareBaselineMain'),
+    btnProvenance: document.getElementById('btnShowProvenanceMain'),
+    btnManageBaselines: document.getElementById('btnOpenBaselineManager'),
+    
+    // Status Panel
+    statusPanel: document.getElementById('missionStatusPanel'),
+    statusIcon: document.getElementById('missionStatusIcon'),
+    statusTitle: document.getElementById('missionStatusTitle'),
+    statusSubtitle: document.getElementById('missionStatusSubtitle'),
+    statusBadge: document.getElementById('missionStatusBadgeMain'),
+    timeRemaining: document.getElementById('missionTimeRemainingMain'),
+    progressBar: document.getElementById('missionProgressBarMain'),
+    
+    // Live Counters in Status Panel
+    counterEvents: document.getElementById('missionCounterEvents'),
+    counterEventsRate: document.getElementById('missionCounterEventsRate'),
+    counterSegments: document.getElementById('missionCounterSegments'),
+    counterBytes: document.getElementById('missionCounterBytes'),
+    counterFacts: document.getElementById('missionCounterFacts'),
+    counterSignals: document.getElementById('missionCounterSignals'),
+    
+    // Results Panel
+    resultsPanel: document.getElementById('missionResultsPanel'),
+    resultsEmoji: document.getElementById('missionResultsEmoji'),
+    resultsTitle: document.getElementById('missionResultsTitle'),
+    resultsRunId: document.getElementById('missionResultsRunId'),
+    btnCloseResults: document.getElementById('btnCloseMissionResults'),
+    qualityGates: document.getElementById('missionQualityGates'),
+    finalEvents: document.getElementById('missionFinalEvents'),
+    finalSegments: document.getElementById('missionFinalSegments'),
+    finalFacts: document.getElementById('missionFinalFacts'),
+    finalSignals: document.getElementById('missionFinalSignals'),
+    
+    // Comparison in Results
+    comparisonResults: document.getElementById('missionComparisonResults'),
+    comparisonEmoji: document.getElementById('missionComparisonEmoji'),
+    comparisonTitle: document.getElementById('missionComparisonTitle'),
+    comparisonDeltas: document.getElementById('missionComparisonDeltas'),
+    regressions: document.getElementById('missionRegressions'),
+    regressionsList: document.getElementById('missionRegressionsList'),
+    
+    // Result Action Buttons
+    btnViewSummary: document.getElementById('btnViewRunSummaryMain'),
+    btnViewQuality: document.getElementById('btnViewQualityReportMain'),
+    btnOpenFolder: document.getElementById('btnOpenRunFolderMain'),
+    
+    // Baselines Quick List
+    baselinesQuickList: document.getElementById('missionBaselinesQuickList'),
+    btnRefreshBaselines: document.getElementById('btnRefreshBaselines'),
+    
+    // Modals
+    baselineManagerModal: document.getElementById('baselineManagerModal'),
+    provenanceModal: document.getElementById('provenanceModal'),
+    markBaselineModal: document.getElementById('markBaselineModal'),
+    jsonViewerModal: document.getElementById('jsonViewerModal'),
+  };
+
+  // Initialize Mission UI
+  async function initMissionUI() {
+    console.log('[Mission] Initializing Mission UI');
+    
+    if (!isTauri) {
+      console.log('[Mission] Not in Tauri, Mission Control disabled');
+      return;
+    }
+
+    // Load profiles and baselines
+    await Promise.all([
+      loadMissionProfiles(),
+      loadMissionBaselines(),
+    ]);
+
+    // Wire up event handlers
+    wireMissionEventHandlers();
+  }
+
+  async function loadMissionProfiles() {
+    if (!tauriInvoke || !missionUI.profileSelect) return;
+    
+    try {
+      // Try to get mission profiles from backend
+      const profiles = await tauriInvoke('get_mission_profiles').catch(() => []);
+      missionState.profiles = profiles;
+      
+      missionUI.profileSelect.innerHTML = '<option value="">Select a profile...</option>';
+      
+      if (profiles.length === 0) {
+        // Provide default profiles
+        missionUI.profileSelect.innerHTML += `
+          <option value="default">Default (all playbooks)</option>
+          <option value="network">Network-focused</option>
+          <option value="process">Process-focused</option>
+          <option value="minimal">Minimal (quick test)</option>
+        `;
+      } else {
+        profiles.forEach(p => {
+          missionUI.profileSelect.innerHTML += `<option value="${p.id}">${p.name}</option>`;
+        });
+      }
+    } catch (e) {
+      console.error('[Mission] Failed to load profiles:', e);
+      // Provide fallback
+      missionUI.profileSelect.innerHTML = `
+        <option value="">Select a profile...</option>
+        <option value="default">Default (all playbooks)</option>
+      `;
+    }
+  }
+
+  async function loadMissionBaselines() {
+    if (!tauriInvoke) return;
+    
+    try {
+      const baselines = await tauriInvoke('get_baselines').catch(() => []);
+      missionState.baselines = baselines;
+      
+      // Update baseline select dropdown
+      if (missionUI.baselineSelect) {
+        missionUI.baselineSelect.innerHTML = '<option value="">No baseline (skip comparison)</option>';
+        baselines.forEach(b => {
+          const isDefault = b.is_default ? ' ⭐' : '';
+          missionUI.baselineSelect.innerHTML += `<option value="${b.run_id}">${b.run_id}${isDefault} - ${b.description || 'No description'}</option>`;
+        });
+      }
+      
+      // Update quick list
+      renderBaselinesQuickList(baselines);
+      
+    } catch (e) {
+      console.error('[Mission] Failed to load baselines:', e);
+    }
+  }
+
+  function renderBaselinesQuickList(baselines) {
+    if (!missionUI.baselinesQuickList) return;
+    
+    if (!baselines || baselines.length === 0) {
+      missionUI.baselinesQuickList.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">No baselines yet. Complete a mission and mark it as baseline.</div>';
+      return;
+    }
+    
+    missionUI.baselinesQuickList.innerHTML = baselines.slice(0, 5).map(b => `
+      <div class="flex items-center justify-between p-2 rounded bg-slate-800/50 text-xs">
+        <div class="flex items-center gap-2">
+          ${b.is_default ? '<span class="text-amber-400">⭐</span>' : '<span class="text-slate-500">○</span>'}
+          <span class="font-mono text-slate-300">${b.run_id}</span>
+        </div>
+        <div class="text-slate-400">${b.description || '--'}</div>
+        <div class="text-slate-500">${formatRelativeTime(b.created_at)}</div>
+      </div>
+    `).join('');
+  }
+
+  function formatRelativeTime(timestamp) {
+    if (!timestamp) return '--';
+    const now = Date.now();
+    const ts = new Date(timestamp).getTime();
+    const diff = now - ts;
+    
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
+  }
+
+  function wireMissionEventHandlers() {
+    // Start Mission button
+    if (missionUI.btnStart) {
+      missionUI.btnStart.onclick = startMission;
+    }
+    
+    // Stop Mission button
+    if (missionUI.btnStop) {
+      missionUI.btnStop.onclick = stopMission;
+    }
+    
+    // Mark as Baseline button
+    if (missionUI.btnMarkBaseline) {
+      missionUI.btnMarkBaseline.onclick = () => openMarkBaselineModal();
+    }
+    
+    // Compare to Baseline button
+    if (missionUI.btnCompare) {
+      missionUI.btnCompare.onclick = runBaselineComparison;
+    }
+    
+    // Show Provenance button
+    if (missionUI.btnProvenance) {
+      missionUI.btnProvenance.onclick = showProvenance;
+    }
+    
+    // Manage Baselines button
+    if (missionUI.btnManageBaselines) {
+      missionUI.btnManageBaselines.onclick = openBaselineManager;
+    }
+    
+    // Close Results button
+    if (missionUI.btnCloseResults) {
+      missionUI.btnCloseResults.onclick = () => {
+        if (missionUI.resultsPanel) missionUI.resultsPanel.classList.add('hidden');
+      };
+    }
+    
+    // View Run Summary button
+    if (missionUI.btnViewSummary) {
+      missionUI.btnViewSummary.onclick = () => viewJsonArtifact('run_summary.json');
+    }
+    
+    // View Quality Report button
+    if (missionUI.btnViewQuality) {
+      missionUI.btnViewQuality.onclick = () => viewJsonArtifact('quality_report.json');
+    }
+    
+    // Open Run Folder button
+    if (missionUI.btnOpenFolder) {
+      missionUI.btnOpenFolder.onclick = openCurrentRunFolder;
+    }
+    
+    // Refresh Baselines button
+    if (missionUI.btnRefreshBaselines) {
+      missionUI.btnRefreshBaselines.onclick = loadMissionBaselines;
+    }
+    
+    // Modal close handlers
+    wireModalHandlers();
+  }
+
+  function wireModalHandlers() {
+    // Baseline Manager Modal
+    const closeBaselineManagerBtn = document.getElementById('closeBaselineManagerBtn');
+    const baselineManagerDoneBtn = document.getElementById('baselineManagerDoneBtn');
+    if (closeBaselineManagerBtn) closeBaselineManagerBtn.onclick = () => missionUI.baselineManagerModal?.close();
+    if (baselineManagerDoneBtn) baselineManagerDoneBtn.onclick = () => missionUI.baselineManagerModal?.close();
+    
+    // Provenance Modal
+    const closeProvenanceBtn = document.getElementById('closeProvenanceBtn');
+    const provenanceDoneBtn = document.getElementById('provenanceDoneBtn');
+    if (closeProvenanceBtn) closeProvenanceBtn.onclick = () => missionUI.provenanceModal?.close();
+    if (provenanceDoneBtn) provenanceDoneBtn.onclick = () => missionUI.provenanceModal?.close();
+    
+    // Mark Baseline Modal
+    const closeMarkBaselineBtn = document.getElementById('closeMarkBaselineBtn');
+    const cancelMarkBaselineBtn = document.getElementById('cancelMarkBaselineBtn');
+    const confirmMarkBaselineBtn = document.getElementById('confirmMarkBaselineBtn');
+    if (closeMarkBaselineBtn) closeMarkBaselineBtn.onclick = () => missionUI.markBaselineModal?.close();
+    if (cancelMarkBaselineBtn) cancelMarkBaselineBtn.onclick = () => missionUI.markBaselineModal?.close();
+    if (confirmMarkBaselineBtn) confirmMarkBaselineBtn.onclick = confirmMarkBaseline;
+    
+    // JSON Viewer Modal
+    const closeJsonViewerBtn = document.getElementById('closeJsonViewerBtn');
+    const jsonViewerDoneBtn = document.getElementById('jsonViewerDoneBtn');
+    if (closeJsonViewerBtn) closeJsonViewerBtn.onclick = () => missionUI.jsonViewerModal?.close();
+    if (jsonViewerDoneBtn) jsonViewerDoneBtn.onclick = () => missionUI.jsonViewerModal?.close();
+  }
+
+  async function startMission() {
+    if (!tauriInvoke || missionState.isRunning) return;
+    
+    const profile = missionUI.profileSelect?.value || 'default';
+    const durationMins = parseInt(missionUI.durationSelect?.value || '5', 10);
+    const baseline = missionUI.baselineSelect?.value || null;
+    
+    console.log('[Mission] Starting mission:', { profile, durationMins, baseline });
+    
+    // Update UI state
+    missionState.isRunning = true;
+    missionState.durationSeconds = durationMins * 60;
+    missionState.startTime = Date.now();
+    missionState.selectedBaseline = baseline;
+    
+    // Update buttons
+    if (missionUI.btnStart) missionUI.btnStart.classList.add('hidden');
+    if (missionUI.btnStop) missionUI.btnStop.classList.remove('hidden');
+    if (missionUI.btnMarkBaseline) missionUI.btnMarkBaseline.disabled = true;
+    if (missionUI.btnCompare) missionUI.btnCompare.disabled = true;
+    if (missionUI.btnProvenance) missionUI.btnProvenance.disabled = true;
+    
+    // Show status panel, hide results
+    if (missionUI.statusPanel) missionUI.statusPanel.classList.remove('hidden');
+    if (missionUI.resultsPanel) missionUI.resultsPanel.classList.add('hidden');
+    
+    try {
+      // Start the mission via Tauri
+      const result = await tauriInvoke('start_mission', {
+        profile,
+        durationSeconds: missionState.durationSeconds,
+        playbooks: null, // Use profile defaults
+      });
+      
+      missionState.runId = result.run_id;
+      missionState.runDir = result.run_dir;
+      
+      // Update status display
+      updateMissionStatus('running', `Capturing telemetry...`);
+      if (missionUI.statusSubtitle) missionUI.statusSubtitle.textContent = `run_id: ${missionState.runId}`;
+      
+      // Start polling counters
+      startCounterPolling();
+      
+      // Start progress updates
+      startProgressUpdates();
+      
+    } catch (e) {
+      console.error('[Mission] Failed to start:', e);
+      missionState.isRunning = false;
+      resetMissionUI();
+      showMissionError(e.message || 'Failed to start mission');
+    }
+  }
+
+  async function stopMission() {
+    if (!tauriInvoke || !missionState.isRunning) return;
+    
+    console.log('[Mission] Stopping mission');
+    
+    try {
+      await tauriInvoke('stop_mission');
+      await handleMissionComplete();
+    } catch (e) {
+      console.error('[Mission] Failed to stop:', e);
+      showMissionError(e.message || 'Failed to stop mission');
+    }
+  }
+
+  function startCounterPolling() {
+    // Clear any existing interval
+    if (missionState.counterPollInterval) {
+      clearInterval(missionState.counterPollInterval);
+    }
+    
+    // Poll every 1.5 seconds
+    missionState.counterPollInterval = setInterval(pollPipelineCounters, 1500);
+    
+    // Initial poll
+    pollPipelineCounters();
+  }
+
+  async function pollPipelineCounters() {
+    if (!tauriInvoke || !missionState.isRunning) return;
+    
+    try {
+      const counters = await tauriInvoke('get_pipeline_counters');
+      missionState.lastCounters = counters;
+      
+      // Update UI
+      if (missionUI.counterEvents) missionUI.counterEvents.textContent = counters.events_total?.toLocaleString() || '--';
+      if (missionUI.counterEventsRate) missionUI.counterEventsRate.textContent = `${counters.events_per_second?.toFixed(1) || '--'} /sec`;
+      if (missionUI.counterSegments) missionUI.counterSegments.textContent = counters.segments_written?.toLocaleString() || '--';
+      if (missionUI.counterBytes) missionUI.counterBytes.textContent = `${((counters.bytes_written || 0) / 1024).toFixed(1)} KB`;
+      if (missionUI.counterFacts) missionUI.counterFacts.textContent = counters.facts_extracted?.toLocaleString() || '--';
+      if (missionUI.counterSignals) missionUI.counterSignals.textContent = counters.signals_emitted?.toLocaleString() || '--';
+      
+    } catch (e) {
+      console.error('[Mission] Counter poll failed:', e);
+    }
+  }
+
+  function startProgressUpdates() {
+    if (missionState.progressInterval) {
+      clearInterval(missionState.progressInterval);
+    }
+    
+    missionState.progressInterval = setInterval(updateProgress, 1000);
+    updateProgress();
+  }
+
+  function updateProgress() {
+    if (!missionState.isRunning || !missionState.startTime) return;
+    
+    const elapsed = (Date.now() - missionState.startTime) / 1000;
+    const remaining = Math.max(0, missionState.durationSeconds - elapsed);
+    const percent = Math.min(100, (elapsed / missionState.durationSeconds) * 100);
+    
+    // Update time remaining
+    const mins = Math.floor(remaining / 60);
+    const secs = Math.floor(remaining % 60);
+    if (missionUI.timeRemaining) {
+      missionUI.timeRemaining.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    // Update progress bar
+    if (missionUI.progressBar) {
+      missionUI.progressBar.style.width = `${percent}%`;
+    }
+    
+    // Check if mission should complete
+    if (remaining <= 0 && missionState.isRunning) {
+      handleMissionComplete();
+    }
+  }
+
+  async function handleMissionComplete() {
+    console.log('[Mission] Mission complete');
+    
+    // Stop polling
+    if (missionState.counterPollInterval) {
+      clearInterval(missionState.counterPollInterval);
+      missionState.counterPollInterval = null;
+    }
+    if (missionState.progressInterval) {
+      clearInterval(missionState.progressInterval);
+      missionState.progressInterval = null;
+    }
+    
+    missionState.isRunning = false;
+    
+    // Update buttons
+    if (missionUI.btnStart) missionUI.btnStart.classList.remove('hidden');
+    if (missionUI.btnStop) missionUI.btnStop.classList.add('hidden');
+    if (missionUI.btnMarkBaseline) missionUI.btnMarkBaseline.disabled = false;
+    if (missionUI.btnCompare) missionUI.btnCompare.disabled = false;
+    if (missionUI.btnProvenance) missionUI.btnProvenance.disabled = false;
+    
+    // Hide status panel
+    if (missionUI.statusPanel) missionUI.statusPanel.classList.add('hidden');
+    
+    // Try to load and display results
+    await loadAndDisplayResults();
+  }
+
+  async function loadAndDisplayResults() {
+    if (!tauriInvoke || !missionState.runId) return;
+    
+    try {
+      // Get mission metrics/results
+      const metrics = await tauriInvoke('get_mission_metrics', { runId: missionState.runId }).catch(() => null);
+      
+      // Show results panel
+      if (missionUI.resultsPanel) missionUI.resultsPanel.classList.remove('hidden');
+      
+      // Update run ID display
+      if (missionUI.resultsRunId) missionUI.resultsRunId.textContent = `run_id: ${missionState.runId}`;
+      
+      // Update final stats
+      if (metrics) {
+        if (missionUI.finalEvents) missionUI.finalEvents.textContent = metrics.events_total?.toLocaleString() || missionState.lastCounters?.events_total?.toLocaleString() || '--';
+        if (missionUI.finalSegments) missionUI.finalSegments.textContent = metrics.segments_written?.toLocaleString() || missionState.lastCounters?.segments_written?.toLocaleString() || '--';
+        if (missionUI.finalFacts) missionUI.finalFacts.textContent = metrics.facts_extracted?.toLocaleString() || missionState.lastCounters?.facts_extracted?.toLocaleString() || '--';
+        if (missionUI.finalSignals) missionUI.finalSignals.textContent = metrics.signals_emitted?.toLocaleString() || missionState.lastCounters?.signals_emitted?.toLocaleString() || '--';
+      } else if (missionState.lastCounters) {
+        // Use last polled counters
+        if (missionUI.finalEvents) missionUI.finalEvents.textContent = missionState.lastCounters.events_total?.toLocaleString() || '--';
+        if (missionUI.finalSegments) missionUI.finalSegments.textContent = missionState.lastCounters.segments_written?.toLocaleString() || '--';
+        if (missionUI.finalFacts) missionUI.finalFacts.textContent = missionState.lastCounters.facts_extracted?.toLocaleString() || '--';
+        if (missionUI.finalSignals) missionUI.finalSignals.textContent = missionState.lastCounters.signals_emitted?.toLocaleString() || '--';
+      }
+      
+      // Load and display quality gates
+      await loadQualityGates();
+      
+      // If baseline was selected, run comparison
+      if (missionState.selectedBaseline) {
+        await runBaselineComparison();
+      }
+      
+      // Determine verdict emoji
+      const verdict = determineVerdict(metrics);
+      if (missionUI.resultsEmoji) missionUI.resultsEmoji.textContent = verdict.emoji;
+      if (missionUI.resultsTitle) missionUI.resultsTitle.textContent = verdict.title;
+      
+    } catch (e) {
+      console.error('[Mission] Failed to load results:', e);
+    }
+  }
+
+  async function loadQualityGates() {
+    if (!tauriInvoke || !missionUI.qualityGates) return;
+    
+    try {
+      // Try to read quality_report.json
+      const report = await tauriInvoke('read_run_artifact', {
+        runId: missionState.runId,
+        filename: 'quality_report.json'
+      }).catch(() => null);
+      
+      if (!report || !report.gates) {
+        // Show placeholder gates
+        missionUI.qualityGates.innerHTML = `
+          <div class="text-xs text-slate-500 col-span-full text-center py-2">
+            Quality gates not available for this run
+          </div>
+        `;
+        return;
+      }
+      
+      // Render quality gates
+      missionUI.qualityGates.innerHTML = report.gates.map(gate => {
+        const passed = gate.passed;
+        const bgColor = passed ? 'bg-emerald-900/50 border-emerald-700' : 'bg-red-900/50 border-red-700';
+        const icon = passed ? '✓' : '✗';
+        const iconColor = passed ? 'text-emerald-400' : 'text-red-400';
+        
+        return `
+          <div class="p-2 rounded border ${bgColor} text-center">
+            <div class="${iconColor} text-lg">${icon}</div>
+            <div class="text-xs text-slate-300 truncate" title="${gate.name}">${gate.name}</div>
+            <div class="text-xs text-slate-500">${gate.actual}/${gate.threshold}</div>
+          </div>
+        `;
+      }).join('');
+      
+    } catch (e) {
+      console.error('[Mission] Failed to load quality gates:', e);
+    }
+  }
+
+  function determineVerdict(metrics) {
+    // Simple heuristic for now
+    const signals = metrics?.signals_emitted || missionState.lastCounters?.signals_emitted || 0;
+    const events = metrics?.events_total || missionState.lastCounters?.events_total || 0;
+    
+    if (events === 0) {
+      return { emoji: '⚠️', title: 'No Events Captured' };
+    }
+    if (signals > 0) {
+      return { emoji: '✅', title: 'Mission Complete - Signals Detected' };
+    }
+    return { emoji: '✅', title: 'Mission Complete' };
+  }
+
+  async function runBaselineComparison() {
+    if (!tauriInvoke || !missionState.runId) return;
+    
+    const baselineId = missionState.selectedBaseline || missionUI.baselineSelect?.value;
+    if (!baselineId) {
+      console.log('[Mission] No baseline selected for comparison');
+      return;
+    }
+    
+    console.log('[Mission] Comparing against baseline:', baselineId);
+    
+    try {
+      const comparison = await tauriInvoke('compare_against_baseline', {
+        currentRunId: missionState.runId,
+        baselineRunId: baselineId
+      });
+      
+      // Show comparison results
+      if (missionUI.comparisonResults) {
+        missionUI.comparisonResults.classList.remove('hidden');
+      }
+      
+      // Determine comparison verdict
+      const hasRegressions = comparison.regressions && comparison.regressions.length > 0;
+      if (missionUI.comparisonEmoji) {
+        missionUI.comparisonEmoji.textContent = hasRegressions ? '⚠️' : '✅';
+      }
+      if (missionUI.comparisonTitle) {
+        missionUI.comparisonTitle.textContent = hasRegressions
+          ? `${comparison.regressions.length} Regression(s) Detected`
+          : 'No Regressions';
+      }
+      
+      // Render deltas
+      if (missionUI.comparisonDeltas && comparison.deltas) {
+        missionUI.comparisonDeltas.innerHTML = Object.entries(comparison.deltas).map(([key, delta]) => {
+          const isPositive = delta > 0;
+          const color = isPositive ? 'text-emerald-400' : (delta < 0 ? 'text-red-400' : 'text-slate-400');
+          const sign = isPositive ? '+' : '';
+          return `
+            <div class="bg-slate-900/50 rounded p-1.5">
+              <div class="text-slate-500">${key}</div>
+              <div class="${color}">${sign}${delta}</div>
+            </div>
+          `;
+        }).join('');
+      }
+      
+      // Show regressions if any
+      if (hasRegressions && missionUI.regressions && missionUI.regressionsList) {
+        missionUI.regressions.classList.remove('hidden');
+        missionUI.regressionsList.innerHTML = comparison.regressions.map(r => 
+          `<li>${r.name}: ${r.message}</li>`
+        ).join('');
+      } else if (missionUI.regressions) {
+        missionUI.regressions.classList.add('hidden');
+      }
+      
+    } catch (e) {
+      console.error('[Mission] Comparison failed:', e);
+    }
+  }
+
+  async function showProvenance() {
+    if (!tauriInvoke || !missionState.runId) return;
+    
+    console.log('[Mission] Loading provenance for run:', missionState.runId);
+    
+    const provenanceContent = document.getElementById('provenanceContent');
+    if (provenanceContent) {
+      provenanceContent.innerHTML = '<div class="text-xs text-slate-500 text-center py-8">Loading provenance data...</div>';
+    }
+    
+    // Open modal
+    missionUI.provenanceModal?.showModal();
+    
+    try {
+      const provenance = await tauriInvoke('prove_signal_origins', {
+        runId: missionState.runId
+      });
+      
+      if (!provenance || provenance.length === 0) {
+        if (provenanceContent) {
+          provenanceContent.innerHTML = '<div class="text-xs text-slate-500 text-center py-8">No provenance data available for this run</div>';
+        }
+        return;
+      }
+      
+      // Render provenance chain
+      if (provenanceContent) {
+        provenanceContent.innerHTML = provenance.map(item => `
+          <div class="mb-4 p-3 rounded bg-slate-800/50 border border-slate-700">
+            <div class="flex items-center gap-2 mb-2">
+              <span class="text-lg">${item.type === 'signal' ? '🔔' : (item.type === 'fact' ? '📝' : '📦')}</span>
+              <span class="font-medium text-slate-200">${item.name || item.id}</span>
+              <span class="text-xs text-slate-500">${item.type}</span>
+            </div>
+            ${item.source ? `
+              <div class="text-xs text-slate-400 mb-1">Source: ${item.source}</div>
+            ` : ''}
+            ${item.evidence && item.evidence.length > 0 ? `
+              <div class="mt-2 pl-4 border-l-2 border-slate-700">
+                <div class="text-xs text-slate-500 mb-1">Evidence:</div>
+                ${item.evidence.map(e => `
+                  <div class="text-xs text-slate-400 mb-1">• ${e.type}: ${e.summary || e.id}</div>
+                `).join('')}
+              </div>
+            ` : ''}
+          </div>
+        `).join('');
+      }
+      
+    } catch (e) {
+      console.error('[Mission] Failed to load provenance:', e);
+      if (provenanceContent) {
+        provenanceContent.innerHTML = `<div class="text-xs text-red-400 text-center py-8">Failed to load provenance: ${e.message}</div>`;
+      }
+    }
+  }
+
+  function openMarkBaselineModal() {
+    if (!missionState.runId) {
+      alert('No completed run to mark as baseline');
+      return;
+    }
+    
+    // Populate run ID
+    const runIdInput = document.getElementById('baselineRunId');
+    if (runIdInput) runIdInput.value = missionState.runId;
+    
+    // Clear description
+    const descInput = document.getElementById('baselineDescription');
+    if (descInput) descInput.value = '';
+    
+    // Show modal
+    missionUI.markBaselineModal?.showModal();
+  }
+
+  async function confirmMarkBaseline() {
+    if (!tauriInvoke || !missionState.runId) return;
+    
+    const description = document.getElementById('baselineDescription')?.value || '';
+    const setAsDefault = document.getElementById('setAsDefaultBaseline')?.checked ?? true;
+    
+    console.log('[Mission] Marking run as baseline:', { runId: missionState.runId, description, setAsDefault });
+    
+    try {
+      await tauriInvoke('mark_run_as_baseline', {
+        runId: missionState.runId,
+        description,
+        setAsDefault
+      });
+      
+      // Close modal
+      missionUI.markBaselineModal?.close();
+      
+      // Refresh baselines
+      await loadMissionBaselines();
+      
+      // Show success message (could be a toast)
+      alert('Run marked as baseline successfully!');
+      
+    } catch (e) {
+      console.error('[Mission] Failed to mark baseline:', e);
+      alert(`Failed to mark baseline: ${e.message}`);
+    }
+  }
+
+  async function openBaselineManager() {
+    const baselinesListContainer = document.getElementById('baselinesListContainer');
+    const defaultBaselineInfo = document.getElementById('defaultBaselineInfo');
+    
+    if (baselinesListContainer) {
+      baselinesListContainer.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">Loading...</div>';
+    }
+    
+    // Show modal
+    missionUI.baselineManagerModal?.showModal();
+    
+    try {
+      await loadMissionBaselines();
+      
+      // Find default baseline
+      const defaultBaseline = missionState.baselines.find(b => b.is_default);
+      if (defaultBaselineInfo) {
+        defaultBaselineInfo.textContent = defaultBaseline
+          ? `${defaultBaseline.run_id} - ${defaultBaseline.description || 'No description'}`
+          : 'None set';
+      }
+      
+      // Render full baselines list
+      if (baselinesListContainer) {
+        if (!missionState.baselines || missionState.baselines.length === 0) {
+          baselinesListContainer.innerHTML = '<div class="text-xs text-slate-500 text-center py-4">No baselines found</div>';
+        } else {
+          baselinesListContainer.innerHTML = missionState.baselines.map(b => `
+            <div class="flex items-center justify-between p-2 rounded bg-slate-800/50 mb-2 text-xs">
+              <div class="flex items-center gap-2 flex-1">
+                ${b.is_default ? '<span class="text-amber-400" title="Default">⭐</span>' : '<span class="text-slate-600">○</span>'}
+                <span class="font-mono text-slate-300">${b.run_id}</span>
+                <span class="text-slate-500">|</span>
+                <span class="text-slate-400 truncate max-w-[200px]">${b.description || '--'}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-600">${formatRelativeTime(b.created_at)}</span>
+                ${!b.is_default ? `
+                  <button class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-300" onclick="window.__missionSetDefault('${b.run_id}')">
+                    Set Default
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          `).join('');
+        }
+      }
+      
+    } catch (e) {
+      console.error('[Mission] Failed to load baseline manager:', e);
+      if (baselinesListContainer) {
+        baselinesListContainer.innerHTML = `<div class="text-xs text-red-400 text-center py-4">Failed to load: ${e.message}</div>`;
+      }
+    }
+  }
+
+  // Expose function for inline onclick
+  window.__missionSetDefault = async function(runId) {
+    if (!tauriInvoke) return;
+    try {
+      await tauriInvoke('set_default_baseline', { runId });
+      await openBaselineManager(); // Refresh
+    } catch (e) {
+      console.error('[Mission] Failed to set default:', e);
+      alert(`Failed to set default: ${e.message}`);
+    }
+  };
+
+  async function viewJsonArtifact(filename) {
+    if (!tauriInvoke || !missionState.runId) return;
+    
+    const jsonViewerTitle = document.getElementById('jsonViewerTitle');
+    const jsonViewerContent = document.getElementById('jsonViewerContent');
+    
+    if (jsonViewerTitle) jsonViewerTitle.textContent = filename;
+    if (jsonViewerContent) jsonViewerContent.textContent = 'Loading...';
+    
+    // Show modal
+    missionUI.jsonViewerModal?.showModal();
+    
+    try {
+      const content = await tauriInvoke('read_run_artifact', {
+        runId: missionState.runId,
+        filename
+      });
+      
+      if (jsonViewerContent) {
+        jsonViewerContent.textContent = JSON.stringify(content, null, 2);
+      }
+      
+    } catch (e) {
+      console.error('[Mission] Failed to read artifact:', e);
+      if (jsonViewerContent) {
+        jsonViewerContent.textContent = `Error: ${e.message}`;
+      }
+    }
+  }
+
+  async function openCurrentRunFolder() {
+    if (!tauriInvoke || !missionState.runDir) return;
+    
+    try {
+      await tauriInvoke('open_folder', { path: missionState.runDir });
+    } catch (e) {
+      console.error('[Mission] Failed to open folder:', e);
+    }
+  }
+
+  function updateMissionStatus(status, message) {
+    const statusMap = {
+      running: { icon: '▶️', badge: 'Running', badgeClass: 'bg-sky-700 text-sky-200' },
+      stopping: { icon: '⏸️', badge: 'Stopping', badgeClass: 'bg-amber-700 text-amber-200' },
+      complete: { icon: '✅', badge: 'Complete', badgeClass: 'bg-emerald-700 text-emerald-200' },
+      error: { icon: '❌', badge: 'Error', badgeClass: 'bg-red-700 text-red-200' },
+    };
+    
+    const s = statusMap[status] || statusMap.running;
+    
+    if (missionUI.statusIcon) missionUI.statusIcon.textContent = s.icon;
+    if (missionUI.statusTitle) missionUI.statusTitle.textContent = message;
+    if (missionUI.statusBadge) {
+      missionUI.statusBadge.textContent = s.badge;
+      missionUI.statusBadge.className = `px-2 py-1 rounded text-xs ${s.badgeClass}`;
+    }
+  }
+
+  function resetMissionUI() {
+    if (missionUI.btnStart) missionUI.btnStart.classList.remove('hidden');
+    if (missionUI.btnStop) missionUI.btnStop.classList.add('hidden');
+    if (missionUI.statusPanel) missionUI.statusPanel.classList.add('hidden');
+  }
+
+  function showMissionError(message) {
+    // Could show a toast or modal, for now just alert
+    alert(`Mission Error: ${message}`);
+  }
+
+  // Export initMissionUI for tab switching
+  window.initMissionUI = initMissionUI;

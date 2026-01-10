@@ -43,6 +43,8 @@ csv = "1"
 quick-xml = "0.37"
 sha2 = "0.10"
 zip = "2"
+# Database for baseline/pipeline counters
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }

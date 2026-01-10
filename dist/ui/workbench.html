@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Attack Documentation Workbench</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .section-editor { min-height: 200px; }
+    .technique-tag { cursor: pointer; }
+    .technique-tag:hover { opacity: 0.8; }
+    .doc-card { transition: all 0.2s; }
+    .doc-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    .modal { display: none; }
+    .modal.active { display: flex; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <div class="max-w-6xl mx-auto p-4">
+    <header class="flex items-center justify-between mb-6 border-b border-slate-800 pb-4">
+      <div>
+        <h1 class="text-2xl font-bold">Attack Documentation Workbench</h1>
+        <p class="text-slate-400 text-sm">Create, manage, and export attack documentation</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <span id="sessionStatus" class="text-xs px-2 py-1 rounded bg-slate-800">No session</span>
+        <button id="newDocBtn" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium">
+          + New Document
+        </button>
+      </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <!-- Document List Sidebar -->
+      <div class="lg:col-span-1">
+        <div class="rounded border border-slate-800 p-4">
+          <h2 class="text-sm font-semibold mb-3 text-slate-400 uppercase tracking-wide">Documents</h2>
+          <div id="documentList" class="space-y-2">
+            <p class="text-slate-500 text-sm">Loading...</p>
+          </div>
+        </div>
+        
+        <!-- MITRE Search -->
+        <div class="rounded border border-slate-800 p-4 mt-4">
+          <h2 class="text-sm font-semibold mb-3 text-slate-400 uppercase tracking-wide">MITRE Search</h2>
+          <input id="mitreSearch" type="text" placeholder="Search techniques..." 
+                 class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm mb-2" />
+          <div id="mitreResults" class="space-y-1 max-h-60 overflow-y-auto"></div>
+        </div>
+      </div>
+
+      <!-- Main Editor Area -->
+      <div class="lg:col-span-3">
+        <div id="editorArea" class="rounded border border-slate-800 p-6">
+          <p class="text-slate-500 text-center">Select or create a document to begin</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Document Modal -->
+  <div id="newDocModal" class="modal fixed inset-0 bg-black/60 items-center justify-center z-50">
+    <div class="bg-slate-900 rounded-lg p-6 w-full max-w-md">
+      <h3 class="text-lg font-semibold mb-4">New Document</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm text-slate-400 mb-1">Title</label>
+          <input id="newDocTitle" type="text" placeholder="e.g., Golden Ticket Attack Analysis" 
+                 class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2" />
+        </div>
+        <div>
+          <label class="block text-sm text-slate-400 mb-1">Author (optional)</label>
+          <input id="newDocAuthor" type="text" placeholder="Your name" 
+                 class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2" />
+        </div>
+      </div>
+      <div class="flex justify-end gap-3 mt-6">
+        <button id="cancelNewDoc" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Cancel</button>
+        <button id="createNewDoc" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Export Modal -->
+  <div id="exportModal" class="modal fixed inset-0 bg-black/60 items-center justify-center z-50">
+    <div class="bg-slate-900 rounded-lg p-6 w-full max-w-md">
+      <h3 class="text-lg font-semibold mb-4">Export Document</h3>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm text-slate-400 mb-2">Format</label>
+          <div class="flex gap-3">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="exportFormat" value="html" checked class="accent-sky-500" />
+              <span>HTML</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="exportFormat" value="markdown" class="accent-sky-500" />
+              <span>Markdown</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="exportFormat" value="json" class="accent-sky-500" />
+              <span>JSON</span>
+            </label>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm text-slate-400 mb-2">Theme (HTML only)</label>
+          <select id="exportTheme" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2">
+            <option value="professional">Professional</option>
+            <option value="dark">Dark</option>
+            <option value="minimal">Minimal</option>
+            <option value="technical">Technical</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex justify-end gap-3 mt-6">
+        <button id="cancelExport" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Cancel</button>
+        <button id="doExport" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm">Export</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // API helpers
+    const api = {
+      async get(path) {
+        const r = await fetch(`/api${path}`);
+        return r.json();
+      },
+      async post(path, body) {
+        const r = await fetch(`/api${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        return r.json();
+      },
+      async put(path, body) {
+        const r = await fetch(`/api${path}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        return r.json();
+      },
+      async del(path) {
+        const r = await fetch(`/api${path}`, { method: 'DELETE' });
+        return r.json();
+      }
+    };
+
+    // State
+    let documents = [];
+    let currentDoc = null;
+    let saveTimeout = null;
+
+    // DOM elements
+    const documentList = document.getElementById('documentList');
+    const editorArea = document.getElementById('editorArea');
+    const newDocModal = document.getElementById('newDocModal');
+    const exportModal = document.getElementById('exportModal');
+    const mitreSearch = document.getElementById('mitreSearch');
+    const mitreResults = document.getElementById('mitreResults');
+
+    // Load documents
+    async function loadDocuments() {
+      const res = await api.get('/documents');
+      if (res.success) {
+        documents = res.data;
+        renderDocumentList();
+      }
+    }
+
+    function renderDocumentList() {
+      if (documents.length === 0) {
+        documentList.innerHTML = '<p class="text-slate-500 text-sm">No documents yet</p>';
+        return;
+      }
+      documentList.innerHTML = documents.map(doc => `
+        <div class="doc-card p-3 rounded bg-slate-800/50 cursor-pointer ${currentDoc?.id === doc.id ? 'ring-2 ring-sky-500' : ''}" 
+             data-id="${doc.id}">
+          <div class="font-medium text-sm truncate">${escapeHtml(doc.title)}</div>
+          <div class="text-xs text-slate-500 mt-1">${new Date(doc.created_at).toLocaleDateString()}</div>
+        </div>
+      `).join('');
+      
+      documentList.querySelectorAll('.doc-card').forEach(card => {
+        card.addEventListener('click', () => loadDocument(card.dataset.id));
+      });
+    }
+
+    async function loadDocument(id) {
+      const res = await api.get(`/documents/${id}`);
+      if (res.success) {
+        currentDoc = res.data;
+        renderEditor();
+        renderDocumentList();
+      }
+    }
+
+    function renderEditor() {
+      if (!currentDoc) {
+        editorArea.innerHTML = '<p class="text-slate-500 text-center">Select or create a document to begin</p>';
+        return;
+      }
+
+      const techniques = currentDoc.techniques || [];
+      
+      editorArea.innerHTML = `
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-xl font-bold">${escapeHtml(currentDoc.title)}</h2>
+            <p class="text-sm text-slate-400">by ${escapeHtml(currentDoc.author || 'Unknown')} • Last updated: ${new Date(currentDoc.updated_at).toLocaleString()}</p>
+          </div>
+          <div class="flex gap-2">
+            <button id="pdfReportBtn" class="px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-sm">📄 PDF Report</button>
+            <button id="exportBtn" class="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-sm">Export</button>
+            <button id="deleteBtn" class="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-sm">Delete</button>
+          </div>
+        </div>
+        
+        <!-- Techniques -->
+        <div class="mb-6">
+          <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-2">MITRE ATT&CK Techniques</h3>
+          <div id="techniquesList" class="flex flex-wrap gap-2">
+            ${techniques.length === 0 ? '<span class="text-slate-500 text-sm">No techniques linked. Search and add from the sidebar.</span>' : 
+              techniques.map(t => `
+                <span class="technique-tag px-2 py-1 rounded bg-amber-700/50 text-sm" data-id="${t.id}">
+                  ${t.id}: ${escapeHtml(t.name)}
+                  <button class="ml-1 text-slate-400 hover:text-white remove-technique" data-id="${t.id}">&times;</button>
+                </span>
+              `).join('')
+            }
+          </div>
+        </div>
+
+        <!-- Summary Section -->
+        <div class="mb-6">
+          <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-2">Executive Summary</h3>
+          <textarea id="summaryEditor" class="section-editor w-full bg-slate-900 border border-slate-700 rounded p-3 text-sm resize-y"
+                    placeholder="Write an executive summary of the attack...">${escapeHtml(currentDoc.summary?.content || '')}</textarea>
+        </div>
+
+        <!-- Impact Section -->
+        <div class="mb-6">
+          <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-2">Business Impact</h3>
+          <textarea id="impactEditor" class="section-editor w-full bg-slate-900 border border-slate-700 rounded p-3 text-sm resize-y"
+                    placeholder="Describe the business impact and risk assessment...">${escapeHtml(currentDoc.impact?.content || '')}</textarea>
+        </div>
+      `;
+
+      // Wire up events
+      document.getElementById('pdfReportBtn').addEventListener('click', async () => {
+        if (!currentDoc) return;
+        const btn = document.getElementById('pdfReportBtn');
+        const originalText = btn.textContent;
+        btn.textContent = 'Generating...';
+        btn.disabled = true;
+        
+        try {
+          const response = await fetch('/api/report/pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              incident_id: currentDoc.id,
+              session_id: null,
+              include_excerpts: true,
+              include_visibility: true,
+              include_disambiguators: true
+            })
+          });
+          
+          if (response.ok) {
+            // Download PDF
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            // Get filename from Content-Disposition header or use default
+            const disposition = response.headers.get('Content-Disposition');
+            const filenameMatch = disposition && disposition.match(/filename="?([^"]+)"?/);
+            a.download = filenameMatch ? filenameMatch[1] : `edr_report_${currentDoc.id}.pdf`;
+            a.click();
+            URL.revokeObjectURL(url);
+          } else {
+            const error = await response.json();
+            alert(error.error || 'PDF generation failed');
+          }
+        } catch (e) {
+          console.error('PDF generation error:', e);
+          alert('PDF generation failed: ' + e.message);
+        } finally {
+          btn.textContent = originalText;
+          btn.disabled = false;
+        }
+      });
+
+      document.getElementById('exportBtn').addEventListener('click', () => {
+        exportModal.classList.add('active');
+      });
+      
+      document.getElementById('deleteBtn').addEventListener('click', async () => {
+        if (confirm('Delete this document?')) {
+          await api.del(`/documents/${currentDoc.id}`);
+          currentDoc = null;
+          loadDocuments();
+          renderEditor();
+        }
+      });
+
+      // Auto-save on edit
+      ['summaryEditor', 'impactEditor'].forEach(editorId => {
+        const editor = document.getElementById(editorId);
+        editor.addEventListener('input', () => {
+          clearTimeout(saveTimeout);
+          saveTimeout = setTimeout(() => saveSection(editorId), 1000);
+        });
+      });
+
+      // Remove technique
+      document.querySelectorAll('.remove-technique').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          // TODO: Add API endpoint to remove technique
+          console.log('Remove technique:', btn.dataset.id);
+        });
+      });
+    }
+
+    async function saveSection(editorId) {
+      if (!currentDoc) return;
+      const section = editorId === 'summaryEditor' ? 'summary' : 'impact';
+      const content = document.getElementById(editorId).value;
+      await api.put(`/documents/${currentDoc.id}/${section}`, { content });
+    }
+
+    // MITRE Search
+    let searchTimeout = null;
+    mitreSearch.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(async () => {
+        const query = mitreSearch.value.trim();
+        if (query.length < 2) {
+          mitreResults.innerHTML = '';
+          return;
+        }
+        const res = await api.post('/techniques/search', { query });
+        if (res.success && res.data) {
+          mitreResults.innerHTML = res.data.slice(0, 10).map(t => `
+            <div class="p-2 rounded bg-slate-800/50 hover:bg-slate-800 cursor-pointer text-sm technique-result" 
+                 data-id="${t.id}" data-name="${escapeHtml(t.name)}">
+              <span class="text-amber-400">${t.id}</span>: ${escapeHtml(t.name)}
+            </div>
+          `).join('');
+          
+          mitreResults.querySelectorAll('.technique-result').forEach(el => {
+            el.addEventListener('click', () => addTechnique(el.dataset.id, el.dataset.name));
+          });
+        }
+      }, 300);
+    });
+
+    async function addTechnique(id, name) {
+      if (!currentDoc) {
+        alert('Please select a document first');
+        return;
+      }
+      // TODO: Add API endpoint to add technique to document
+      console.log('Add technique:', id, name);
+      mitreSearch.value = '';
+      mitreResults.innerHTML = '';
+    }
+
+    // Modal handlers
+    document.getElementById('newDocBtn').addEventListener('click', () => {
+      newDocModal.classList.add('active');
+      document.getElementById('newDocTitle').value = '';
+      document.getElementById('newDocAuthor').value = '';
+    });
+
+    document.getElementById('cancelNewDoc').addEventListener('click', () => {
+      newDocModal.classList.remove('active');
+    });
+
+    document.getElementById('createNewDoc').addEventListener('click', async () => {
+      const title = document.getElementById('newDocTitle').value.trim();
+      if (!title) {
+        alert('Title is required');
+        return;
+      }
+      const author = document.getElementById('newDocAuthor').value.trim() || null;
+      const res = await api.post('/documents', { title, author });
+      if (res.success) {
+        newDocModal.classList.remove('active');
+        await loadDocuments();
+        await loadDocument(res.data.id);
+      } else {
+        alert(res.error || 'Failed to create document');
+      }
+    });
+
+    document.getElementById('cancelExport').addEventListener('click', () => {
+      exportModal.classList.remove('active');
+    });
+
+    document.getElementById('doExport').addEventListener('click', async () => {
+      if (!currentDoc) return;
+      const format = document.querySelector('input[name="exportFormat"]:checked').value;
+      const theme = document.getElementById('exportTheme').value;
+      
+      const res = await api.post(`/documents/${currentDoc.id}/export`, { format, theme });
+      if (res.success && res.data) {
+        // Create download
+        const blob = new Blob([res.data.content], { type: res.data.content_type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = res.data.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        exportModal.classList.remove('active');
+      } else {
+        alert(res.error || 'Export failed');
+      }
+    });
+
+    // Escape HTML
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Init
+    loadDocuments();
+  </script>
+</body>
+</html>

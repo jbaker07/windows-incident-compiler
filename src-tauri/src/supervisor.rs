@@ -507,6 +507,11 @@ impl Supervisor {
         }
     }
 
+    /// Get the telemetry root path
+    pub fn get_telemetry_root(&self) -> String {
+        self.telemetry_root.display().to_string()
+    }
+
     /// Stop all processes
     pub async fn stop_all(&mut self) -> Result<(), String> {
         self.shutdown_requested.store(true, Ordering::SeqCst);

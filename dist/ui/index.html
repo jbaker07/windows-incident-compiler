@@ -1,0 +1,3840 @@
+<!doctype html>
+<!-- MARKER vZZ -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>EDR Demo Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <!-- ============ FIRST-RUN WIZARD MODAL ============ -->
+  <dialog id="wizardModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-lg w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="text-center mb-6">
+        <div class="text-3xl mb-2">🔬</div>
+        <h2 class="text-xl font-semibold text-slate-100">Welcome to EDR Desktop</h2>
+        <p class="text-sm text-slate-400 mt-1">Let's get you set up in under a minute</p>
+      </div>
+
+      <!-- Step Indicator -->
+      <div class="flex justify-center gap-2 mb-6">
+        <div id="step1Dot" class="w-2 h-2 rounded-full bg-sky-500"></div>
+        <div id="step2Dot" class="w-2 h-2 rounded-full bg-slate-600"></div>
+        <div id="step3Dot" class="w-2 h-2 rounded-full bg-slate-600"></div>
+      </div>
+
+      <!-- Step 1: Mode Selection -->
+      <div id="wizardStep1" class="space-y-4">
+        <div class="text-sm font-medium text-slate-300 mb-3">Choose your workflow mode:</div>
+        <div class="grid grid-cols-2 gap-3">
+          <button id="modeDiscovery" type="button" class="p-4 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left group">
+            <div class="text-lg mb-1">🔍</div>
+            <div class="font-medium text-slate-200 group-hover:text-sky-400">Discovery</div>
+            <div class="text-xs text-slate-400">Explore telemetry, build hypotheses</div>
+          </button>
+          <button id="modeMission" type="button" class="p-4 rounded-lg border-2 border-slate-700 hover:border-emerald-500 transition-colors text-left group">
+            <div class="text-lg mb-1">🎯</div>
+            <div class="font-medium text-slate-200 group-hover:text-emerald-400">Mission</div>
+            <div class="text-xs text-slate-400">Structured investigation workflow</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2: Preset Selection -->
+      <div id="wizardStep2" class="hidden space-y-4">
+        <div class="text-sm font-medium text-slate-300 mb-3">Choose your environment preset:</div>
+        <div class="grid grid-cols-2 gap-3">
+          <button data-preset="htb" type="button" class="preset-btn p-3 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left">
+            <div class="font-medium text-slate-200">HTB</div>
+            <div class="text-xs text-slate-400">HackTheBox labs</div>
+          </button>
+          <button data-preset="atomic" type="button" class="preset-btn p-3 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left">
+            <div class="font-medium text-slate-200">Atomic</div>
+            <div class="text-xs text-slate-400">Atomic Red Team tests</div>
+          </button>
+          <button data-preset="tryhackme" type="button" class="preset-btn p-3 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left">
+            <div class="font-medium text-slate-200">TryHackMe</div>
+            <div class="text-xs text-slate-400">TryHackMe rooms</div>
+          </button>
+          <button data-preset="generic" type="button" class="preset-btn p-3 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left">
+            <div class="font-medium text-slate-200">Generic</div>
+            <div class="text-xs text-slate-400">Custom environment</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 3: Focus Window -->
+      <div id="wizardStep3" class="hidden space-y-4">
+        <div class="text-sm font-medium text-slate-300 mb-3">Set default focus window:</div>
+        <div class="space-y-3">
+          <div class="grid grid-cols-3 gap-2">
+            <button data-focus="5" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">5 min</button>
+            <button data-focus="15" type="button" class="focus-btn px-3 py-2 rounded border-2 border-sky-500 bg-sky-500/10 text-sm">15 min</button>
+            <button data-focus="30" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">30 min</button>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <button data-focus="60" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">1 hour</button>
+            <button data-focus="120" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">2 hours</button>
+            <button data-focus="240" type="button" class="focus-btn px-3 py-2 rounded border border-slate-700 hover:border-sky-500 text-sm">4 hours</button>
+          </div>
+        </div>
+        <div class="pt-4 border-t border-slate-700">
+          <label class="flex items-start gap-2 text-sm text-slate-300">
+            <input id="loadVerificationCheck" type="checkbox" class="mt-1 rounded bg-slate-800 border-slate-600" />
+            <div>
+              <div>Load verification pack (optional)</div>
+              <div class="text-xs text-slate-400">Synthetic data to verify installation and learn the workflow</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Navigation Buttons -->
+      <div class="flex justify-between mt-6 pt-4 border-t border-slate-800">
+        <button id="wizardBack" type="button" class="px-4 py-2 rounded text-slate-400 hover:text-slate-200 invisible">
+          ← Back
+        </button>
+        <button id="wizardNext" type="button" class="px-6 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+          Next →
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ LIVE SUCCESS DIAGNOSTIC MODAL ============ -->
+  <dialog id="liveSuccessModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <div id="liveSuccessEmoji" class="text-3xl mb-2">🔍</div>
+          <h2 id="liveSuccessTitle" class="text-xl font-semibold text-slate-100">Telemetry Check</h2>
+          <p id="liveSuccessSubtitle" class="text-sm text-slate-400 mt-1">Checking if sensors are working...</p>
+        </div>
+        <button id="closeLiveSuccessBtn" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+
+      <!-- Verdict Summary -->
+      <div id="liveSuccessVerdict" class="hidden p-4 rounded-lg mb-4">
+        <div class="flex items-center gap-3">
+          <span id="verdictIcon" class="text-2xl">✅</span>
+          <div>
+            <div id="verdictTitle" class="font-medium"></div>
+            <div id="verdictDesc" class="text-sm text-slate-400"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Issues -->
+      <div id="liveSuccessIssues" class="hidden mb-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-2">Issues Found:</h3>
+        <div id="issuesList" class="space-y-2 max-h-40 overflow-y-auto"></div>
+      </div>
+
+      <!-- Stream Status -->
+      <details id="streamDetails" class="hidden mb-4">
+        <summary class="cursor-pointer text-sm font-medium text-slate-300 py-2">Stream Status</summary>
+        <div id="streamsList" class="mt-2 space-y-1 max-h-40 overflow-y-auto text-xs"></div>
+      </details>
+
+      <!-- Probe Section -->
+      <div id="probeSection" class="hidden border-t border-slate-700 pt-4 mt-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-2">🧪 Run Harmless Probe</h3>
+        <p class="text-xs text-slate-400 mb-3">
+          Generate safe telemetry (echo command, temp file, localhost connect) to verify the full pipeline.
+        </p>
+        <div class="flex items-center gap-3">
+          <button id="runProbeBtn" type="button" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">
+            Run Probe
+          </button>
+          <span id="probeStatus" class="text-xs text-slate-400"></span>
+        </div>
+        <div id="probeResult" class="hidden mt-3 p-3 rounded bg-slate-800 text-xs">
+          <div id="probeResultContent"></div>
+        </div>
+      </div>
+
+      <!-- Recommended Actions -->
+      <div id="actionsSection" class="hidden border-t border-slate-700 pt-4 mt-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-2">Recommended Actions:</h3>
+        <div id="actionsList" class="space-y-2"></div>
+      </div>
+
+      <!-- Action Details Expandable -->
+      <div id="actionDetailsSection" class="hidden border-t border-slate-700 pt-4 mt-4">
+        <details>
+          <summary class="cursor-pointer text-sm font-medium text-slate-300 py-2">Fix Steps</summary>
+          <div id="actionDetailsContent" class="mt-2 p-3 rounded bg-slate-800 text-xs prose prose-invert prose-sm max-h-60 overflow-y-auto"></div>
+        </details>
+      </div>
+
+      <!-- Footer -->
+      <div class="flex justify-between items-center mt-6 pt-4 border-t border-slate-800">
+        <label class="flex items-center gap-2 text-sm text-slate-400">
+          <input id="loadVerificationCheckAlt" type="checkbox" class="rounded bg-slate-800 border-slate-600" />
+          <span>Load verification pack (optional)</span>
+        </label>
+        <button id="liveSuccessDone" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">
+          Done
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ VERIFICATION PACK LOADED BANNER ============ -->
+  <div id="verificationBanner" class="hidden fixed top-0 left-0 right-0 bg-amber-700/90 text-amber-100 px-4 py-2 z-50">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">⚠️</span>
+        <div>
+          <span class="font-medium">Verification pack loaded (synthetic data)</span>
+          <span class="text-amber-200 text-sm ml-2">Switch to Live mode to view real telemetry</span>
+        </div>
+      </div>
+      <button id="clearVerificationBtn" class="px-3 py-1 rounded bg-amber-800 hover:bg-amber-900 text-sm">
+        Clear verification data
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ VERIFICATION DATA LOADED TOAST ============ -->
+  <div id="verificationToast" class="fixed bottom-4 right-4 bg-amber-800/90 text-amber-100 px-4 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 z-50">
+    <div class="flex items-center gap-3">
+      <span class="text-lg">🔬</span>
+      <div>
+        <div class="font-medium text-sm">Verification pack loaded</div>
+        <div class="text-xs text-amber-200">Synthetic data - explore the workflow</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Desktop App Status Bar (hidden in browser, shown in Tauri) -->
+  <div id="desktopStatusBar" class="hidden bg-slate-900/80 border-b border-slate-800 px-4 py-2 text-xs">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <span class="flex items-center gap-1.5">
+          <span id="statusDot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span id="statusText">Backend running</span>
+        </span>
+        <span class="text-slate-500">|</span>
+        <span id="statusPort" class="text-slate-400">Port: --</span>
+        <span class="text-slate-500">|</span>
+        <span id="statusTelemetry" class="text-slate-400 truncate max-w-[300px]">Telemetry: --</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="openTelemetryBtn" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300">
+          Open Telemetry Folder
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ IMPORTED BUNDLE BANNER ============ -->
+  <div id="importedBundleBanner" class="hidden fixed top-0 left-0 right-0 bg-amber-600/95 text-amber-50 px-4 py-2 z-50 border-b-2 border-amber-500">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">📦</span>
+        <div>
+          <span class="font-bold">⚠️ IMPORTED BUNDLE</span>
+          <span class="text-amber-200 text-sm ml-2">This data is from an external source, not live telemetry</span>
+          <span id="importedBundleInfo" class="text-amber-100 text-sm ml-2 font-medium"></span>
+        </div>
+      </div>
+      <button id="clearImportedBtn" class="px-3 py-1 rounded bg-amber-700 hover:bg-amber-800 text-sm font-medium">
+        Clear imported data
+      </button>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto p-4">
+    <header class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-2">
+        <h1 class="text-xl font-semibold">EDR Demo</h1>
+        <span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-emerald-700/70">live</span>
+      </div>
+      <div class="flex items-center gap-4 text-sm text-slate-400">
+        <span id="statEvents">events: 0</span>
+        <span id="statAlerts">alerts: 0</span>
+        <span id="statNodes">nodes: 0</span>
+        <span id="statEdges">edges: 0</span>
+        <span id="statDrops">bpf_drops: 0</span>
+        <button id="exportBundleBtn" type="button" class="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-emerald-100 text-xs">
+          📤 Export Bundle
+        </button>
+        <label class="px-2 py-1 rounded bg-violet-700 hover:bg-violet-600 text-violet-100 text-xs cursor-pointer">
+          📥 Import Bundle
+          <input id="importBundleInput" type="file" accept=".zip,.json" class="hidden" />
+        </label>
+        <button id="exportSupportBundleBtn" type="button" class="px-2 py-1 rounded bg-amber-700 hover:bg-amber-600 text-amber-100 text-xs">
+          🆘 Export Support Bundle
+        </button>
+        <a class="underline decoration-sky-500/60 hover:decoration-sky-400" href="/ui/graph.html">Open Live Graph</a>
+      </div>
+    </header>
+
+    <!-- ============ ADMIN WARNING BANNER ============ -->
+    <div id="adminWarningBanner" class="hidden bg-amber-700/90 text-amber-100 px-4 py-2 rounded-lg mb-4">
+      <div class="flex items-center gap-3">
+        <span class="text-lg">⚠️</span>
+        <div>
+          <span class="font-medium">Limited Telemetry Mode</span>
+          <span class="text-amber-200 text-sm ml-2">Running without admin rights. Some Windows event channels unavailable.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ RUN CONTROL PANEL (Tauri Desktop) ============ -->
+    <div id="runControlPanel" class="hidden bg-slate-900/80 border border-emerald-700/50 rounded-lg p-4 mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-3">
+          <span id="runStatusIcon" class="text-2xl">⏹️</span>
+          <div>
+            <div id="runStatusText" class="font-semibold text-slate-100">Stack Stopped</div>
+            <div id="runStatusSub" class="text-xs text-slate-400">Ready to start capture</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="adminBadge" class="px-2 py-1 rounded text-xs bg-slate-700 text-slate-400">Checking...</span>
+          <button id="btnOpenTelemetry" onclick="window.__edrDesktop?.openTelemetryFolder()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">📂 Telemetry</button>
+          <button id="btnOpenLogs" onclick="window.__edrDesktop?.openLogsFolder()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">📋 Logs</button>
+        </div>
+      </div>
+      
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <!-- Time Window -->
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Duration</label>
+          <select id="runDuration" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-sm">
+            <option value="2">2 minutes</option>
+            <option value="5">5 minutes</option>
+            <option value="10" selected>10 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+          </select>
+        </div>
+        
+        <!-- Playbooks Selection -->
+        <div class="md:col-span-2">
+          <label class="block text-xs font-medium text-slate-300 mb-1">Playbooks (optional, all if empty)</label>
+          <div id="playbookSelector" class="flex flex-wrap gap-1 max-h-20 overflow-auto bg-slate-800 border border-slate-700 rounded p-1.5">
+            <span class="text-xs text-slate-500">Loading...</span>
+          </div>
+        </div>
+        
+        <!-- Live Stats -->
+        <div class="text-right">
+          <div class="text-xs text-slate-400 mb-1">Live Stats</div>
+          <div class="grid grid-cols-2 gap-x-2 text-xs">
+            <span class="text-slate-500">Segments:</span><span id="runSegments" class="text-slate-200">--</span>
+            <span class="text-slate-500">Signals:</span><span id="runSignals" class="text-emerald-400">--</span>
+            <span class="text-slate-500">Remaining:</span><span id="runRemaining" class="text-slate-200">--</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Control Buttons -->
+      <div class="flex items-center gap-3">
+        <button id="btnStartRun" onclick="window.__edrDesktop?.startRun()" class="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+          <span>▶️</span> Start Run
+        </button>
+        <button id="btnStopRun" onclick="window.__edrDesktop?.stopRun()" class="hidden flex-1 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
+          <span>⏹️</span> Stop Run
+        </button>
+        <button id="btnGenerateActivity" onclick="window.__edrDesktop?.openScenarioRunner()" class="px-4 py-2.5 rounded-lg bg-amber-700 hover:bg-amber-600 text-sm" title="Generate safe test activity to trigger playbook matches">
+          🧪 Scenarios
+        </button>
+        <button id="btnReadiness" onclick="window.__edrDesktop?.openReadinessCheck()" class="px-4 py-2.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-sm" title="Check system telemetry readiness">
+          🔧 Readiness
+        </button>
+        <button id="btnHistory" onclick="window.__edrDesktop?.openRunHistory()" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm" title="View run history">
+          📁 History
+        </button>
+        <button id="btnMetrics" onclick="window.__edrDesktop?.showMetrics()" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm">
+          📊 Metrics
+        </button>
+      </div>
+      
+      <!-- Error Display -->
+      <div id="runErrorBox" class="hidden mt-3 p-3 rounded bg-red-900/50 border border-red-700 text-sm text-red-200"></div>
+      
+      <!-- Activity Generation Status -->
+      <div id="activityStatusBox" class="hidden mt-3 p-3 rounded bg-amber-900/30 border border-amber-700 text-sm text-amber-200"></div>
+    </div>
+
+    <!-- KPI row (app.js refreshKPIs fills this) -->
+    <div id="kpis" class="kpi-row mb-4"></div>
+
+    <nav class="flex gap-2 text-sm mb-4">
+      <button id="tabDash" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Dashboard</button>
+      <button id="tabImport" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">📦 Import Cases</button>
+      <button id="tabIntegrations" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Integrations</button>
+      <button id="tabCompare" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">🔀 Compare Runs</button>
+      <button id="tabLicense" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">🔑 License</button>
+    </nav>
+
+    <section id="screenDash">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 rounded border border-slate-800">
+          <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+            <div class="text-sm font-medium">Alerts (live)</div>
+            <div class="flex items-center gap-2 text-xs">
+              <input id="search" placeholder="filter…" class="bg-slate-900 border border-slate-700 rounded px-2 py-1" />
+              <select id="sevFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1">
+                <option value="">all severities</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+          </div>
+          <div class="overflow-auto max-h-[420px]">
+            <table class="w-full text-sm">
+              <thead class="text-slate-400 sticky top-0 bg-slate-950">
+                <tr>
+                  <th class="text-left px-3 py-2">time</th>
+                  <th class="text-left px-3 py-2">sev</th>
+                  <th class="text-left px-3 py-2">risk</th>
+                  <th class="text-left px-3 py-2">event</th>
+                  <th class="text-left px-3 py-2">findings</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="rounded border border-slate-800 p-3">
+          <div class="text-sm font-medium mb-2">Timeline</div>
+          <canvas id="timeline" height="200"></canvas>
+        </div>
+
+        <div id="incidents" class="rounded border border-slate-800 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-medium">Incidents (rollups)</div>
+          </div>
+          <p class="text-xs text-slate-400 mb-2">No incidents yet.</p>
+          <ul id="incList" class="divide-y divide-slate-800"></ul>
+        </div>
+
+        <!-- Signals Panel with Explain Button -->
+        <div id="signalsPanel" class="rounded border border-emerald-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-medium text-emerald-400">🔔 Playbook Signals</div>
+            <button id="refreshSignalsBtn" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Refresh</button>
+          </div>
+          <p id="signalsEmpty" class="text-xs text-slate-400 mb-2">No signals yet. Run playbook-based detection to generate signals.</p>
+          <ul id="signalsList" class="divide-y divide-slate-800 max-h-64 overflow-auto"></ul>
+        </div>
+
+        <!-- Signal Explanation Modal -->
+        <dialog id="explainModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+          <div class="p-6">
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <h2 id="explainModalTitle" class="text-xl font-semibold text-slate-100">Signal Explanation</h2>
+                <p id="explainModalSubtitle" class="text-sm text-slate-400 mt-1">Loading...</p>
+              </div>
+              <button id="closeExplainModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+            </div>
+
+            <!-- Summary -->
+            <div id="explainSummary" class="p-3 rounded-lg bg-slate-800/50 mb-4 text-sm"></div>
+
+            <!-- Slots Table -->
+            <div class="mb-4">
+              <h3 class="text-sm font-medium text-slate-300 mb-2">Slot Fills</h3>
+              <div id="explainSlots" class="overflow-auto max-h-48">
+                <table class="w-full text-xs">
+                  <thead class="text-slate-400 border-b border-slate-700">
+                    <tr>
+                      <th class="text-left py-1 px-2">Slot</th>
+                      <th class="text-left py-1 px-2">Required</th>
+                      <th class="text-left py-1 px-2">Status</th>
+                      <th class="text-left py-1 px-2">Predicate</th>
+                      <th class="text-left py-1 px-2">Facts</th>
+                    </tr>
+                  </thead>
+                  <tbody id="explainSlotsBody" class="divide-y divide-slate-800"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Evidence Pointers -->
+            <div class="mb-4">
+              <h3 class="text-sm font-medium text-slate-300 mb-2">Evidence</h3>
+              <div id="explainEvidence" class="text-xs font-mono bg-slate-950/70 rounded p-2 max-h-40 overflow-auto space-y-2"></div>
+            </div>
+
+            <!-- Entities -->
+            <div class="mb-4">
+              <h3 class="text-sm font-medium text-slate-300 mb-2">Entities</h3>
+              <div id="explainEntitiesBundle" class="text-xs grid grid-cols-2 md:grid-cols-4 gap-2"></div>
+            </div>
+
+            <!-- Limitations -->
+            <div id="explainLimitations" class="hidden mb-4">
+              <h3 class="text-sm font-medium text-amber-400 mb-2">⚠️ Limitations</h3>
+              <ul id="explainLimitationsList" class="text-xs text-slate-400 list-disc list-inside"></ul>
+            </div>
+
+            <!-- Counters -->
+            <div class="text-xs text-slate-500 flex gap-4">
+              <span>Required: <span id="counterReqFilled">0</span>/<span id="counterReqTotal">0</span></span>
+              <span>Optional: <span id="counterOptFilled">0</span>/<span id="counterOptTotal">0</span></span>
+              <span>Facts: <span id="counterFacts">0</span></span>
+            </div>
+
+            <div class="flex justify-end mt-6 pt-4 border-t border-slate-800">
+              <button id="explainDoneBtn" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">Done</button>
+            </div>
+          </div>
+        </dialog>
+
+        <!-- Narrative Panel Modal -->
+        <dialog id="narrativeModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-4xl w-full backdrop:bg-slate-950/80">
+          <div class="p-6 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <h2 id="narrativeModalTitle" class="text-xl font-semibold text-slate-100">📜 Signal Narrative</h2>
+                <p id="narrativeModalSubtitle" class="text-sm text-slate-400 mt-1">Evidence-cited explanation</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="narrativeModeTag" class="px-2 py-0.5 text-xs rounded bg-emerald-600/20 text-emerald-400">Discovery</span>
+                <button id="closeNarrativeModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+              </div>
+            </div>
+
+            <!-- Narrative Sentences -->
+            <div class="mb-6">
+              <h3 class="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                <span>📋 Narrative</span>
+                <span id="narrativeValidation" class="text-xs px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400">✓ Valid</span>
+              </h3>
+              <div id="narrativeSentences" class="space-y-2"></div>
+            </div>
+
+            <!-- Top 3 Hypotheses Arbitration -->
+            <div class="mb-6 p-4 rounded-lg bg-slate-800/50">
+              <h3 class="text-sm font-medium text-amber-400 mb-3">⚖️ Top 3 Hypotheses Arbitration</h3>
+              <div id="arbitrationSection" class="space-y-3">
+                <!-- Winner -->
+                <div class="p-3 rounded-lg border border-emerald-600/50 bg-emerald-900/20">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-medium text-emerald-400">#1 Winner</span>
+                    <span id="arbWinnerName" class="text-sm text-slate-200">—</span>
+                  </div>
+                  <div class="text-xs text-slate-300 mb-2">
+                    <span class="text-slate-400">Slots:</span>
+                    <span id="arbWinnerSlots">—</span>
+                  </div>
+                  <div class="text-xs">
+                    <div class="text-emerald-400 mb-1">Why it won:</div>
+                    <ul id="arbWinReasons" class="list-disc list-inside text-slate-300"></ul>
+                  </div>
+                </div>
+                <!-- Runner Up -->
+                <div id="arbRunnerUpSection" class="p-3 rounded-lg border border-slate-700 bg-slate-800/30">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-medium text-slate-400">#2 Runner Up</span>
+                    <span id="arbRunnerUpName" class="text-sm text-slate-300">—</span>
+                  </div>
+                  <div class="text-xs text-slate-300 mb-2">
+                    <span class="text-slate-400">Slots:</span>
+                    <span id="arbRunnerUpSlots">—</span>
+                  </div>
+                  <div class="text-xs">
+                    <div class="text-rose-400 mb-1">Why it lost:</div>
+                    <ul id="arbRunnerUpLoss" class="list-disc list-inside text-slate-400"></ul>
+                  </div>
+                </div>
+                <!-- Third -->
+                <div id="arbThirdSection" class="hidden p-3 rounded-lg border border-slate-700/50 bg-slate-800/20">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="font-medium text-slate-500">#3</span>
+                    <span id="arbThirdName" class="text-sm text-slate-400">—</span>
+                  </div>
+                  <div class="text-xs">
+                    <div class="text-rose-400/70 mb-1">Why it lost:</div>
+                    <ul id="arbThirdLoss" class="list-disc list-inside text-slate-500"></ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Disambiguation Questions -->
+            <div id="disambiguationSection" class="mb-6 p-4 rounded-lg bg-slate-800/50">
+              <h3 class="text-sm font-medium text-sky-400 mb-3 flex items-center gap-2">
+                <span>❓ Questions & Next Steps</span>
+                <span id="ambiguityScore" class="text-xs px-2 py-0.5 rounded bg-sky-600/20 text-sky-300">Low ambiguity</span>
+              </h3>
+              <div id="disambiguationQuestions" class="space-y-2 mb-4"></div>
+              <div id="pivotActions" class="space-y-2"></div>
+              <div id="capabilitySuggestions" class="mt-3 pt-3 border-t border-slate-700"></div>
+            </div>
+
+            <!-- User Actions -->
+            <div class="mb-4 flex flex-wrap gap-2">
+              <button id="btnPinSentence" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
+                <span>📌</span> Pin Selected
+              </button>
+              <button id="btnHideSentence" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
+                <span>👁️</span> Hide Selected
+              </button>
+              <button id="btnVerifyEvidence" class="px-3 py-1.5 text-xs rounded bg-emerald-700 hover:bg-emerald-600 flex items-center gap-1">
+                <span>✓</span> Verify Evidence
+              </button>
+              <button id="btnExportNarrative" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
+                <span>📤</span> Export JSON
+              </button>
+            </div>
+
+            <div class="flex justify-end mt-6 pt-4 border-t border-slate-800">
+              <button id="narrativeDoneBtn" type="button" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 font-medium text-sm">Done</button>
+            </div>
+          </div>
+        </dialog>
+
+        <!-- Evidence Receipt Tooltip (reusable) -->
+        <div id="evidenceReceiptTooltip" class="hidden fixed z-50 p-3 max-w-md bg-slate-800 border border-slate-600 rounded-lg shadow-xl text-xs">
+          <div class="font-medium text-sky-400 mb-2">📄 Evidence Receipt</div>
+          <div id="receiptContent" class="space-y-2"></div>
+        </div>
+
+        <!-- Entity Filter Sidebar -->
+        <div id="entityFilterPanel" class="hidden rounded border border-cyan-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-medium text-cyan-400">🔍 Filter by Entity</div>
+            <button id="btnClearEntityFilter" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Clear filter</button>
+          </div>
+          <div id="entityFilterActiveLabel" class="hidden text-xs text-cyan-300 mb-2 px-2 py-1 bg-cyan-900/30 rounded">
+            Filtering: <span id="entityFilterActiveValue" class="font-semibold"></span>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Executables</div>
+              <ul id="entityListExecutable" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Users</div>
+              <ul id="entityListUser" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Processes</div>
+              <ul id="entityListProcess" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Files</div>
+              <ul id="entityListFile" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+            <div>
+              <div class="text-xs font-medium text-slate-400 mb-1">Sockets</div>
+              <ul id="entityListSocket" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
+            </div>
+          </div>
+        </div>
+        <!-- End Entity Filter Sidebar -->
+
+        <!-- Explain panel header hook; app.js can call attachExplainSummary(alertId) -->
+        <div class="rounded border border-slate-800 lg:col-span-3">
+          <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+            <div class="text-sm font-medium">Explain</div>
+            <div id="explainHeader" class="text-xs"></div>
+          </div>
+          <!-- Why This Hypothesis Panel -->
+          <div id="whyHypothesisPanel" class="hidden p-3 border-b border-slate-800 bg-slate-900/40">
+            <div class="text-sm font-semibold text-cyan-400 mb-3">🤔 Why This Hypothesis?</div>
+            <div class="space-y-3">
+              <!-- Top 3 Hypotheses -->
+              <div>
+                <div class="text-xs font-medium text-slate-400 mb-2">Top Candidates</div>
+                <div id="top3HypothesesList" class="space-y-1 text-xs"></div>
+              </div>
+              <!-- Key Claims -->
+              <div>
+                <div class="text-xs font-medium text-slate-400 mb-2">Key Claims</div>
+                <div id="keyClaimsList" class="space-y-1 text-xs max-h-32 overflow-auto"></div>
+              </div>
+              <!-- Evidence Pointers -->
+              <div>
+                <div class="text-xs font-medium text-slate-400 mb-2">Evidence Pointers</div>
+                <div id="evidencePointersList" class="space-y-1 text-xs max-h-24 overflow-auto font-mono bg-slate-950/70 rounded p-1"></div>
+              </div>
+              <!-- Visibility State -->
+              <div>
+                <div class="text-xs font-medium text-slate-400 mb-1">Visibility</div>
+                <div id="visibilityStateSummary" class="text-xs text-slate-400"></div>
+              </div>
+            </div>
+          </div>
+          <!-- Optional containers you can populate later from app.js (entities/anomalies/recs) -->
+          <div class="p-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div>
+              <div class="font-semibold mb-1 text-slate-300">Entities</div>
+              <pre id="explainEntities" class="bg-slate-900/70 border border-slate-800 rounded p-2 max-h-40 overflow-auto"></pre>
+            </div>
+            <div>
+              <div class="font-semibold mb-1 text-slate-300">Anomalies</div>
+              <ul id="explainAnoms" class="list-disc list-inside space-y-1 text-slate-300"></ul>
+            </div>
+            <div>
+              <div class="font-semibold mb-1 text-slate-300">Recommendations</div>
+              <ul id="explainRecs" class="list-disc list-inside space-y-1 text-slate-300"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- >>> THIS BLOCK IS THE MARKER YOU'LL TEST FOR <<< -->
+        <div class="rounded border border-slate-800 p-3 lg:col-span-3">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <div class="text-sm font-medium mb-2">Playbooks (live stream)</div>
+              <ul id="pb-feed" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
+            </div>
+            <div>
+              <div class="text-sm font-medium mb-2">Recent hits</div>
+              <ul id="pb-hits" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
+            </div>
+            <div>
+              <div class="text-sm font-medium mb-2">Pending matches</div>
+              <ul id="pb-pending" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ ANALYST WORKFLOW PANEL ============ -->
+        <div id="analystWorkflow" class="rounded border border-sky-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-sky-400">🔬 Analyst Workflow</div>
+            <div id="visibilityBadge" class="text-xs px-2 py-0.5 rounded bg-emerald-700/70">visibility: ok</div>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- Focus Window Control -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Focus Window</div>
+              <div class="space-y-2 text-xs">
+                <div class="flex gap-1">
+                  <input id="focusFrom" type="datetime-local" class="flex-1 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs" />
+                </div>
+                <div class="flex gap-1">
+                  <input id="focusTo" type="datetime-local" class="flex-1 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs" />
+                </div>
+                <button id="btnSetFocus" type="button" class="w-full px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs">Set Focus</button>
+                <div id="focusStatus" class="text-slate-400 text-[10px]">Default: last 1 hour</div>
+              </div>
+            </div>
+
+            <!-- Checkpoints -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Checkpoints</div>
+              <div class="space-y-2 text-xs">
+                <input id="checkpointLabel" placeholder="checkpoint label" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs" />
+                <button id="btnCreateCheckpoint" type="button" class="w-full px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs">Create Checkpoint</button>
+                <select id="checkpointList" class="w-full bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs">
+                  <option value="">-- select checkpoint --</option>
+                </select>
+                <button id="btnRestoreCheckpoint" type="button" class="w-full px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-xs">Restore</button>
+              </div>
+            </div>
+
+            <!-- Diff View -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Diff View</div>
+              <div class="space-y-2 text-xs">
+                <button id="btnShowDiff" type="button" class="w-full px-2 py-1 rounded bg-violet-600 hover:bg-violet-500 text-xs">Show Changes</button>
+                <div id="diffSummary" class="text-slate-400 text-[10px] max-h-20 overflow-auto">
+                  No diff loaded
+                </div>
+              </div>
+            </div>
+
+            <!-- Disambiguators -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Disambiguators</div>
+              <div class="space-y-2 text-xs">
+                <select id="disambiguatorList" class="w-full bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs">
+                  <option value="">-- select action --</option>
+                </select>
+                <button id="btnApplyDisambiguator" type="button" class="w-full px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-xs">Apply Pivot</button>
+                <div id="disambiguatorResult" class="text-slate-400 text-[10px] max-h-16 overflow-auto"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- ============ END ANALYST WORKFLOW PANEL ============ -->
+
+        <!-- ============ CAPTURE CONTROL PANEL ============ -->
+        <div id="captureControlPanel" class="rounded border border-amber-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-amber-400">⚙️ Capture Control</div>
+            <div class="flex items-center gap-2">
+              <div id="throttleBadge" class="text-xs px-2 py-0.5 rounded bg-emerald-700/70">throttling: ok</div>
+              <div id="profileBadge" class="text-xs px-2 py-0.5 rounded bg-sky-700/70">profile: core</div>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <!-- Profile Selector -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Capture Profile</div>
+              <div class="space-y-2 text-xs">
+                <select id="profileSelector" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs">
+                  <option value="core" selected>Core (safe baseline)</option>
+                  <option value="extended">Extended (moderate)</option>
+                  <option value="forensic">Forensic (high resource)</option>
+                </select>
+                <div id="profileDescription" class="text-slate-400 text-[10px]">Minimal sensors, safe for dev laptops</div>
+                <button id="btnApplyProfile" type="button" class="w-full px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-xs">Apply Profile</button>
+              </div>
+            </div>
+
+            <!-- Throttle Stats -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Throttle Stats</div>
+              <div class="space-y-1 text-xs">
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Accepted:</span>
+                  <span id="throttleAccepted" class="text-emerald-400">0</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Dropped:</span>
+                  <span id="throttleDropped" class="text-rose-400">0</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Global tokens:</span>
+                  <span id="throttleTokens" class="text-sky-400">--</span>
+                </div>
+                <button id="btnResetThrottle" type="button" class="w-full px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs mt-1">Reset Counters</button>
+              </div>
+            </div>
+
+            <!-- Enabled Sensors Summary -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Active Sensors</div>
+              <div class="space-y-1 text-xs">
+                <div id="sensorsList" class="text-slate-400 text-[10px] max-h-16 overflow-auto">
+                  Loading...
+                </div>
+              </div>
+            </div>
+
+            <!-- Degraded Reasons (if any) -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Visibility Status</div>
+              <div id="degradedReasons" class="space-y-1 text-xs text-slate-400 text-[10px] max-h-20 overflow-auto">
+                No issues detected
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- ============ END CAPTURE CONTROL PANEL ============ -->
+
+        <!-- ============ THROTTLE DEGRADED BANNER (conditionally shown) ============ -->
+        <div id="throttleDegradedBanner" class="hidden rounded border border-rose-700/50 bg-rose-900/30 p-2 lg:col-span-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-rose-400">⚠️</span>
+              <span class="text-sm text-rose-300">Visibility degraded due to throttling</span>
+            </div>
+            <span id="throttleDegradedDetail" class="text-xs text-rose-400">--</span>
+          </div>
+        </div>
+
+        <!-- ============ RUN METRICS PANEL ============ -->
+        <div id="runMetricsPanel" class="rounded border border-violet-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-violet-400">📊 Run Metrics</div>
+            <div class="flex items-center gap-2">
+              <button id="btnRefreshMetrics" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄 Refresh</button>
+              <button id="btnLoadMetricsFile" type="button" class="px-2 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-xs">📂 Load File</button>
+              <input id="metricsFileInput" type="file" accept=".json" class="hidden" />
+            </div>
+          </div>
+
+          <!-- No Metrics State -->
+          <div id="metricsEmpty" class="text-xs text-slate-400 py-4 text-center">
+            No eval metrics loaded. Run <code class="bg-slate-800 px-1 rounded">scripts/eval_windows.ps1</code> or click "Load File" to view results.
+          </div>
+
+          <!-- Metrics Content (hidden until loaded) -->
+          <div id="metricsContent" class="hidden">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <!-- Summary Stats -->
+              <div class="border border-slate-700 rounded p-2">
+                <div class="text-xs font-medium text-slate-300 mb-2">Summary</div>
+                <div class="space-y-1 text-xs">
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Run ID:</span>
+                    <span id="metricsRunId" class="text-violet-400 font-mono">--</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Timestamp:</span>
+                    <span id="metricsTimestamp" class="text-slate-300">--</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Duration:</span>
+                    <span id="metricsDuration" class="text-slate-300">--</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Status:</span>
+                    <span id="metricsStatus" class="text-emerald-400">--</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Detection Stats -->
+              <div class="border border-slate-700 rounded p-2">
+                <div class="text-xs font-medium text-slate-300 mb-2">Detections</div>
+                <div class="space-y-1 text-xs">
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Signals:</span>
+                    <span id="metricsSignals" class="text-emerald-400 font-bold">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Explained:</span>
+                    <span id="metricsExplained" class="text-sky-400 font-bold">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Playbooks hit:</span>
+                    <span id="metricsPlaybooksHit" class="text-amber-400">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">False positives:</span>
+                    <span id="metricsFalsePos" class="text-rose-400">0</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Telemetry Stats -->
+              <div class="border border-slate-700 rounded p-2">
+                <div class="text-xs font-medium text-slate-300 mb-2">Telemetry</div>
+                <div class="space-y-1 text-xs">
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Events:</span>
+                    <span id="metricsEvents" class="text-slate-300">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Segments:</span>
+                    <span id="metricsSegments" class="text-slate-300">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">Channels:</span>
+                    <span id="metricsChannels" class="text-slate-300">0</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-slate-400">EPS:</span>
+                    <span id="metricsEps" class="text-slate-300">--</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pass/Fail Indicators -->
+              <div class="border border-slate-700 rounded p-2">
+                <div class="text-xs font-medium text-slate-300 mb-2">Verdict</div>
+                <div class="space-y-1 text-xs">
+                  <div id="verdictTelemetry" class="flex items-center gap-1">
+                    <span class="w-4">⏳</span><span class="text-slate-400">Telemetry flowing</span>
+                  </div>
+                  <div id="verdictDetections" class="flex items-center gap-1">
+                    <span class="w-4">⏳</span><span class="text-slate-400">Detections fired</span>
+                  </div>
+                  <div id="verdictExplain" class="flex items-center gap-1">
+                    <span class="w-4">⏳</span><span class="text-slate-400">Explanations valid</span>
+                  </div>
+                  <div id="verdictNoFake" class="flex items-center gap-1">
+                    <span class="w-4">⏳</span><span class="text-slate-400">No fake detections</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Detailed Results -->
+            <details class="border border-slate-700 rounded">
+              <summary class="cursor-pointer text-xs font-medium text-slate-300 p-2 hover:bg-slate-800/50">
+                📋 Detailed Results
+              </summary>
+              <div class="p-2 border-t border-slate-700 max-h-40 overflow-auto">
+                <pre id="metricsDetails" class="text-[10px] font-mono text-slate-400"></pre>
+              </div>
+            </details>
+          </div>
+        </div>
+        <!-- ============ END RUN METRICS PANEL ============ -->
+
+        <!-- ============ PIVOT/SEARCH CONTROLS ============ -->
+        <div id="pivotSearchPanel" class="rounded border border-cyan-700/50 bg-slate-900/50 p-3 lg:col-span-3">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-sm font-medium text-cyan-400">🔎 Pivot & Search</div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Quick Search -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Quick Search</div>
+              <div class="space-y-2 text-xs">
+                <input id="pivotSearchInput" type="text" placeholder="process name, hash, IP, user..." class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs" />
+                <div class="flex gap-1">
+                  <button id="btnSearchEvents" type="button" class="flex-1 px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs">Events</button>
+                  <button id="btnSearchSignals" type="button" class="flex-1 px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs">Signals</button>
+                  <button id="btnSearchFacts" type="button" class="flex-1 px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs">Facts</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Pivot by Entity -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Pivot by Entity</div>
+              <div class="space-y-2 text-xs">
+                <select id="pivotEntityType" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs">
+                  <option value="">-- select entity type --</option>
+                  <option value="process">Process</option>
+                  <option value="file">File</option>
+                  <option value="network">Network</option>
+                  <option value="user">User</option>
+                  <option value="registry">Registry</option>
+                </select>
+                <input id="pivotEntityValue" type="text" placeholder="entity value..." class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs" />
+                <button id="btnPivotEntity" type="button" class="w-full px-2 py-1 rounded bg-cyan-600 hover:bg-cyan-500 text-xs">Pivot</button>
+              </div>
+            </div>
+
+            <!-- Search Results -->
+            <div class="border border-slate-700 rounded p-2">
+              <div class="text-xs font-medium text-slate-300 mb-2">Results</div>
+              <div id="pivotResults" class="text-xs text-slate-400 max-h-24 overflow-auto">
+                Enter a search term or select an entity to pivot.
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- ============ END PIVOT/SEARCH CONTROLS ============ -->
+
+        <div class="rounded border border-slate-800 lg:col-span-3">
+          <div class="p-3 border-b border-slate-800 text-sm font-medium">Selected alert (JSON)</div>
+          <pre id="detail" class="text-xs p-3 overflow-auto max-h-[300px]"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ IMPORT CASES SECTION ============ -->
+    <section id="screenImport" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <!-- Left Panel: Import Zone + Cases List -->
+        <div class="lg:col-span-1 space-y-4">
+          <!-- Drag-Drop Import Zone -->
+          <div id="importDropZone" class="border-2 border-dashed border-slate-700 rounded-lg p-6 text-center hover:border-violet-500 hover:bg-violet-500/5 transition-colors cursor-pointer">
+            <div class="text-4xl mb-2">📦</div>
+            <div class="text-sm font-medium text-slate-200 mb-1">Import Evidence Bundle</div>
+            <div class="text-xs text-slate-400 mb-3">Drag & drop folder or zip file</div>
+            <div class="text-xs text-slate-500">Supported: HAR, Zeek logs, JSONL, JSON</div>
+            <label class="mt-3 inline-block px-4 py-2 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm cursor-pointer">
+              Browse Files
+              <input id="importFilePicker" type="file" accept=".zip,.har,.json,.jsonl,.log" multiple class="hidden" />
+            </label>
+            <input id="importFolderPicker" type="file" webkitdirectory directory multiple class="hidden" />
+            <button id="importFolderBtn" type="button" class="ml-2 px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm">
+              Browse Folder
+            </button>
+          </div>
+
+          <!-- Import Progress (hidden by default) -->
+          <div id="importProgress" class="hidden border border-slate-700 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-sm font-medium text-slate-200">Importing...</span>
+              <span id="importProgressPercent" class="text-xs text-slate-400">0%</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-2 mb-2">
+              <div id="importProgressBar" class="bg-violet-500 h-2 rounded-full" style="width: 0%"></div>
+            </div>
+            <div id="importProgressStatus" class="text-xs text-slate-400">Analyzing files...</div>
+          </div>
+
+          <!-- Cases List -->
+          <div class="border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
+              <div class="text-sm font-medium text-slate-200">📁 Imported Cases</div>
+              <button id="refreshCasesBtn" type="button" class="text-xs text-slate-400 hover:text-slate-200">🔄</button>
+            </div>
+            <div id="casesList" class="max-h-[400px] overflow-y-auto">
+              <div class="p-4 text-center text-xs text-slate-500">
+                No cases imported yet.<br/>
+                Import a bundle to get started.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Panel: Case Details -->
+        <div class="lg:col-span-3">
+          <!-- Case Header -->
+          <div id="caseHeader" class="hidden border border-slate-700 rounded-lg p-4 mb-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 id="caseTitle" class="text-lg font-semibold text-slate-100">Case: --</h2>
+                <div class="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                  <span id="caseFileCount">0 files</span>
+                  <span>•</span>
+                  <span id="caseEventCount">0 events</span>
+                  <span>•</span>
+                  <span id="caseSignalCount">0 signals</span>
+                  <span>•</span>
+                  <span id="caseTimeRange">--</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="reprocessCaseBtn" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-sm">
+                  🔄 Reprocess
+                </button>
+                <button id="exportCaseBtn" type="button" class="px-3 py-1 rounded bg-sky-600 hover:bg-sky-500 text-sm">
+                  📤 Export
+                </button>
+                <button id="deleteCaseBtn" type="button" class="px-3 py-1 rounded bg-red-600/50 hover:bg-red-600 text-sm">
+                  🗑️ Delete
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sub-tabs for case details -->
+          <div id="caseTabs" class="hidden flex gap-2 text-sm mb-4">
+            <button id="caseTabTimeline" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Timeline</button>
+            <button id="caseTabSignals" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Signals</button>
+            <button id="caseTabEntities" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Entities</button>
+            <button id="caseTabManifest" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Manifest</button>
+            <button id="caseTabNarrative" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Narrative</button>
+          </div>
+
+          <!-- Empty State -->
+          <div id="caseEmptyState" class="border border-slate-700 rounded-lg p-8 text-center">
+            <div class="text-4xl mb-3">🔍</div>
+            <div class="text-lg font-medium text-slate-200 mb-2">No Case Selected</div>
+            <div class="text-sm text-slate-400">Import a bundle or select a case from the list to view details.</div>
+          </div>
+
+          <!-- Timeline View -->
+          <div id="caseTimelineView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
+              <div class="text-sm font-medium text-slate-200">📅 Event Timeline</div>
+              <div class="flex items-center gap-2">
+                <select id="timelineFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+                  <option value="">All events</option>
+                  <option value="http">HTTP</option>
+                  <option value="dns">DNS</option>
+                  <option value="network">Network</option>
+                  <option value="file">File</option>
+                </select>
+                <input id="timelineSearch" type="text" placeholder="Search..." class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs w-32" />
+              </div>
+            </div>
+            <div id="timelineContent" class="max-h-[500px] overflow-y-auto p-2">
+              <div class="text-center text-xs text-slate-500 py-4">Loading timeline...</div>
+            </div>
+          </div>
+
+          <!-- Signals View -->
+          <div id="caseSignalsView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
+              <div class="text-sm font-medium text-slate-200">⚡ Generated Signals</div>
+              <select id="signalSeverityFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
+                <option value="">All severities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </div>
+            <div id="signalsContent" class="max-h-[500px] overflow-y-auto">
+              <div class="text-center text-xs text-slate-500 py-4">Loading signals...</div>
+            </div>
+          </div>
+
+          <!-- Entities View -->
+          <div id="caseEntitiesView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700">
+              <div class="text-sm font-medium text-slate-200">🔗 Extracted Entities</div>
+            </div>
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4">
+              <div class="border border-slate-700 rounded p-3">
+                <div class="text-xs text-slate-400 mb-2">🌐 Domains</div>
+                <div id="entitiesDomains" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
+              </div>
+              <div class="border border-slate-700 rounded p-3">
+                <div class="text-xs text-slate-400 mb-2">📍 IP Addresses</div>
+                <div id="entitiesIPs" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
+              </div>
+              <div class="border border-slate-700 rounded p-3">
+                <div class="text-xs text-slate-400 mb-2">🔗 URLs</div>
+                <div id="entitiesURLs" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
+              </div>
+              <div class="border border-slate-700 rounded p-3">
+                <div class="text-xs text-slate-400 mb-2">#️⃣ Hashes</div>
+                <div id="entitiesHashes" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Manifest View -->
+          <div id="caseManifestView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700">
+              <div class="text-sm font-medium text-slate-200">📋 Import Manifest</div>
+            </div>
+            <div class="overflow-auto max-h-[500px]">
+              <table class="w-full text-xs">
+                <thead class="text-slate-400 sticky top-0 bg-slate-900">
+                  <tr>
+                    <th class="text-left px-3 py-2">File</th>
+                    <th class="text-left px-3 py-2">Type</th>
+                    <th class="text-left px-3 py-2">Size</th>
+                    <th class="text-left px-3 py-2">SHA256</th>
+                    <th class="text-left px-3 py-2">Parsed</th>
+                    <th class="text-left px-3 py-2">Events</th>
+                  </tr>
+                </thead>
+                <tbody id="manifestContent"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Narrative View -->
+          <div id="caseNarrativeView" class="hidden border border-slate-700 rounded-lg">
+            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
+              <div class="text-sm font-medium text-slate-200">📝 Investigation Narrative</div>
+              <button id="generateNarrativeBtn" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs">
+                ✨ Generate
+              </button>
+            </div>
+            <div id="narrativeContent" class="p-4 prose prose-invert prose-sm max-w-none">
+              <div class="text-center text-xs text-slate-500">
+                Click "Generate" to create an investigation narrative from the signals and evidence.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ============ END IMPORT CASES SECTION ============ -->
+
+    <section id="screenIntegrations" class="hidden">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-medium">Integrations</h2>
+        <div class="flex items-center gap-2">
+          <select id="integrationModeFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm">
+            <option value="">All modes</option>
+            <option value="export">Export</option>
+            <option value="ingest">Ingest</option>
+            <option value="both">Both</option>
+          </select>
+          <button id="btnRefreshIntegrations" type="button" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄 Refresh</button>
+          <button id="btnAdd" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500">+ Add Integration</button>
+        </div>
+      </div>
+
+      <!-- Integration Profiles Table -->
+      <div class="rounded border border-slate-800 mb-4">
+        <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+          <div class="text-sm font-medium">Integration Profiles</div>
+          <div class="text-xs text-slate-400" id="integrationCount">0 integrations</div>
+        </div>
+        <div class="overflow-auto max-h-[300px]">
+          <table class="w-full text-sm">
+            <thead class="text-slate-400 sticky top-0 bg-slate-950">
+              <tr>
+                <th class="text-left px-3 py-2">Status</th>
+                <th class="text-left px-3 py-2">Name</th>
+                <th class="text-left px-3 py-2">Type</th>
+                <th class="text-left px-3 py-2">Mode</th>
+                <th class="text-left px-3 py-2">EPS</th>
+                <th class="text-left px-3 py-2">Errors</th>
+                <th class="text-left px-3 py-2">Facts</th>
+                <th class="text-left px-3 py-2">Join Keys</th>
+                <th class="text-left px-3 py-2">Last Seen</th>
+                <th class="text-left px-3 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="integrationRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Capabilities Matrix -->
+      <div class="rounded border border-slate-800 mb-4">
+        <div class="p-3 border-b border-slate-800 flex items-center justify-between">
+          <div class="text-sm font-medium">📊 Capabilities Matrix</div>
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1 text-xs text-slate-400">
+              <input id="showCollectors" type="checkbox" checked class="rounded bg-slate-800 border-slate-600" />
+              Show Collectors
+            </label>
+            <button id="btnRefreshCapabilities" type="button" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄</button>
+          </div>
+        </div>
+        <div class="p-3 overflow-auto max-h-[400px]">
+          <!-- Legend -->
+          <div class="flex items-center gap-4 mb-3 text-xs">
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-emerald-500"></span> HARD (full telemetry)</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-500"></span> SOFT (partial/joined)</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-slate-700"></span> None</span>
+          </div>
+          <div id="capabilitiesMatrix" class="text-xs">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Join Key Support Matrix -->
+      <div class="rounded border border-slate-800 mb-4">
+        <div class="p-3 border-b border-slate-800">
+          <div class="text-sm font-medium">🔗 Join Key Support</div>
+        </div>
+        <div class="p-3 overflow-auto max-h-[250px]">
+          <div id="joinKeyMatrix" class="text-xs">Loading...</div>
+        </div>
+      </div>
+
+      <!-- Legacy Integration Tiles (for backwards compatibility) -->
+      <div class="rounded border border-slate-800 mb-4">
+        <div class="p-3 border-b border-slate-800">
+          <div class="text-sm font-medium">Active Integrations</div>
+        </div>
+        <div id="tiles" class="grid grid-cols-1 md:grid-cols-3 gap-3 p-3"></div>
+      </div>
+
+      <!-- Sample Event Inspector Modal -->
+      <dialog id="sampleEventModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+        <div class="p-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-base font-semibold" id="sampleModalTitle">Sample Events</h3>
+            <button type="button" onclick="document.getElementById('sampleEventModal').close()" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+          </div>
+          <div id="sampleEventContent" class="space-y-3 max-h-[400px] overflow-auto"></div>
+        </div>
+      </dialog>
+
+      <dialog id="addDlg" class="bg-slate-950 text-slate-100 p-4 rounded max-w-xl w-full">
+        <form method="dialog">
+          <h3 class="text-base font-semibold mb-2">Add Integration</h3>
+          <div class="mb-2">
+            <label class="block text-sm">Vendor</label>
+            <select id="vendorSel" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1"></select>
+          </div>
+          <div id="credFields" class="space-y-2"></div>
+          <menu class="flex gap-2 justify-end mt-4">
+            <button value="cancel" class="px-3 py-1 rounded bg-slate-800">Cancel</button>
+            <button id="saveIntegration" value="default" class="px-3 py-1 rounded bg-sky-600">Save</button>
+          </menu>
+        </form>
+      </dialog>
+    </section>
+
+    <!-- ============ COMPARE RUNS SECTION (Pro Feature) ============ -->
+    <section id="screenCompare" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <!-- Run Selection Panel -->
+        <div class="lg:col-span-1 space-y-4">
+          <div class="rounded border border-violet-700/50 bg-slate-900/50 p-4">
+            <h3 class="text-sm font-medium text-violet-300 mb-3">🔀 Compare Runs</h3>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Left (Baseline)</label>
+                <select id="diffLeftRun" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm">
+                  <option value="">Select run...</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Right (Compare)</label>
+                <select id="diffRightRun" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-sm">
+                  <option value="">Select run...</option>
+                </select>
+              </div>
+              <button id="runDiffBtn" class="w-full px-3 py-2 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                Compare
+              </button>
+            </div>
+          </div>
+          
+          <!-- Diff Summary -->
+          <div id="diffSummaryCard" class="hidden rounded border border-slate-700 bg-slate-900/50 p-4">
+            <h4 class="text-sm font-medium text-slate-300 mb-3">Summary</h4>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Added</span>
+                <span id="diffAddedCount" class="text-emerald-400 font-medium">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Removed</span>
+                <span id="diffRemovedCount" class="text-rose-400 font-medium">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Changed</span>
+                <span id="diffChangedCount" class="text-amber-400 font-medium">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Unchanged</span>
+                <span id="diffUnchangedCount" class="text-slate-500">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Diff Results Panel -->
+        <div class="lg:col-span-3">
+          <!-- Pro Feature Banner (shown in core build) -->
+          <div id="diffProBanner" class="hidden rounded border border-amber-700/50 bg-amber-900/20 p-4 mb-4">
+            <div class="flex items-center gap-3">
+              <span class="text-2xl">⭐</span>
+              <div>
+                <h4 class="font-medium text-amber-300">Pro Feature</h4>
+                <p class="text-sm text-amber-200/80">Compare Runs requires a Pro license. Upgrade to unlock signal diff analysis.</p>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Loading State -->
+          <div id="diffLoading" class="hidden flex items-center justify-center py-12">
+            <div class="text-center">
+              <div class="animate-spin w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full mx-auto mb-3"></div>
+              <div class="text-sm text-slate-400">Computing diff...</div>
+            </div>
+          </div>
+          
+          <!-- Empty State -->
+          <div id="diffEmpty" class="rounded border border-slate-700 bg-slate-900/30 p-8 text-center">
+            <div class="text-4xl mb-3">🔀</div>
+            <h4 class="text-base font-medium text-slate-300 mb-2">Compare Detection Runs</h4>
+            <p class="text-sm text-slate-400">Select two runs to compare and see what signals were added, removed, or changed.</p>
+          </div>
+          
+          <!-- Results -->
+          <div id="diffResults" class="hidden space-y-4">
+            <!-- Added Signals -->
+            <div id="diffAddedSection" class="rounded border border-emerald-700/50 bg-slate-900/50 p-4">
+              <h4 class="text-sm font-medium text-emerald-400 mb-3 flex items-center gap-2">
+                <span>➕</span> Added Signals <span id="diffAddedBadge" class="px-1.5 py-0.5 rounded bg-emerald-700/50 text-xs">0</span>
+              </h4>
+              <div id="diffAddedList" class="space-y-2 max-h-[200px] overflow-auto"></div>
+            </div>
+            
+            <!-- Removed Signals -->
+            <div id="diffRemovedSection" class="rounded border border-rose-700/50 bg-slate-900/50 p-4">
+              <h4 class="text-sm font-medium text-rose-400 mb-3 flex items-center gap-2">
+                <span>➖</span> Removed Signals <span id="diffRemovedBadge" class="px-1.5 py-0.5 rounded bg-rose-700/50 text-xs">0</span>
+              </h4>
+              <div id="diffRemovedList" class="space-y-2 max-h-[200px] overflow-auto"></div>
+            </div>
+            
+            <!-- Changed Signals -->
+            <div id="diffChangedSection" class="rounded border border-amber-700/50 bg-slate-900/50 p-4">
+              <h4 class="text-sm font-medium text-amber-400 mb-3 flex items-center gap-2">
+                <span>📝</span> Changed Signals <span id="diffChangedBadge" class="px-1.5 py-0.5 rounded bg-amber-700/50 text-xs">0</span>
+              </h4>
+              <div id="diffChangedList" class="space-y-2 max-h-[300px] overflow-auto"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ LICENSE MANAGEMENT SECTION ============ -->
+    <section id="screenLicense" class="hidden">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- License Status Panel -->
+        <div class="rounded border border-slate-700 bg-slate-900/50">
+          <div class="p-4 border-b border-slate-700">
+            <h3 class="text-lg font-medium text-slate-100 flex items-center gap-2">
+              🔑 License Status
+            </h3>
+          </div>
+          <div class="p-4 space-y-4">
+            <!-- Status Badge -->
+            <div id="licenseStatusBadge" class="flex items-center gap-3 p-3 rounded bg-slate-800">
+              <div id="licenseStatusIcon" class="text-2xl">⏳</div>
+              <div>
+                <div id="licenseStatusText" class="font-medium text-slate-200">Checking...</div>
+                <div id="licenseStatusDetail" class="text-sm text-slate-400"></div>
+              </div>
+            </div>
+            
+            <!-- License Details (shown when valid) -->
+            <div id="licenseDetailsCard" class="hidden rounded border border-emerald-700/50 bg-emerald-900/20 p-4">
+              <h4 class="text-sm font-medium text-emerald-300 mb-3">License Details</h4>
+              <div class="space-y-2 text-sm">
+                <div class="flex justify-between">
+                  <span class="text-slate-400">License ID</span>
+                  <span id="licenseLicenseId" class="text-slate-200 font-mono text-xs">—</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Customer</span>
+                  <span id="licenseCustomer" class="text-slate-200">—</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Edition</span>
+                  <span id="licenseEdition" class="text-emerald-400 font-medium">—</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-slate-400">Expires</span>
+                  <span id="licenseExpires" class="text-slate-200">—</span>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Entitlements List -->
+            <div id="licenseEntitlementsCard" class="hidden rounded border border-slate-700 bg-slate-800/50 p-4">
+              <h4 class="text-sm font-medium text-slate-300 mb-3">Entitlements</h4>
+              <div id="licenseEntitlementsList" class="space-y-1 text-sm">
+                <!-- Entitlements will be populated here -->
+              </div>
+            </div>
+            
+            <!-- Installation ID (always shown) -->
+            <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
+              <h4 class="text-sm font-medium text-slate-300 mb-2">Installation ID</h4>
+              <div class="flex items-center gap-2">
+                <code id="licenseInstallId" class="flex-1 text-xs font-mono bg-slate-900 px-2 py-1.5 rounded text-sky-300 select-all">Loading...</code>
+                <button id="copyInstallIdBtn" class="px-2 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs" title="Copy to clipboard">📋</button>
+              </div>
+              <p class="text-xs text-slate-500 mt-2">This ID is required when purchasing or activating a license.</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Import License Panel -->
+        <div class="rounded border border-slate-700 bg-slate-900/50">
+          <div class="p-4 border-b border-slate-700">
+            <h3 class="text-lg font-medium text-slate-100 flex items-center gap-2">
+              📥 Import License
+            </h3>
+          </div>
+          <div class="p-4 space-y-4">
+            <p class="text-sm text-slate-400">
+              Import your license file to unlock Pro features. The license must be bound to this installation's ID.
+            </p>
+            
+            <!-- File Import Area -->
+            <div id="licenseDropZone" class="border-2 border-dashed border-slate-600 rounded-lg p-6 text-center hover:border-sky-500 transition-colors cursor-pointer">
+              <div class="text-3xl mb-2">📄</div>
+              <div class="text-sm text-slate-300 mb-1">Drop license.json here</div>
+              <div class="text-xs text-slate-500">or click to browse</div>
+              <input type="file" id="licenseFileInput" accept=".json" class="hidden" />
+            </div>
+            
+            <!-- Or paste JSON -->
+            <div class="text-center text-xs text-slate-500">— or paste license content —</div>
+            
+            <textarea id="licensePasteArea" class="w-full h-32 bg-slate-900 border border-slate-700 rounded p-3 text-xs font-mono text-slate-300" placeholder='{"license_id": "...", "signature": "..."}'></textarea>
+            
+            <button id="installLicenseBtn" class="w-full px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+              Install License
+            </button>
+            
+            <!-- Import Result -->
+            <div id="licenseImportResult" class="hidden rounded p-3 text-sm"></div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Pro Features Overview -->
+      <div class="mt-6 rounded border border-slate-700 bg-slate-900/50 p-4">
+        <h3 class="text-lg font-medium text-slate-100 mb-4">⭐ Pro Features</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span id="featureDiffStatus" class="text-lg">🔒</span>
+              <span class="font-medium text-slate-200">Diff Mode</span>
+            </div>
+            <p class="text-xs text-slate-400">Compare signal snapshots between runs to identify new, removed, or changed detections.</p>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span id="featureReportsStatus" class="text-lg">🔒</span>
+              <span class="font-medium text-slate-200">Pro Reports</span>
+            </div>
+            <p class="text-xs text-slate-400">Generate enhanced PDF reports with executive summaries and detailed analysis.</p>
+          </div>
+          <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
+            <div class="flex items-center gap-2 mb-2">
+              <span id="featureTeamStatus" class="text-lg">🔒</span>
+              <span class="font-medium text-slate-200">Team Features</span>
+            </div>
+            <p class="text-xs text-slate-400">Collaborate with team members, share cases, and sync findings (coming soon).</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- IMPORTANT: point to /ui/app.js so you load the served file -->
+  <script src="/ui/app.js"></script>
+
+  <!-- First-Run Wizard & Verification Pack Integration -->
+  <script>
+    (function() {
+      const API_BASE = window.location.origin;
+      
+      // Wizard state
+      let wizardState = {
+        step: 1,
+        mode: null,
+        preset: null,
+        focusMinutes: 15
+      };
+      
+      // Elements
+      const modal = document.getElementById('wizardModal');
+      const step1 = document.getElementById('wizardStep1');
+      const step2 = document.getElementById('wizardStep2');
+      const step3 = document.getElementById('wizardStep3');
+      const backBtn = document.getElementById('wizardBack');
+      const nextBtn = document.getElementById('wizardNext');
+      const dots = [
+        document.getElementById('step1Dot'),
+        document.getElementById('step2Dot'),
+        document.getElementById('step3Dot')
+      ];
+      
+      // Toast and banner elements
+      const verificationToast = document.getElementById('verificationToast');
+      const verificationBanner = document.getElementById('verificationBanner');
+      const clearVerificationBtn = document.getElementById('clearVerificationBtn');
+      
+      function showToast(message, submessage) {
+        if (verificationToast) {
+          verificationToast.querySelector('.font-medium').textContent = message || 'Verification pack loaded';
+          verificationToast.querySelector('.text-amber-200').textContent = submessage || 'Synthetic data - explore the workflow';
+          verificationToast.classList.remove('translate-y-20', 'opacity-0');
+          setTimeout(() => {
+            verificationToast.classList.add('translate-y-20', 'opacity-0');
+          }, 4000);
+        }
+      }
+      
+      function showVerificationBanner() {
+        if (verificationBanner) {
+          verificationBanner.classList.remove('hidden');
+          // Offset main content
+          document.body.style.paddingTop = '40px';
+        }
+      }
+      
+      function hideVerificationBanner() {
+        if (verificationBanner) {
+          verificationBanner.classList.add('hidden');
+          document.body.style.paddingTop = '0';
+        }
+      }
+      
+      function updateStepIndicator() {
+        dots.forEach((dot, i) => {
+          if (i + 1 === wizardState.step) {
+            dot.className = 'w-2 h-2 rounded-full bg-sky-500';
+          } else if (i + 1 < wizardState.step) {
+            dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+          } else {
+            dot.className = 'w-2 h-2 rounded-full bg-slate-600';
+          }
+        });
+      }
+      
+      function showStep(stepNum) {
+        wizardState.step = stepNum;
+        step1.classList.toggle('hidden', stepNum !== 1);
+        step2.classList.toggle('hidden', stepNum !== 2);
+        step3.classList.toggle('hidden', stepNum !== 3);
+        
+        backBtn.classList.toggle('invisible', stepNum === 1);
+        
+        if (stepNum === 3) {
+          nextBtn.textContent = 'Get Started →';
+          nextBtn.disabled = false;
+        } else {
+          nextBtn.textContent = 'Next →';
+          nextBtn.disabled = (stepNum === 1 && !wizardState.mode) || 
+                             (stepNum === 2 && !wizardState.preset);
+        }
+        
+        updateStepIndicator();
+      }
+      
+      // Mode selection
+      document.getElementById('modeDiscovery')?.addEventListener('click', function() {
+        wizardState.mode = 'discovery';
+        this.classList.add('border-sky-500', 'bg-sky-500/10');
+        document.getElementById('modeMission')?.classList.remove('border-sky-500', 'bg-sky-500/10', 'border-emerald-500', 'bg-emerald-500/10');
+        nextBtn.disabled = false;
+      });
+      
+      document.getElementById('modeMission')?.addEventListener('click', function() {
+        wizardState.mode = 'mission';
+        this.classList.add('border-emerald-500', 'bg-emerald-500/10');
+        document.getElementById('modeDiscovery')?.classList.remove('border-sky-500', 'bg-sky-500/10');
+        nextBtn.disabled = false;
+      });
+      
+      // Preset selection
+      document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          wizardState.preset = this.dataset.preset;
+          document.querySelectorAll('.preset-btn').forEach(b => {
+            b.classList.remove('border-sky-500', 'bg-sky-500/10');
+          });
+          this.classList.add('border-sky-500', 'bg-sky-500/10');
+          nextBtn.disabled = false;
+        });
+      });
+      
+      // Focus selection
+      document.querySelectorAll('.focus-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          wizardState.focusMinutes = parseInt(this.dataset.focus);
+          document.querySelectorAll('.focus-btn').forEach(b => {
+            b.classList.remove('border-sky-500', 'bg-sky-500/10', 'border-2');
+            b.classList.add('border', 'border-slate-700');
+          });
+          this.classList.remove('border', 'border-slate-700');
+          this.classList.add('border-2', 'border-sky-500', 'bg-sky-500/10');
+        });
+      });
+      
+      // Navigation
+      backBtn?.addEventListener('click', () => {
+        if (wizardState.step > 1) showStep(wizardState.step - 1);
+      });
+      
+      nextBtn?.addEventListener('click', async () => {
+        if (wizardState.step < 3) {
+          showStep(wizardState.step + 1);
+        } else {
+          // Complete setup
+          nextBtn.disabled = true;
+          nextBtn.textContent = 'Loading...';
+          
+          const loadVerification = document.getElementById('loadVerificationCheck')?.checked ?? false;
+          
+          try {
+            const response = await fetch(`${API_BASE}/api/setup/complete`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                mode: wizardState.mode,
+                preset: wizardState.preset,
+                focus_minutes: wizardState.focusMinutes,
+                load_verification: loadVerification
+              })
+            });
+            
+            if (response.ok) {
+              const result = await response.json();
+              modal.close();
+              
+              if (loadVerification) {
+                // Also load the verification pack
+                const verifyResponse = await fetch(`${API_BASE}/api/verify/load`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ bundle_name: 'verification_001' })
+                });
+                
+                if (verifyResponse.ok) {
+                  const verifyData = await verifyResponse.json();
+                  showToast('Verification pack loaded', `${verifyData.hypothesis_count} hypotheses, ${verifyData.timeline_entry_count} timeline entries`);
+                  showVerificationBanner();
+                  
+                  // Expose verification bundle globally for the UI
+                  window.VERIFICATION_BUNDLE = verifyData.report_bundle;
+                  
+                  // Trigger UI update if app.js has a handler
+                  if (typeof window.onVerificationLoaded === 'function') {
+                    window.onVerificationLoaded(verifyData);
+                  }
+                }
+              } else {
+                // No verification pack - run live success check
+                setTimeout(() => {
+                  if (typeof window.checkLiveSuccess === 'function') {
+                    window.checkLiveSuccess();
+                  }
+                }, 500);
+              }
+            } else {
+              console.error('Setup failed:', await response.text());
+              nextBtn.disabled = false;
+              nextBtn.textContent = 'Retry →';
+            }
+          } catch (e) {
+            console.error('Setup error:', e);
+            nextBtn.disabled = false;
+            nextBtn.textContent = 'Retry →';
+          }
+        }
+      });
+      
+      // Check first-run status on load
+      async function checkFirstRun() {
+        try {
+          const response = await fetch(`${API_BASE}/api/app/state`);
+          if (response.ok) {
+            const state = await response.json();
+            console.log('App state:', state);
+            
+            if (state.is_first_run) {
+              modal.showModal();
+            } else if (state.verification_loaded) {
+              // Verification pack already loaded, show banner
+              console.log('Verification pack loaded from previous session');
+              showVerificationBanner();
+            }
+          }
+        } catch (e) {
+          console.log('Could not check app state (backend may not be running):', e.message);
+        }
+      }
+      
+      // Clear verification data button handler
+      clearVerificationBtn?.addEventListener('click', async () => {
+        try {
+          const response = await fetch(`${API_BASE}/api/verify/reset`, { method: 'POST' });
+          if (response.ok) {
+            hideVerificationBanner();
+            window.VERIFICATION_BUNDLE = null;
+            showToast('Verification data cleared', 'Now showing real telemetry only');
+            // Trigger UI refresh
+            if (typeof window.onVerificationCleared === 'function') {
+              window.onVerificationCleared();
+            }
+          }
+        } catch (e) {
+          console.error('Clear verification failed:', e);
+        }
+      });
+      
+      // Expose verification reload function
+      window.reloadVerification = async function() {
+        try {
+          const response = await fetch(`${API_BASE}/api/verify/load`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bundle_name: 'verification_001' })
+          });
+          
+          if (response.ok) {
+            const verifyData = await response.json();
+            showToast('Verification pack reloaded', `${verifyData.hypothesis_count} hypotheses ready`);
+            showVerificationBanner();
+            window.VERIFICATION_BUNDLE = verifyData.report_bundle;
+            if (typeof window.onVerificationLoaded === 'function') {
+              window.onVerificationLoaded(verifyData);
+            }
+            return verifyData;
+          }
+        } catch (e) {
+          console.error('Verification reload failed:', e);
+        }
+      };
+      
+      // Expose clear function
+      window.clearVerification = async function() {
+        try {
+          const response = await fetch(`${API_BASE}/api/verify/reset`, { method: 'POST' });
+          if (response.ok) {
+            hideVerificationBanner();
+            window.VERIFICATION_BUNDLE = null;
+            console.log('Verification data cleared.');
+            if (typeof window.onVerificationCleared === 'function') {
+              window.onVerificationCleared();
+            }
+          }
+        } catch (e) {
+          console.error('Clear failed:', e);
+        }
+      };
+      
+      // Expose reset function (for testing)
+      window.resetFirstRun = async function() {
+        try {
+          const response = await fetch(`${API_BASE}/api/verify/reset`, { method: 'POST' });
+          if (response.ok) {
+            console.log('First-run reset. Reload the page to see the wizard.');
+            location.reload();
+          }
+        } catch (e) {
+          console.error('Reset failed:', e);
+        }
+      };
+      
+      // Initialize
+      checkFirstRun();
+    })();
+  </script>
+
+  <!-- ============ LIVE SUCCESS DIAGNOSTIC SCRIPT ============ -->
+  <script>
+    (function() {
+      const API_BASE = window.location.origin;
+      
+      // Elements
+      const modal = document.getElementById('liveSuccessModal');
+      const closeBtn = document.getElementById('closeLiveSuccessBtn');
+      const doneBtn = document.getElementById('liveSuccessDone');
+      const emojiEl = document.getElementById('liveSuccessEmoji');
+      const titleEl = document.getElementById('liveSuccessTitle');
+      const subtitleEl = document.getElementById('liveSuccessSubtitle');
+      const verdictSection = document.getElementById('liveSuccessVerdict');
+      const verdictIcon = document.getElementById('verdictIcon');
+      const verdictTitle = document.getElementById('verdictTitle');
+      const verdictDesc = document.getElementById('verdictDesc');
+      const issuesSection = document.getElementById('liveSuccessIssues');
+      const issuesList = document.getElementById('issuesList');
+      const streamDetails = document.getElementById('streamDetails');
+      const streamsList = document.getElementById('streamsList');
+      const probeSection = document.getElementById('probeSection');
+      const runProbeBtn = document.getElementById('runProbeBtn');
+      const probeStatus = document.getElementById('probeStatus');
+      const probeResult = document.getElementById('probeResult');
+      const probeResultContent = document.getElementById('probeResultContent');
+      const actionsSection = document.getElementById('actionsSection');
+      const actionsList = document.getElementById('actionsList');
+      const actionDetailsSection = document.getElementById('actionDetailsSection');
+      const actionDetailsContent = document.getElementById('actionDetailsContent');
+      const loadVerificationCheckAlt = document.getElementById('loadVerificationCheckAlt');
+      
+      // State
+      let lastDiagnostic = null;
+      
+      // Show/hide modal
+      function showLiveSuccessModal() {
+        if (modal) modal.showModal();
+      }
+      
+      function hideLiveSuccessModal() {
+        if (modal) modal.close();
+      }
+      
+      // Close handlers
+      closeBtn?.addEventListener('click', hideLiveSuccessModal);
+      doneBtn?.addEventListener('click', async () => {
+        // Check if user wants verification pack
+        if (loadVerificationCheckAlt?.checked) {
+          try {
+            const response = await fetch(`${API_BASE}/api/verify/load`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ bundle_name: 'verification_001' })
+            });
+            if (response.ok) {
+              window.showToast?.('Verification pack loaded', 'Explore the workflow with synthetic data');
+            }
+          } catch (e) {
+            console.error('Failed to load verification:', e);
+          }
+        }
+        hideLiveSuccessModal();
+      });
+      
+      // Run self-check
+      async function runSelfCheck() {
+        try {
+          subtitleEl.textContent = 'Checking telemetry...';
+          
+          const response = await fetch(`${API_BASE}/api/selfcheck`);
+          if (!response.ok) {
+            throw new Error('Self-check failed');
+          }
+          
+          const diagnostic = await response.json();
+          lastDiagnostic = diagnostic;
+          
+          updateUIFromDiagnostic(diagnostic);
+          return diagnostic;
+        } catch (e) {
+          console.error('Self-check error:', e);
+          subtitleEl.textContent = 'Could not check telemetry';
+          return null;
+        }
+      }
+      
+      // Update UI based on diagnostic
+      function updateUIFromDiagnostic(diag) {
+        const verdict = diag.verdict;
+        
+        // Update header
+        if (verdict === 'healthy') {
+          emojiEl.textContent = '✅';
+          titleEl.textContent = 'Telemetry Working';
+          subtitleEl.textContent = 'Sensors are detecting activity';
+        } else if (verdict === 'degraded') {
+          emojiEl.textContent = '⚠️';
+          titleEl.textContent = 'Telemetry Degraded';
+          subtitleEl.textContent = 'Some streams have issues';
+        } else {
+          emojiEl.textContent = '🚫';
+          titleEl.textContent = 'No Telemetry Detected';
+          subtitleEl.textContent = 'Let\'s fix this';
+        }
+        
+        // Show verdict
+        verdictSection.classList.remove('hidden');
+        if (verdict === 'healthy') {
+          verdictSection.className = 'p-4 rounded-lg mb-4 bg-emerald-900/30 border border-emerald-700';
+          verdictIcon.textContent = '✅';
+          verdictTitle.textContent = 'All Systems Healthy';
+          verdictTitle.className = 'font-medium text-emerald-400';
+          verdictDesc.textContent = `Capture profile: ${diag.app_state.capture_profile}`;
+        } else if (verdict === 'degraded') {
+          verdictSection.className = 'p-4 rounded-lg mb-4 bg-amber-900/30 border border-amber-700';
+          verdictIcon.textContent = '⚠️';
+          verdictTitle.textContent = 'Visibility Degraded';
+          verdictTitle.className = 'font-medium text-amber-400';
+          verdictDesc.textContent = 'Some streams have issues but core telemetry is flowing';
+        } else {
+          verdictSection.className = 'p-4 rounded-lg mb-4 bg-red-900/30 border border-red-700';
+          verdictIcon.textContent = '🚫';
+          verdictTitle.textContent = 'Telemetry Blocked';
+          verdictTitle.className = 'font-medium text-red-400';
+          verdictDesc.textContent = 'No events detected - run the probe to diagnose';
+        }
+        
+        // Show issues
+        if (diag.top_issues && diag.top_issues.length > 0) {
+          issuesSection.classList.remove('hidden');
+          issuesList.innerHTML = diag.top_issues.map(issue => {
+            const severityClass = {
+              'critical': 'text-red-400',
+              'error': 'text-orange-400',
+              'warning': 'text-amber-400',
+              'info': 'text-slate-400'
+            }[issue.severity] || 'text-slate-400';
+            
+            const severityIcon = {
+              'critical': '🚨',
+              'error': '❌',
+              'warning': '⚠️',
+              'info': 'ℹ️'
+            }[issue.severity] || 'ℹ️';
+            
+            return `
+              <div class="p-2 rounded bg-slate-800/50 text-xs">
+                <div class="flex items-start gap-2">
+                  <span>${severityIcon}</span>
+                  <div>
+                    <div class="${severityClass} font-medium">${issue.title}</div>
+                    <div class="text-slate-400">${issue.description}</div>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('');
+        } else {
+          issuesSection.classList.add('hidden');
+        }
+        
+        // Show streams
+        if (diag.streams && diag.streams.length > 0) {
+          streamDetails.classList.remove('hidden');
+          streamsList.innerHTML = diag.streams.map(stream => {
+            const statusIcon = stream.event_count > 0 ? '✅' : (stream.enabled ? '⏳' : '⏸️');
+            const statusClass = stream.event_count > 0 ? 'text-emerald-400' : (stream.enabled ? 'text-amber-400' : 'text-slate-500');
+            const criticalBadge = stream.is_critical ? '<span class="ml-1 px-1 py-0.5 rounded bg-red-900/50 text-red-400 text-[10px]">critical</span>' : '';
+            
+            return `
+              <div class="flex items-center justify-between p-1.5 rounded hover:bg-slate-800/50">
+                <div class="flex items-center gap-2">
+                  <span>${statusIcon}</span>
+                  <span class="${statusClass}">${stream.stream_id}</span>
+                  ${criticalBadge}
+                </div>
+                <span class="text-slate-500">${stream.event_count} events</span>
+              </div>
+            `;
+          }).join('');
+        } else {
+          streamDetails.classList.add('hidden');
+        }
+        
+        // Show probe section if blocked or degraded
+        if (verdict !== 'healthy') {
+          probeSection.classList.remove('hidden');
+        } else {
+          probeSection.classList.add('hidden');
+        }
+        
+        // Show actions
+        if (diag.recommended_actions && diag.recommended_actions.length > 0) {
+          actionsSection.classList.remove('hidden');
+          actionsList.innerHTML = diag.recommended_actions.map(action => {
+            const adminBadge = action.requires_admin ? '<span class="ml-1 px-1 py-0.5 rounded bg-amber-900/50 text-amber-400 text-[10px]">admin</span>' : '';
+            return `
+              <button data-action-id="${action.id}" class="action-detail-btn w-full p-2 rounded bg-slate-800/50 hover:bg-slate-700/50 text-left text-xs">
+                <div class="flex items-center justify-between">
+                  <span class="font-medium text-slate-200">${action.title}</span>
+                  ${adminBadge}
+                </div>
+                <div class="text-slate-400 text-[11px]">${action.summary}</div>
+              </button>
+            `;
+          }).join('');
+          
+          // Add click handlers
+          actionsList.querySelectorAll('.action-detail-btn').forEach(btn => {
+            btn.addEventListener('click', () => loadActionDetails(btn.dataset.actionId));
+          });
+        } else {
+          actionsSection.classList.add('hidden');
+        }
+      }
+      
+      // Load action details
+      async function loadActionDetails(actionId) {
+        try {
+          const response = await fetch(`${API_BASE}/api/selfcheck/actions?id=${encodeURIComponent(actionId)}`);
+          if (!response.ok) return;
+          
+          const data = await response.json();
+          if (data.action) {
+            actionDetailsSection.classList.remove('hidden');
+            // Convert markdown-ish content to HTML (basic)
+            const html = data.action.instructions
+              .replace(/^# (.+)$/gm, '<h1 class="text-lg font-bold text-slate-200 mt-4 mb-2">$1</h1>')
+              .replace(/^## (.+)$/gm, '<h2 class="text-base font-semibold text-slate-300 mt-3 mb-1">$2</h2>')
+              .replace(/^### (.+)$/gm, '<h3 class="text-sm font-medium text-slate-300 mt-2 mb-1">$1</h3>')
+              .replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="bg-slate-900 p-2 rounded my-2 overflow-x-auto"><code>$2</code></pre>')
+              .replace(/`([^`]+)`/g, '<code class="bg-slate-900 px-1 rounded">$1</code>')
+              .replace(/^\- (.+)$/gm, '<li class="ml-4">• $1</li>')
+              .replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
+              .replace(/\n\n/g, '<br/><br/>');
+            actionDetailsContent.innerHTML = html;
+          }
+        } catch (e) {
+          console.error('Failed to load action details:', e);
+        }
+      }
+      
+      // Run probe
+      runProbeBtn?.addEventListener('click', async () => {
+        runProbeBtn.disabled = true;
+        runProbeBtn.textContent = 'Running...';
+        probeStatus.textContent = 'Spawning echo, writing temp file, connecting to localhost...';
+        
+        try {
+          const response = await fetch(`${API_BASE}/api/selfcheck/probe`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              do_process_spawn: true,
+              do_temp_file_write: true,
+              do_localhost_connect: true,
+              timeout_ms: 5000,
+              repeats: 1
+            })
+          });
+          
+          if (!response.ok) {
+            throw new Error('Probe failed');
+          }
+          
+          const result = await response.json();
+          
+          // Show result
+          probeResult.classList.remove('hidden');
+          if (result.success && result.probe.success) {
+            probeResultContent.innerHTML = `
+              <div class="text-emerald-400 font-medium mb-2">✅ Probe Completed Successfully</div>
+              <div class="text-slate-300 mb-2">Actions performed:</div>
+              <ul class="space-y-1">
+                ${result.probe.actions_attempted.map(a => `
+                  <li class="flex items-center gap-2">
+                    <span>${a.success ? '✅' : '❌'}</span>
+                    <span>${a.description}</span>
+                  </li>
+                `).join('')}
+              </ul>
+              <div class="mt-2 text-slate-400">Expected streams: ${result.probe.matched_streams.join(', ')}</div>
+              <div class="mt-2 text-amber-400">⏳ Wait a few seconds, then run self-check again to verify events appeared.</div>
+            `;
+            probeStatus.textContent = 'Probe completed! Wait 2-3 seconds for events to appear.';
+            
+            // Auto re-check after delay
+            setTimeout(async () => {
+              probeStatus.textContent = 'Re-checking telemetry...';
+              await runSelfCheck();
+              probeStatus.textContent = '';
+            }, 3000);
+          } else {
+            probeResultContent.innerHTML = `
+              <div class="text-red-400 font-medium mb-2">❌ Probe Failed</div>
+              <div class="text-slate-300">${result.probe?.failure_reasons?.join(', ') || 'Unknown error'}</div>
+            `;
+            probeStatus.textContent = 'Probe failed - check error details';
+          }
+        } catch (e) {
+          probeResult.classList.remove('hidden');
+          probeResultContent.innerHTML = `
+            <div class="text-red-400 font-medium mb-2">❌ Probe Error</div>
+            <div class="text-slate-300">${e.message}</div>
+          `;
+          probeStatus.textContent = 'Error running probe';
+        }
+        
+        runProbeBtn.disabled = false;
+        runProbeBtn.textContent = 'Run Probe Again';
+      });
+      
+      // Check on first run OR expose for manual trigger
+      async function checkLiveSuccess() {
+        const diagnostic = await runSelfCheck();
+        
+        if (diagnostic && diagnostic.verdict !== 'healthy' && diagnostic.app_state?.first_run) {
+          // First run and no telemetry - show the modal
+          showLiveSuccessModal();
+        }
+        
+        return diagnostic;
+      }
+      
+      // Expose functions globally
+      window.showLiveSuccessModal = showLiveSuccessModal;
+      window.runSelfCheck = runSelfCheck;
+      window.checkLiveSuccess = checkLiveSuccess;
+      
+      // Run after wizard completes (hook into first-run flow)
+      // The wizard will call checkLiveSuccess after setup
+    })();
+  </script>
+
+  <!-- Bundle Export/Import Integration -->
+  <script>
+    (function() {
+      const API_BASE = window.location.origin;
+      
+      // Elements
+      const exportBtn = document.getElementById('exportBundleBtn');
+      const importInput = document.getElementById('importBundleInput');
+      const importedBanner = document.getElementById('importedBundleBanner');
+      const importedBundleInfo = document.getElementById('importedBundleInfo');
+      const clearImportedBtn = document.getElementById('clearImportedBtn');
+      
+      // Imported bundle state
+      window.IMPORTED_BUNDLE = null;
+      window.IMPORTED_HAS_RECOMPUTE = false;
+      window.IMPORTED_BUNDLE_ID = null;
+      window.IMPORTED_NAMESPACE = null;
+      
+      function showImportedBanner(bundleId, hypothesisCount, namespace, hasRecompute) {
+        if (importedBanner) {
+          importedBanner.classList.remove('hidden');
+          if (importedBundleInfo) {
+            const recomputeBadge = hasRecompute ? ' <span class="text-emerald-400">[Recompute Available]</span>' : '';
+            importedBundleInfo.innerHTML = `Bundle: ${bundleId} (${hypothesisCount} hypotheses) | NS: ${namespace}${recomputeBadge}`;
+          }
+          window.IMPORTED_HAS_RECOMPUTE = hasRecompute;
+          window.IMPORTED_BUNDLE_ID = bundleId;
+          window.IMPORTED_NAMESPACE = namespace;
+          document.body.style.paddingTop = '40px';
+        }
+      }
+      
+      function hideImportedBanner() {
+        if (importedBanner) {
+          importedBanner.classList.add('hidden');
+          document.body.style.paddingTop = '0';
+          window.IMPORTED_HAS_RECOMPUTE = false;
+          window.IMPORTED_BUNDLE_ID = null;
+          window.IMPORTED_NAMESPACE = null;
+        }
+      }
+      
+      // Export bundle handler - show options dialog
+      exportBtn?.addEventListener('click', async () => {
+        // Create export options dialog
+        const dialog = document.createElement('div');
+        dialog.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50';
+        dialog.innerHTML = `
+          <div class="bg-slate-800 p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h3 class="text-lg font-bold text-slate-100 mb-4">Export Incident Bundle</h3>
+            <div class="space-y-3 mb-6">
+              <label class="flex items-center gap-3 text-slate-300">
+                <input type="checkbox" id="exportRedact" checked class="rounded bg-slate-700 border-slate-600" />
+                <span>Redact sensitive info (recommended)</span>
+              </label>
+              <label class="flex items-center gap-3 text-slate-300">
+                <input type="checkbox" id="exportEvidence" checked class="rounded bg-slate-700 border-slate-600" />
+                <span>Include evidence excerpts</span>
+              </label>
+              <label class="flex items-center gap-3 text-slate-300">
+                <input type="checkbox" id="exportRecompute" class="rounded bg-slate-700 border-slate-600" />
+                <span>Include recompute inputs</span>
+              </label>
+              <p class="text-xs text-slate-500 ml-6">Allows verification of determinism on import</p>
+            </div>
+            <div class="flex gap-3 justify-end">
+              <button id="exportCancel" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-300">Cancel</button>
+              <button id="exportConfirm" class="px-4 py-2 rounded bg-emerald-700 hover:bg-emerald-600 text-emerald-100">Export</button>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(dialog);
+        
+        const cancelBtn = dialog.querySelector('#exportCancel');
+        const confirmBtn = dialog.querySelector('#exportConfirm');
+        
+        cancelBtn.addEventListener('click', () => dialog.remove());
+        
+        confirmBtn.addEventListener('click', async () => {
+          const redact = dialog.querySelector('#exportRedact').checked;
+          const includeEvidence = dialog.querySelector('#exportEvidence').checked;
+          const includeRecompute = dialog.querySelector('#exportRecompute').checked;
+          dialog.remove();
+          
+          exportBtn.disabled = true;
+          exportBtn.textContent = 'Exporting...';
+          
+          try {
+            const response = await fetch(`${API_BASE}/api/export/bundle`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                include_evidence_excerpts: includeEvidence,
+                redact: redact,
+                include_recompute: includeRecompute
+              })
+            });
+            
+            if (response.ok) {
+              const blob = await response.blob();
+              const contentDisposition = response.headers.get('Content-Disposition');
+              let filename = 'incident_bundle.zip';
+              if (contentDisposition) {
+                const match = contentDisposition.match(/filename="([^"]+)"/);
+                if (match) filename = match[1];
+              }
+              
+              // Download the file
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              window.URL.revokeObjectURL(url);
+              a.remove();
+              
+              console.log('Bundle exported:', filename, { redact, includeEvidence, includeRecompute });
+            } else {
+              const error = await response.json();
+            console.error('Export failed:', error);
+            alert('Export failed: ' + (error.error || 'Unknown error'));
+          }
+        } catch (e) {
+          console.error('Export error:', e);
+          alert('Export failed: ' + e.message);
+        } finally {
+          exportBtn.disabled = false;
+          exportBtn.textContent = '📤 Export Bundle';
+        }
+      });
+      
+      // Import bundle handler
+      importInput?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const response = await fetch(`${API_BASE}/api/import/bundle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: arrayBuffer
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            console.log('Bundle imported:', result);
+            
+            window.IMPORTED_BUNDLE = result.report_bundle;
+            showImportedBanner(result.bundle_id, result.hypothesis_count, result.namespace, result.has_recompute);
+            
+            // Trigger UI update if handler exists
+            if (typeof window.onBundleImported === 'function') {
+              window.onBundleImported(result);
+            }
+            
+            const recomputeMsg = result.has_recompute ? '\n✓ Recompute verification available' : '';
+            alert(`Bundle imported successfully!\n${result.hypothesis_count} hypotheses, ${result.timeline_entry_count} timeline entries\nNamespace: ${result.namespace}${recomputeMsg}`);
+          } else {
+            const error = await response.json();
+            console.error('Import failed:', error);
+            alert('Import failed: ' + (error.error || 'Unknown error'));
+          }
+        } catch (e) {
+          console.error('Import error:', e);
+          alert('Import failed: ' + e.message);
+        }
+        
+        // Reset the input
+        importInput.value = '';
+      });
+      
+      // Clear imported data handler
+      clearImportedBtn?.addEventListener('click', () => {
+        window.IMPORTED_BUNDLE = null;
+        hideImportedBanner();
+        
+        if (typeof window.onBundleCleared === 'function') {
+          window.onBundleCleared();
+        }
+        
+        console.log('Imported bundle cleared');
+      });
+      
+      // Expose export function globally
+      window.exportBundle = async function(options = {}) {
+        try {
+          const response = await fetch(`${API_BASE}/api/export/bundle`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              incident_id: options.incidentId,
+              include_evidence_excerpts: options.includeEvidence ?? true,
+              redact: options.redact ?? true,
+              include_recompute: options.includeRecompute ?? false
+            })
+          });
+          
+          if (response.ok) {
+            return await response.blob();
+          } else {
+            throw new Error((await response.json()).error);
+          }
+        } catch (e) {
+          console.error('Export failed:', e);
+          throw e;
+        }
+      };
+      
+      // Expose import function globally
+      window.importBundle = async function(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const response = await fetch(`${API_BASE}/api/import/bundle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: arrayBuffer
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          window.IMPORTED_BUNDLE = result.report_bundle;
+          window.IMPORTED_HAS_RECOMPUTE = result.has_recompute;
+          window.IMPORTED_BUNDLE_ID = result.bundle_id;
+          window.IMPORTED_NAMESPACE = result.namespace;
+          showImportedBanner(result.bundle_id, result.hypothesis_count, result.namespace, result.has_recompute);
+          return result;
+        } else {
+          throw new Error((await response.json()).error);
+        }
+      };
+      
+      // Expose recompute function globally
+      window.recomputeBundle = async function(bundleId, mode = 'best_effort') {
+        try {
+          const response = await fetch(`${API_BASE}/api/import/bundle/recompute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              bundle_id: bundleId,
+              mode: mode
+            })
+          });
+          
+          if (response.ok) {
+            return await response.json();
+          } else {
+            throw new Error((await response.json()).error || 'Recompute failed');
+          }
+        } catch (e) {
+          console.error('Recompute failed:', e);
+          throw e;
+        }
+      };
+    })();
+  </script>
+
+  <!-- Desktop App Integration (Tauri) -->
+  <script>
+    (function() {
+      // Only activate if running inside Tauri
+      if (!window.__TAURI__) return;
+
+      const { invoke } = window.__TAURI__.core;
+      const statusBar = document.getElementById('desktopStatusBar');
+      const statusDot = document.getElementById('statusDot');
+      const statusText = document.getElementById('statusText');
+      const statusPort = document.getElementById('statusPort');
+      const statusTelemetry = document.getElementById('statusTelemetry');
+      const openTelemetryBtn = document.getElementById('openTelemetryBtn');
+
+      // Show status bar
+      statusBar.classList.remove('hidden');
+
+      // Open telemetry folder
+      openTelemetryBtn.addEventListener('click', async () => {
+        try {
+          await invoke('open_telemetry_folder');
+        } catch (e) {
+          console.error('Failed to open telemetry folder:', e);
+        }
+      });
+
+      // Poll status
+      async function updateStatus() {
+        try {
+          const status = await invoke('get_status');
+          statusPort.textContent = `Port: ${status.port}`;
+          statusTelemetry.textContent = `Telemetry: ${status.telemetry_root}`;
+          statusTelemetry.title = status.telemetry_root;
+          
+          if (status.running) {
+            statusDot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+            statusText.textContent = 'Backend running';
+          } else {
+            statusDot.className = 'w-2 h-2 rounded-full bg-red-500';
+            statusText.textContent = 'Backend stopped';
+          }
+        } catch (e) {
+          statusDot.className = 'w-2 h-2 rounded-full bg-yellow-500';
+          statusText.textContent = 'Status unknown';
+        }
+      }
+
+      updateStatus();
+      setInterval(updateStatus, 5000);
+    })();
+  </script>
+
+  <!-- Capture Control & Throttling Integration -->
+  <script>
+    (function() {
+      const API_BASE = window.location.origin;
+      
+      // Elements
+      const profileSelector = document.getElementById('profileSelector');
+      const profileDescription = document.getElementById('profileDescription');
+      const btnApplyProfile = document.getElementById('btnApplyProfile');
+      const profileBadge = document.getElementById('profileBadge');
+      const throttleBadge = document.getElementById('throttleBadge');
+      const throttleAccepted = document.getElementById('throttleAccepted');
+      const throttleDropped = document.getElementById('throttleDropped');
+      const throttleTokens = document.getElementById('throttleTokens');
+      const btnResetThrottle = document.getElementById('btnResetThrottle');
+      const sensorsList = document.getElementById('sensorsList');
+      const degradedReasons = document.getElementById('degradedReasons');
+      const throttleDegradedBanner = document.getElementById('throttleDegradedBanner');
+      const throttleDegradedDetail = document.getElementById('throttleDegradedDetail');
+      const visibilityBadge = document.getElementById('visibilityBadge');
+      
+      const profileDescriptions = {
+        'core': 'Minimal sensors, safe for dev laptops',
+        'extended': 'Additional sensors, moderate CPU/memory',
+        'forensic': 'All collectors, high resource usage'
+      };
+      
+      // Update profile description when selector changes
+      profileSelector?.addEventListener('change', () => {
+        const selected = profileSelector.value;
+        if (profileDescription) {
+          profileDescription.textContent = profileDescriptions[selected] || '';
+        }
+      });
+      
+      // Apply profile button
+      btnApplyProfile?.addEventListener('click', async () => {
+        const selected = profileSelector?.value;
+        if (!selected) return;
+        
+        try {
+          const response = await fetch(`${API_BASE}/api/capture/profile`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profile: selected })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            console.log('Profile changed:', result);
+            updateProfileBadge(selected);
+            refreshThrottleVisibility();
+            
+            // Show toast notification
+            if (typeof showToast === 'function') {
+              showToast('Profile changed', result.message);
+            }
+          } else {
+            const err = await response.json();
+            console.error('Failed to change profile:', err);
+          }
+        } catch (e) {
+          console.error('Profile change error:', e);
+        }
+      });
+      
+      // Reset throttle counters
+      btnResetThrottle?.addEventListener('click', async () => {
+        try {
+          const response = await fetch(`${API_BASE}/api/visibility/throttle/reset`, {
+            method: 'POST'
+          });
+          
+          if (response.ok) {
+            console.log('Throttle counters reset');
+            refreshThrottleVisibility();
+          }
+        } catch (e) {
+          console.error('Reset throttle error:', e);
+        }
+      });
+      
+      function updateProfileBadge(profile) {
+        if (profileBadge) {
+          profileBadge.textContent = `profile: ${profile}`;
+          profileBadge.className = 'text-xs px-2 py-0.5 rounded ';
+          if (profile === 'core') {
+            profileBadge.className += 'bg-sky-700/70';
+          } else if (profile === 'extended') {
+            profileBadge.className += 'bg-amber-700/70';
+          } else if (profile === 'forensic') {
+            profileBadge.className += 'bg-rose-700/70';
+          }
+        }
+      }
+      
+      function updateThrottleBadge(degraded, tier0Throttled) {
+        if (throttleBadge) {
+          if (tier0Throttled) {
+            throttleBadge.textContent = 'throttling: CRITICAL';
+            throttleBadge.className = 'text-xs px-2 py-0.5 rounded bg-rose-700 animate-pulse';
+          } else if (degraded) {
+            throttleBadge.textContent = 'throttling: degraded';
+            throttleBadge.className = 'text-xs px-2 py-0.5 rounded bg-amber-700/70';
+          } else {
+            throttleBadge.textContent = 'throttling: ok';
+            throttleBadge.className = 'text-xs px-2 py-0.5 rounded bg-emerald-700/70';
+          }
+        }
+        
+        // Update visibility badge too
+        if (visibilityBadge) {
+          if (tier0Throttled) {
+            visibilityBadge.textContent = 'visibility: DEGRADED';
+            visibilityBadge.className = 'text-xs px-2 py-0.5 rounded bg-rose-700 animate-pulse';
+          } else if (degraded) {
+            visibilityBadge.textContent = 'visibility: reduced';
+            visibilityBadge.className = 'text-xs px-2 py-0.5 rounded bg-amber-700/70';
+          } else {
+            visibilityBadge.textContent = 'visibility: ok';
+            visibilityBadge.className = 'text-xs px-2 py-0.5 rounded bg-emerald-700/70';
+          }
+        }
+      }
+      
+      function updateDegradedBanner(degraded, reasons, tier0Throttled, criticalGap) {
+        if (throttleDegradedBanner) {
+          if (criticalGap || tier0Throttled) {
+            // CRITICAL GAP - loud warning
+            throttleDegradedBanner.classList.remove('hidden');
+            throttleDegradedBanner.className = 'rounded border-2 border-rose-500 bg-rose-900/50 p-2 lg:col-span-3 animate-pulse';
+            if (throttleDegradedDetail) {
+              throttleDegradedDetail.innerHTML = '<strong>⚠️ CRITICAL:</strong> Tier-0 stream throttled; conclusions may be incomplete.';
+            }
+          } else if (degraded) {
+            // Degraded but not critical
+            throttleDegradedBanner.classList.remove('hidden');
+            throttleDegradedBanner.className = 'rounded border border-amber-700/50 bg-amber-900/30 p-2 lg:col-span-3';
+            if (throttleDegradedDetail && reasons.length > 0) {
+              throttleDegradedDetail.textContent = reasons[0];
+            }
+          } else {
+            throttleDegradedBanner.classList.add('hidden');
+          }
+        }
+        
+        if (degradedReasons) {
+          if (criticalGap || tier0Throttled) {
+            degradedReasons.innerHTML = '<div class="text-rose-400 font-bold">⚠️ CRITICAL GAP: Tier-0 throttled</div>' +
+              reasons.map(r => `<div class="text-rose-400">${r}</div>`).join('');
+          } else if (reasons.length > 0) {
+            degradedReasons.innerHTML = reasons.map(r => `<div class="text-rose-400">${r}</div>`).join('');
+          } else {
+            degradedReasons.innerHTML = '<div class="text-emerald-400">No issues detected</div>';
+          }
+        }
+      }
+      
+      async function refreshThrottleVisibility() {
+        try {
+          const response = await fetch(`${API_BASE}/api/visibility/throttle`);
+          if (response.ok) {
+            const data = await response.json();
+            const vis = data.visibility;
+            
+            // Update profile selector and badge
+            if (profileSelector && vis.profile) {
+              profileSelector.value = vis.profile.toLowerCase();
+              updateProfileBadge(vis.profile.toLowerCase());
+            }
+            
+            // Update throttle stats
+            let totalAccepted = 0;
+            let totalDropped = 0;
+            const streams = vis.stream_stats || {};
+            for (const [streamId, stats] of Object.entries(streams)) {
+              totalAccepted += stats.counters?.accepted || 0;
+              totalDropped += stats.counters?.dropped || 0;
+            }
+            
+            if (throttleAccepted) throttleAccepted.textContent = totalAccepted.toLocaleString();
+            if (throttleDropped) throttleDropped.textContent = totalDropped.toLocaleString();
+            if (throttleTokens) throttleTokens.textContent = vis.global_events_available?.toLocaleString() || '--';
+            
+            // Update badges - include critical_gap
+            updateThrottleBadge(vis.degraded, vis.tier0_throttled || vis.critical_gap);
+            updateDegradedBanner(vis.degraded, vis.degraded_reasons || [], vis.tier0_throttled, vis.critical_gap);
+            
+          }
+        } catch (e) {
+          console.error('Failed to fetch throttle visibility:', e);
+        }
+      }
+      
+      async function refreshCaptureConfig() {
+        try {
+          const response = await fetch(`${API_BASE}/api/capture/profile`);
+          if (response.ok) {
+            const data = await response.json();
+            
+            // Update sensors list
+            if (sensorsList) {
+              const sensors = data.enabled_sensors || [];
+              const collectors = data.enabled_collectors || [];
+              sensorsList.innerHTML = 
+                '<div class="text-slate-300 font-medium">Sensors:</div>' +
+                sensors.map(s => `<div class="ml-2">• ${s}</div>`).join('') +
+                (collectors.length > 0 ? '<div class="text-slate-300 font-medium mt-1">Collectors:</div>' +
+                collectors.map(c => `<div class="ml-2">• ${c}</div>`).join('') : '');
+            }
+            
+            // Update profile
+            if (profileSelector && data.profile) {
+              profileSelector.value = data.profile;
+              updateProfileBadge(data.profile);
+              if (profileDescription) {
+                profileDescription.textContent = data.description || profileDescriptions[data.profile] || '';
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch capture config:', e);
+        }
+      }
+      
+      // Initial load
+      refreshCaptureConfig();
+      refreshThrottleVisibility();
+      
+      // Poll throttle visibility every 5 seconds
+      setInterval(refreshThrottleVisibility, 5000);
+      
+      // Expose functions globally
+      window.refreshThrottleVisibility = refreshThrottleVisibility;
+      window.refreshCaptureConfig = refreshCaptureConfig;
+    })();
+  </script>
+
+  <!-- ============ METRICS MODAL ============ -->
+  <dialog id="metricsModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <h2 class="text-xl font-semibold text-slate-100">📊 Run Metrics</h2>
+        <button id="closeMetricsModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+      <div id="metricsContent" class="space-y-4">
+        <div class="text-slate-400 text-center py-8">No metrics available. Complete a run first.</div>
+      </div>
+      <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-800">
+        <button id="btnOpenMetricsFolder" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Open Folder</button>
+        <button id="btnCopyMetrics" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Copy JSON</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ READINESS MODAL ============ -->
+  <dialog id="readinessModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 class="text-xl font-semibold text-slate-100">🔧 System Readiness</h2>
+          <p class="text-sm text-slate-400 mt-1">Check your system's telemetry capabilities</p>
+        </div>
+        <button id="closeReadinessModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+      
+      <!-- Overall Readiness Status -->
+      <div id="readinessOverall" class="p-4 rounded-lg mb-4 bg-slate-800">
+        <div class="flex items-center gap-3">
+          <span id="readinessIcon" class="text-3xl">⏳</span>
+          <div>
+            <div id="readinessLevel" class="font-medium text-lg">Checking...</div>
+            <div id="readinessDesc" class="text-sm text-slate-400">Analyzing system capabilities</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Capability Checks -->
+      <div class="space-y-3 mb-4">
+        <div id="checkAdmin" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkAdminIcon" class="text-lg">⏳</span>
+            <span>Administrator privileges</span>
+          </div>
+          <span id="checkAdminStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+        <div id="checkSecurityLog" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkSecurityLogIcon" class="text-lg">⏳</span>
+            <span>Security Event Log access</span>
+          </div>
+          <span id="checkSecurityLogStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+        <div id="checkSysmon" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkSysmonIcon" class="text-lg">⏳</span>
+            <span>Sysmon installed</span>
+          </div>
+          <span id="checkSysmonStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+        <div id="checkCmdLine" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkCmdLineIcon" class="text-lg">⏳</span>
+            <span>Command-line logging</span>
+          </div>
+          <span id="checkCmdLineStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+        <div id="checkPsLogging" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
+          <div class="flex items-center gap-2">
+            <span id="checkPsLoggingIcon" class="text-lg">⏳</span>
+            <span>PowerShell script block logging</span>
+          </div>
+          <span id="checkPsLoggingStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
+        </div>
+      </div>
+
+      <!-- Playbook Capability Mapping -->
+      <div id="playbookCapabilitySection" class="border-t border-slate-700 pt-4 mb-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-3">📋 Playbook Capability Map (30 Playbooks)</h3>
+        <div class="text-xs text-slate-400 mb-2">Shows which playbooks can fire based on current capabilities</div>
+        <div id="playbookCapabilityList" class="space-y-2 max-h-64 overflow-auto pr-2">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+
+      <!-- Health Gate Diagnosis -->
+      <div id="gatesDiagnosisSection" class="hidden border-t border-slate-700 pt-4 mb-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-3">🚦 Health Gate Diagnosis</h3>
+        <div id="gatesDiagnosisList" class="space-y-2 text-xs">
+          <!-- Populated dynamically when gates fail -->
+        </div>
+      </div>
+
+      <!-- Recommended Fixes -->
+      <div id="readinessFixesSection" class="hidden border-t border-slate-700 pt-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-3">Recommended Fixes</h3>
+        <div id="readinessFixesList" class="space-y-2 max-h-48 overflow-auto"></div>
+      </div>
+
+      <div class="flex justify-between mt-4 pt-4 border-t border-slate-800">
+        <button id="btnRefreshReadiness" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">🔄 Refresh</button>
+        <button id="readinessDoneBtn" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Done</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ RUN HISTORY MODAL ============ -->
+  <dialog id="historyModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-3xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 class="text-xl font-semibold text-slate-100">📁 Run History</h2>
+          <p class="text-sm text-slate-400 mt-1">Previous runs and their metrics</p>
+        </div>
+        <button id="closeHistoryModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+      
+      <div id="historyContent" class="overflow-auto max-h-96">
+        <table class="w-full text-sm">
+          <thead class="text-slate-400 border-b border-slate-700 sticky top-0 bg-slate-900">
+            <tr>
+              <th class="text-left py-2 px-2">Run ID</th>
+              <th class="text-left py-2 px-2">Started</th>
+              <th class="text-left py-2 px-2">Duration</th>
+              <th class="text-left py-2 px-2">Segments</th>
+              <th class="text-left py-2 px-2">Signals</th>
+              <th class="text-left py-2 px-2">Admin</th>
+              <th class="text-left py-2 px-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody" class="divide-y divide-slate-800">
+            <tr><td colspan="7" class="py-4 text-center text-slate-400">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flex justify-end mt-4 pt-4 border-t border-slate-800">
+        <button id="historyDoneBtn" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ SCENARIO RUNNER MODAL ============ -->
+  <dialog id="scenarioModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 class="text-xl font-semibold text-slate-100">🧪 Scenario Runner</h2>
+          <p class="text-sm text-slate-400 mt-1">Generate safe test activity for detection testing</p>
+        </div>
+        <button id="closeScenarioModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+
+      <!-- Scenario Tier Selection -->
+      <div class="mb-4">
+        <label class="block text-sm font-medium text-slate-300 mb-2">Select Scenario Tier</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-tier="A" class="scenario-tier-btn p-3 rounded-lg border-2 border-emerald-600 bg-emerald-600/10 text-left">
+            <div class="font-medium text-emerald-400">Tier A</div>
+            <div class="text-xs text-slate-400">Safe (whoami, hostname)</div>
+          </button>
+          <button data-tier="B" class="scenario-tier-btn p-3 rounded-lg border-2 border-slate-700 hover:border-amber-500 text-left">
+            <div class="font-medium text-slate-200">Tier B</div>
+            <div class="text-xs text-slate-400">Moderate (reg, schtasks)</div>
+          </button>
+          <button data-tier="C" class="scenario-tier-btn p-3 rounded-lg border-2 border-slate-700 hover:border-red-500 text-left">
+            <div class="font-medium text-slate-200">Tier C</div>
+            <div class="text-xs text-slate-400">Advanced (net, sc)</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Scenario List -->
+      <div id="scenarioList" class="space-y-2 max-h-48 overflow-auto mb-4">
+        <!-- Populated dynamically -->
+      </div>
+
+      <!-- Run Results -->
+      <div id="scenarioResults" class="hidden border-t border-slate-700 pt-4">
+        <h3 class="text-sm font-medium text-slate-300 mb-2">Execution Results</h3>
+        <div id="scenarioResultsContent" class="text-xs font-mono bg-slate-950 rounded p-3 max-h-40 overflow-auto"></div>
+      </div>
+
+      <div class="flex justify-between mt-4 pt-4 border-t border-slate-800">
+        <button id="btnRunScenarios" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">▶️ Run Selected Scenarios</button>
+        <button id="scenarioDoneBtn" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ E2E CHECK MODAL ============ -->
+  <dialog id="e2eCheckModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <h2 class="text-xl font-semibold text-slate-100">🔍 E2E Self Check</h2>
+        <button id="closeE2EModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
+      </div>
+      <div id="e2eCheckContent" class="space-y-3">
+        <div id="e2eCheckList" class="space-y-2">
+          <!-- Checks will be populated dynamically -->
+        </div>
+      </div>
+      <div id="e2eCheckSummary" class="mt-4 p-3 rounded bg-slate-800 text-sm hidden"></div>
+      <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-800">
+        <button id="btnRunE2EAgain" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Run Again</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ============ DESKTOP APP ENHANCED INTEGRATION (Agent-UI) ============ -->
+  <script>
+    (function() {
+      // Only activate if running inside Tauri
+      if (!window.__TAURI__) {
+        console.log('Not in Tauri, desktop features disabled');
+        return;
+      }
+
+      const { invoke } = window.__TAURI__.core;
+      
+      // Show run control panel for desktop mode
+      const runControlPanel = document.getElementById('runControlPanel');
+      if (runControlPanel) {
+        runControlPanel.classList.remove('hidden');
+      }
+
+      // ========== SCENARIO STATE ==========
+      // Scenarios are now loaded from backend (scenario_profiles.rs)
+      let scenariosCache = { A: [], B: [], C: [] };
+      let selectedTier = 'A';
+      let scenarioResults = [];
+
+      // ========== READINESS CHECK FUNCTIONS ==========
+      async function openReadinessCheck() {
+        const modal = document.getElementById('readinessModal');
+        modal.showModal();
+        await refreshReadinessCheck();
+      }
+
+      // Playbook capability requirements (which capabilities each playbook needs)
+      // Updated to include all 30 playbooks in the Detection Engineer Pack
+      const PLAYBOOK_CAPABILITIES = {
+        // === EXECUTION FAMILY ===
+        'signal_lolbin_abuse': { name: 'LOLBin Abuse', family: 'execution', requires: ['admin', 'security_log'], optional: ['cmdline'] },
+        'signal_encoded_powershell': { name: 'Encoded PowerShell', family: 'execution', requires: ['ps_logging'], optional: ['cmdline'] },
+        'signal_certutil_abuse': { name: 'Certutil Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_mshta_abuse': { name: 'MSHTA Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_rundll32_abuse': { name: 'Rundll32 Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_regsvr32_abuse': { name: 'Regsvr32 Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_wmic_abuse': { name: 'WMIC Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline'] },
+        'signal_bitsadmin_abuse': { name: 'BITSAdmin Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline'] },
+        'signal_powershell_download': { name: 'PowerShell Download', family: 'execution', requires: ['ps_logging'], optional: ['cmdline'] },
+        'signal_wscript_cscript_abuse': { name: 'WScript/CScript Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_office_child_process': { name: 'Office Child Process', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        
+        // === PERSISTENCE FAMILY ===
+        'signal_persistence_windows': { name: 'Windows Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+        'signal_service_persistence': { name: 'Service Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: [] },
+        'signal_task_persistence': { name: 'Task Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: [] },
+        'signal_registry_persistence': { name: 'Registry Persistence', family: 'persistence', requires: ['admin'], optional: ['sysmon'] },
+        'signal_schtasks_abuse': { name: 'Schtasks Abuse', family: 'persistence', requires: ['admin', 'security_log'], optional: ['cmdline'] },
+        'signal_sc_abuse': { name: 'SC Command Abuse', family: 'persistence', requires: ['admin', 'security_log'], optional: ['cmdline'] },
+        
+        // === IDENTITY/AUTH FAMILY ===
+        'signal_logon_anomaly': { name: 'Logon Anomaly', family: 'identity', requires: ['admin', 'security_log'], optional: [] },
+        'signal_group_membership_change': { name: 'Group Membership Change', family: 'identity', requires: ['admin', 'security_log'], optional: [] },
+        'signal_lateral_movement_detection': { name: 'Lateral Movement', family: 'identity', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+        
+        // === DISCOVERY FAMILY ===
+        'signal_discovery_burst': { name: 'Discovery Burst', family: 'discovery', requires: [], optional: ['cmdline'] },
+        'signal_net_command_abuse': { name: 'Net Command Abuse', family: 'discovery', requires: [], optional: ['cmdline'] },
+        
+        // === DEFENSE EVASION FAMILY ===
+        'signal_defense_evasion': { name: 'Defense Evasion', family: 'defense_evasion', requires: ['admin'], optional: ['sysmon', 'ps_logging'] },
+        'signal_log_tampering': { name: 'Log Tampering', family: 'defense_evasion', requires: ['admin', 'security_log'], optional: [] },
+        'signal_log_tamper_detection': { name: 'Log Tamper Detection', family: 'defense_evasion', requires: ['admin', 'security_log'], optional: [] },
+        'signal_dll_side_loading': { name: 'DLL Side-Loading', family: 'defense_evasion', requires: ['sysmon'], optional: [] },
+        'signal_process_injection': { name: 'Process Injection', family: 'defense_evasion', requires: ['sysmon'], optional: [] },
+        'signal_security_tool_disable': { name: 'Security Tool Disable', family: 'defense_evasion', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        
+        // === CREDENTIAL ACCESS FAMILY ===
+        'signal_credential_access': { name: 'Credential Access', family: 'credential_access', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+        
+        // === COLLECTION FAMILY ===
+        'signal_file_staging': { name: 'File Staging', family: 'collection', requires: ['sysmon'], optional: [] },
+      };
+
+      async function refreshReadinessCheck() {
+        try {
+          const readiness = await invoke('get_readiness');
+          console.log('Readiness check result:', readiness);
+          
+          // Update overall status
+          const overallEl = document.getElementById('readinessOverall');
+          const iconEl = document.getElementById('readinessIcon');
+          const levelEl = document.getElementById('readinessLevel');
+          const descEl = document.getElementById('readinessDesc');
+          
+          const levelMap = {
+            'Full': { icon: '✅', color: 'bg-emerald-700', desc: 'All telemetry sources available' },
+            'Good': { icon: '👍', color: 'bg-sky-700', desc: 'Basic telemetry available, some enhancements missing' },
+            'Limited': { icon: '⚠️', color: 'bg-amber-700', desc: 'Limited telemetry, consider running as admin' },
+            'Blocked': { icon: '❌', color: 'bg-red-700', desc: 'Cannot capture meaningful telemetry' },
+          };
+          
+          const level = readiness.overall_readiness || 'Limited';
+          const info = levelMap[level] || levelMap['Limited'];
+          
+          iconEl.textContent = info.icon;
+          levelEl.textContent = `Readiness: ${level}`;
+          descEl.textContent = info.desc;
+          overallEl.className = `p-4 rounded-lg mb-4 ${info.color}`;
+          
+          // Update individual checks
+          updateCheckRow('Admin', readiness.is_admin);
+          updateCheckRow('SecurityLog', readiness.can_read_security_log);
+          updateCheckRow('Sysmon', readiness.sysmon_installed);
+          updateCheckRow('CmdLine', readiness.audit_policy_state?.command_line_logging);
+          updateCheckRow('PsLogging', readiness.powershell_logging_enabled);
+          
+          // Update playbook capability map
+          const capMap = {
+            admin: readiness.is_admin,
+            security_log: readiness.can_read_security_log,
+            sysmon: readiness.sysmon_installed,
+            cmdline: readiness.audit_policy_state?.command_line_logging,
+            ps_logging: readiness.powershell_logging_enabled,
+          };
+          updatePlaybookCapabilityMap(capMap);
+          
+          // Update recommended fixes
+          const fixesSection = document.getElementById('readinessFixesSection');
+          const fixesList = document.getElementById('readinessFixesList');
+          
+          if (readiness.recommended_fixes && readiness.recommended_fixes.length > 0) {
+            fixesSection.classList.remove('hidden');
+            fixesList.innerHTML = readiness.recommended_fixes.map(fix => `
+              <div class="p-3 rounded bg-slate-800/50 border border-slate-700">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="font-medium text-sm">${fix.title}</span>
+                  ${fix.requires_admin ? '<span class="text-xs px-1.5 py-0.5 rounded bg-amber-700/50 text-amber-300">Requires Admin</span>' : ''}
+                </div>
+                <p class="text-xs text-slate-400 mb-2">${fix.description}</p>
+                <div class="text-xs text-slate-500">Impact: ${fix.impact}</div>
+                ${fix.command ? `<button onclick="applyFix('${fix.id}')" class="mt-2 px-2 py-1 rounded bg-sky-700 hover:bg-sky-600 text-xs">Apply Fix</button>` : ''}
+              </div>
+            `).join('');
+          } else {
+            fixesSection.classList.add('hidden');
+          }
+        } catch (e) {
+          console.error('Readiness check failed:', e);
+        }
+      }
+      
+      function updatePlaybookCapabilityMap(capMap) {
+        const container = document.getElementById('playbookCapabilityList');
+        
+        // Group playbooks by family
+        const families = {};
+        let enabledCount = 0;
+        let totalCount = 0;
+        
+        for (const [id, pb] of Object.entries(PLAYBOOK_CAPABILITIES)) {
+          const family = pb.family || 'other';
+          if (!families[family]) families[family] = [];
+          
+          const requiredMet = pb.requires.every(cap => capMap[cap]);
+          const optionalMet = pb.optional.filter(cap => capMap[cap]).length;
+          const missingRequired = pb.requires.filter(cap => !capMap[cap]);
+          
+          families[family].push({ id, ...pb, requiredMet, optionalMet, missingRequired });
+          totalCount++;
+          if (requiredMet) enabledCount++;
+        }
+        
+        // Family display names and colors
+        const familyMeta = {
+          execution: { name: '⚡ Execution', color: 'text-sky-400' },
+          persistence: { name: '🔒 Persistence', color: 'text-amber-400' },
+          identity: { name: '👤 Identity', color: 'text-purple-400' },
+          discovery: { name: '🔍 Discovery', color: 'text-emerald-400' },
+          defense_evasion: { name: '🛡️ Defense Evasion', color: 'text-red-400' },
+          credential_access: { name: '🔑 Credential Access', color: 'text-orange-400' },
+          collection: { name: '📦 Collection', color: 'text-cyan-400' },
+        };
+        
+        // Build summary row
+        const summaryHtml = `
+          <div class="col-span-2 p-2 rounded bg-slate-800 border border-slate-700 mb-2">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-medium">Detection Coverage</span>
+              <span class="text-sm font-mono ${enabledCount === totalCount ? 'text-emerald-400' : 'text-amber-400'}">${enabledCount}/${totalCount} playbooks enabled</span>
+            </div>
+            <div class="mt-1 h-2 bg-slate-700 rounded overflow-hidden">
+              <div class="h-full bg-emerald-500" style="width: ${(enabledCount/totalCount*100).toFixed(0)}%"></div>
+            </div>
+          </div>
+        `;
+        
+        // Build family sections
+        const familyHtml = Object.entries(families).map(([family, playbooks]) => {
+          const meta = familyMeta[family] || { name: family, color: 'text-slate-400' };
+          const enabled = playbooks.filter(p => p.requiredMet).length;
+          
+          const playbooksHtml = playbooks.map(pb => {
+            const color = pb.requiredMet ? 'border-emerald-700/50 bg-emerald-900/20' : 'border-red-700/50 bg-red-900/20';
+            const icon = pb.requiredMet ? '✅' : '❌';
+            const tooltip = pb.missingRequired.length > 0 ? `Missing: ${pb.missingRequired.join(', ')}` : 'All requirements met';
+            
+            return `
+              <div class="p-1.5 rounded border ${color} text-xs" title="${tooltip}">
+                <span>${icon}</span> ${pb.name}
+              </div>
+            `;
+          }).join('');
+          
+          return `
+            <div class="col-span-2 mb-2">
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-medium ${meta.color}">${meta.name}</span>
+                <span class="text-xs text-slate-500">${enabled}/${playbooks.length}</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1">
+                ${playbooksHtml}
+              </div>
+            </div>
+          `;
+        }).join('');
+        
+        container.innerHTML = summaryHtml + familyHtml;
+      }
+
+      function updateCheckRow(name, passed) {
+        const iconEl = document.getElementById(`check${name}Icon`);
+        const statusEl = document.getElementById(`check${name}Status`);
+        
+        if (passed) {
+          iconEl.textContent = '✅';
+          statusEl.textContent = 'OK';
+          statusEl.className = 'text-xs px-2 py-0.5 rounded bg-emerald-700';
+        } else {
+          iconEl.textContent = '❌';
+          statusEl.textContent = 'Missing';
+          statusEl.className = 'text-xs px-2 py-0.5 rounded bg-red-700';
+        }
+      }
+
+      async function applyFix(fixId) {
+        try {
+          const result = await invoke('apply_telemetry_fix', { fixId });
+          alert(result);
+          await refreshReadinessCheck();
+        } catch (e) {
+          alert('Failed to apply fix: ' + e);
+        }
+      }
+
+      // ========== RUN HISTORY FUNCTIONS ==========
+      async function openRunHistory() {
+        const modal = document.getElementById('historyModal');
+        modal.showModal();
+        await refreshRunHistory();
+      }
+
+      async function refreshRunHistory() {
+        try {
+          const runs = await invoke('list_runs');
+          const tbody = document.getElementById('historyTableBody');
+          
+          if (!runs || runs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-slate-400">No previous runs found</td></tr>';
+            return;
+          }
+          
+          tbody.innerHTML = runs.map(run => `
+            <tr class="hover:bg-slate-800/50">
+              <td class="py-2 px-2 font-mono text-xs">${run.run_id}</td>
+              <td class="py-2 px-2 text-xs">${formatDateTime(run.started)}</td>
+              <td class="py-2 px-2">${run.duration_minutes}m</td>
+              <td class="py-2 px-2">${run.segments_count}</td>
+              <td class="py-2 px-2 ${run.signals_count > 0 ? 'text-emerald-400' : ''}">${run.signals_count}</td>
+              <td class="py-2 px-2">${run.is_admin ? '✅' : '❌'}</td>
+              <td class="py-2 px-2">
+                <button onclick="openRunFolder('${run.run_id}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs mr-1">📂</button>
+                <button onclick="viewRunMetrics('${run.run_id}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">📊</button>
+              </td>
+            </tr>
+          `).join('');
+        } catch (e) {
+          console.error('Failed to load run history:', e);
+          document.getElementById('historyTableBody').innerHTML = 
+            '<tr><td colspan="7" class="py-4 text-center text-red-400">Error loading history</td></tr>';
+        }
+      }
+
+      async function openRunFolder(runId) {
+        try {
+          await invoke('open_run_folder', { runId });
+        } catch (e) {
+          console.error('Failed to open run folder:', e);
+        }
+      }
+
+      async function viewRunMetrics(runId) {
+        try {
+          const metrics = await invoke('get_run_metrics', { runId });
+          document.getElementById('historyModal').close();
+          showMetricsData(metrics);
+        } catch (e) {
+          alert('Failed to load metrics: ' + e);
+        }
+      }
+
+      function formatDateTime(isoString) {
+        if (!isoString) return '--';
+        try {
+          const d = new Date(isoString);
+          return d.toLocaleString();
+        } catch {
+          return isoString;
+        }
+      }
+
+      // ========== SCENARIO RUNNER FUNCTIONS ==========
+      async function openScenarioRunner() {
+        const modal = document.getElementById('scenarioModal');
+        modal.showModal();
+        await loadScenarios();
+        selectTier('A');
+      }
+      
+      async function loadScenarios() {
+        try {
+          // Load scenarios from backend
+          const all = await invoke('get_scenarios');
+          
+          // Group by tier
+          scenariosCache = { A: [], B: [], C: [] };
+          for (const s of all) {
+            if (s.tier === 'A' || s.tier.A) scenariosCache.A.push(s);
+            else if (s.tier === 'B' || s.tier.B) scenariosCache.B.push(s);
+            else if (s.tier === 'C' || s.tier.C) scenariosCache.C.push(s);
+          }
+          console.log('Loaded scenarios:', scenariosCache);
+        } catch (e) {
+          console.error('Failed to load scenarios:', e);
+        }
+      }
+
+      function selectTier(tier) {
+        selectedTier = tier;
+        
+        // Update tier buttons
+        document.querySelectorAll('.scenario-tier-btn').forEach(btn => {
+          const btnTier = btn.getAttribute('data-tier');
+          if (btnTier === tier) {
+            btn.classList.remove('border-slate-700');
+            btn.classList.add('border-emerald-600', 'bg-emerald-600/10');
+          } else {
+            btn.classList.remove('border-emerald-600', 'bg-emerald-600/10');
+            btn.classList.add('border-slate-700');
+          }
+        });
+        
+        // Update scenario list
+        const scenarioList = document.getElementById('scenarioList');
+        const scenarios = scenariosCache[tier] || [];
+        
+        scenarioList.innerHTML = scenarios.map(s => `
+          <label class="flex items-start gap-3 p-2 rounded hover:bg-slate-800/50 cursor-pointer">
+            <input type="checkbox" class="scenario-checkbox mt-1 rounded bg-slate-800 border-slate-600" data-id="${s.id}" checked />
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium">${s.name}</div>
+              <div class="text-xs text-slate-400">${s.description}</div>
+              ${s.expectations?.playbooks?.length > 0 ? `
+                <div class="text-xs text-emerald-400 mt-1">Expected playbooks: ${s.expectations.playbooks.join(', ')}</div>
+              ` : ''}
+              ${s.expectations?.mitre_techniques?.length > 0 ? `
+                <div class="text-xs text-violet-400">MITRE: ${s.expectations.mitre_techniques.join(', ')}</div>
+              ` : ''}
+            </div>
+            <div class="text-right flex-shrink-0">
+              <div class="text-xs font-mono bg-slate-800 px-1.5 py-0.5 rounded">${s.steps?.length || 0} steps</div>
+            </div>
+          </label>
+        `).join('');
+      }
+
+      async function runSelectedScenarios() {
+        const checkboxes = document.querySelectorAll('.scenario-checkbox:checked');
+        const selectedIds = Array.from(checkboxes).map(cb => cb.getAttribute('data-id'));
+        const scenarios = scenariosCache[selectedTier].filter(s => selectedIds.includes(s.id));
+        
+        if (scenarios.length === 0) {
+          alert('No scenarios selected');
+          return;
+        }
+        
+        const resultsSection = document.getElementById('scenarioResults');
+        const resultsContent = document.getElementById('scenarioResultsContent');
+        resultsSection.classList.remove('hidden');
+        resultsContent.innerHTML = '<div class="text-slate-400">Running scenarios with expectations tracking...</div>';
+        
+        scenarioResults = [];
+        
+        for (const scenario of scenarios) {
+          try {
+            resultsContent.innerHTML += `<div class="text-sky-400 mt-2">▶ Running ${scenario.name}...</div>`;
+            
+            // Use the new run_scenario command from backend
+            const stepResults = await invoke('run_scenario', { scenarioId: scenario.id });
+            
+            const allSuccess = stepResults.every(r => r.success);
+            scenarioResults.push({ scenario, success: allSuccess, stepResults });
+            
+            if (allSuccess) {
+              resultsContent.innerHTML += `<div class="text-emerald-400">✓ ${scenario.name} - all ${stepResults.length} steps completed</div>`;
+            } else {
+              const failed = stepResults.filter(r => !r.success);
+              resultsContent.innerHTML += `<div class="text-amber-400">⚠ ${scenario.name} - ${failed.length}/${stepResults.length} steps had issues</div>`;
+            }
+            
+            // Show expected outcomes
+            if (scenario.expectations?.playbooks?.length > 0) {
+              resultsContent.innerHTML += `<div class="text-xs text-slate-500 ml-4">Expected: ${scenario.expectations.playbooks.join(', ')}</div>`;
+            }
+            
+          } catch (e) {
+            scenarioResults.push({ scenario, success: false, error: e });
+            resultsContent.innerHTML += `<div class="text-red-400">✗ ${scenario.name} failed: ${e}</div>`;
+          }
+        }
+        
+        const successCount = scenarioResults.filter(r => r.success).length;
+        resultsContent.innerHTML += `
+          <div class="text-slate-300 mt-3 font-medium border-t border-slate-700 pt-3">
+            Done: ${successCount}/${scenarios.length} scenarios succeeded
+          </div>
+          <div class="text-amber-400 text-xs mt-1">
+            ⏳ Wait for playbooks to process these events, then check Signals panel or view Metrics for gate validation.
+          </div>
+        `;
+      }
+
+      // ========== METRICS DISPLAY ==========
+      function showMetricsData(metrics) {
+        const modal = document.getElementById('metricsModal');
+        const content = document.getElementById('metricsContent');
+        
+        // Helper function for gate status display
+        const gateStatusBadge = (status) => {
+          const colors = {
+            'PASS': 'bg-emerald-700 text-emerald-100',
+            'PARTIAL': 'bg-amber-700 text-amber-100',
+            'FAIL': 'bg-red-700 text-red-100',
+            'NO_DATA': 'bg-slate-700 text-slate-300'
+          };
+          const icons = { 'PASS': '✅', 'PARTIAL': '⚠️', 'FAIL': '❌', 'NO_DATA': '⏸️' };
+          return `<span class="px-2 py-1 rounded text-xs ${colors[status] || colors['NO_DATA']}">${icons[status] || '?'} ${status}</span>`;
+        };
+        
+        // Build health gates section if available (Metrics v3)
+        const hasGates = metrics.gates?.telemetry || metrics.gates?.extraction;
+        const gatesSection = hasGates ? `
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-3 flex items-center gap-2">
+              <span>🚦 Health Gates</span>
+              ${metrics.gates?.overall_healthy 
+                ? '<span class="text-emerald-400 text-xs">All gates passing</span>'
+                : '<span class="text-red-400 text-xs">Issues detected</span>'}
+            </div>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <!-- Gate A: Telemetry -->
+              <div class="p-3 rounded bg-slate-800 border-l-4 ${metrics.gates?.telemetry?.status === 'PASS' ? 'border-emerald-500' : metrics.gates?.telemetry?.status === 'PARTIAL' ? 'border-amber-500' : 'border-red-500'}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-400">Gate A</span>
+                  ${gateStatusBadge(metrics.gates?.telemetry?.status || 'NO_DATA')}
+                </div>
+                <div class="text-sm font-medium">Telemetry</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  ${metrics.gates?.telemetry?.events_count || 0} events
+                </div>
+                ${metrics.gates?.telemetry?.diagnosis ? `<div class="text-xs text-amber-400 mt-1 truncate">${metrics.gates?.telemetry?.diagnosis}</div>` : ''}
+              </div>
+              
+              <!-- Gate B: Extraction -->
+              <div class="p-3 rounded bg-slate-800 border-l-4 ${metrics.gates?.extraction?.status === 'PASS' ? 'border-emerald-500' : metrics.gates?.extraction?.status === 'PARTIAL' ? 'border-amber-500' : 'border-red-500'}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-400">Gate B</span>
+                  ${gateStatusBadge(metrics.gates?.extraction?.status || 'NO_DATA')}
+                </div>
+                <div class="text-sm font-medium">Extraction</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  ${metrics.gates?.extraction?.facts_count || 0} facts
+                </div>
+                ${metrics.gates?.extraction?.diagnosis ? `<div class="text-xs text-amber-400 mt-1 truncate">${metrics.gates?.extraction?.diagnosis}</div>` : ''}
+              </div>
+              
+              <!-- Gate C: Detection -->
+              <div class="p-3 rounded bg-slate-800 border-l-4 ${metrics.gates?.detection?.status === 'PASS' ? 'border-emerald-500' : metrics.gates?.detection?.status === 'PARTIAL' ? 'border-amber-500' : 'border-red-500'}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-400">Gate C</span>
+                  ${gateStatusBadge(metrics.gates?.detection?.status || 'NO_DATA')}
+                </div>
+                <div class="text-sm font-medium">Detection</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  ${metrics.gates?.detection?.signals_count || 0} signals
+                </div>
+                ${metrics.gates?.detection?.diagnosis ? `<div class="text-xs text-amber-400 mt-1 truncate">${metrics.gates?.detection?.diagnosis}</div>` : ''}
+              </div>
+              
+              <!-- Gate D: Explainability -->
+              <div class="p-3 rounded bg-slate-800 border-l-4 ${metrics.gates?.explainability?.status === 'PASS' ? 'border-emerald-500' : metrics.gates?.explainability?.status === 'PARTIAL' ? 'border-amber-500' : 'border-red-500'}">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs text-slate-400">Gate D</span>
+                  ${gateStatusBadge(metrics.gates?.explainability?.status || 'NO_DATA')}
+                </div>
+                <div class="text-sm font-medium">Explainability</div>
+                <div class="text-xs text-slate-400 mt-1">
+                  ${Math.round((metrics.gates?.explainability?.explain_valid_rate || 0) * 100)}% valid
+                </div>
+                ${metrics.gates?.explainability?.diagnosis ? `<div class="text-xs text-amber-400 mt-1 truncate">${metrics.gates?.explainability?.diagnosis}</div>` : ''}
+              </div>
+            </div>
+            ${metrics.gates?.overall_diagnosis && !metrics.gates?.overall_healthy ? `
+              <div class="mt-3 p-2 rounded bg-red-900/30 border border-red-700/50 text-xs text-red-300">
+                <strong>Diagnosis:</strong> ${metrics.gates?.overall_diagnosis}
+              </div>
+            ` : ''}
+          </div>
+        ` : '';
+        
+        // Build rates section if available (Metrics v3)
+        const ratesSection = metrics.rates ? `
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-2">📈 Quality Rates</div>
+            <div class="grid grid-cols-3 gap-2 text-xs">
+              <div class="p-2 rounded bg-slate-800">
+                <div class="text-slate-400">Explain Valid</div>
+                <div class="text-lg font-bold text-emerald-400">${Math.round((metrics.rates?.explain_valid_rate || 0) * 100)}%</div>
+              </div>
+              <div class="p-2 rounded bg-slate-800">
+                <div class="text-slate-400">Evidence PTR</div>
+                <div class="text-lg font-bold text-sky-400">${Math.round((metrics.rates?.evidence_ptr_rate || 0) * 100)}%</div>
+              </div>
+              <div class="p-2 rounded bg-slate-800">
+                <div class="text-slate-400">Slots Filled</div>
+                <div class="text-lg font-bold text-amber-400">${Math.round((metrics.rates?.required_slot_filled_rate || 0) * 100)}%</div>
+              </div>
+            </div>
+          </div>
+        ` : '';
+        
+        // Build breakdowns section if available (Metrics v3)
+        const breakdownsSection = metrics.breakdowns ? `
+          <div class="border-t border-slate-700 pt-4">
+            <details>
+              <summary class="cursor-pointer text-sm font-medium mb-2">📊 Detailed Breakdowns</summary>
+              <div class="grid grid-cols-2 gap-4 mt-3">
+                ${metrics.breakdowns?.events_by_channel ? `
+                <div>
+                  <div class="text-xs text-slate-400 mb-1">Events by Channel</div>
+                  <div class="space-y-1">
+                    ${Object.entries(metrics.breakdowns.events_by_channel).map(([k, v]) => `
+                      <div class="flex justify-between text-xs">
+                        <span class="truncate">${k}</span>
+                        <span class="text-slate-300">${v}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+                ` : ''}
+                ${metrics.breakdowns?.facts_by_type ? `
+                <div>
+                  <div class="text-xs text-slate-400 mb-1">Facts by Type</div>
+                  <div class="space-y-1">
+                    ${Object.entries(metrics.breakdowns.facts_by_type).map(([k, v]) => `
+                      <div class="flex justify-between text-xs">
+                        <span class="truncate">${k}</span>
+                        <span class="text-emerald-400">${v}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+                ` : ''}
+                ${metrics.breakdowns?.signals_by_playbook ? `
+                <div class="col-span-2">
+                  <div class="text-xs text-slate-400 mb-1">Signals by Playbook</div>
+                  <div class="grid grid-cols-2 gap-1">
+                    ${Object.entries(metrics.breakdowns.signals_by_playbook).map(([k, v]) => `
+                      <div class="flex justify-between text-xs p-1 rounded bg-slate-800">
+                        <span class="truncate">${k}</span>
+                        <span class="text-violet-400 font-medium">${v}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+                ` : ''}
+              </div>
+            </details>
+          </div>
+        ` : '';
+        
+        content.innerHTML = `
+          <div class="grid grid-cols-2 gap-4">
+            <div class="p-3 rounded bg-slate-800">
+              <div class="text-xs text-slate-400 mb-1">Run ID</div>
+              <div class="font-mono text-sm">${metrics.run_id || '--'}</div>
+            </div>
+            <div class="p-3 rounded bg-slate-800">
+              <div class="text-xs text-slate-400 mb-1">Schema</div>
+              <div class="font-mono text-sm">${metrics.schema_version || '1.0'}</div>
+            </div>
+          </div>
+          
+          <div class="grid grid-cols-3 gap-4">
+            <div class="p-3 rounded bg-emerald-900/30 border border-emerald-700/50">
+              <div class="text-xs text-emerald-400 mb-1">Signals</div>
+              <div class="text-2xl font-bold text-emerald-400">${metrics.gates?.detection?.signals_count || metrics.pipeline?.signals_count || 0}</div>
+            </div>
+            <div class="p-3 rounded bg-sky-900/30 border border-sky-700/50">
+              <div class="text-xs text-sky-400 mb-1">Segments</div>
+              <div class="text-2xl font-bold text-sky-400">${metrics.gates?.telemetry?.segments_count || metrics.telemetry?.segments_count || 0}</div>
+            </div>
+            <div class="p-3 rounded bg-slate-800">
+              <div class="text-xs text-slate-400 mb-1">Duration</div>
+              <div class="text-2xl font-bold">${metrics.timing?.elapsed_seconds || 0}s</div>
+            </div>
+          </div>
+          
+          ${gatesSection}
+          ${ratesSection}
+          
+          ${!hasGates && metrics.pipeline?.signals_by_playbook ? `
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-2">Signals by Playbook</div>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              ${Object.entries(metrics.pipeline.signals_by_playbook).map(([k, v]) => `
+                <div class="flex justify-between p-2 rounded bg-slate-800">
+                  <span class="truncate">${k}</span>
+                  <span class="text-emerald-400 font-medium">${v}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
+          
+          ${breakdownsSection}
+          
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-2">Environment</div>
+            <div class="text-xs grid grid-cols-2 gap-2">
+              <div><span class="text-slate-400">Admin:</span> ${metrics.environment?.is_admin ? 'Yes' : 'No'}</div>
+              <div><span class="text-slate-400">Host:</span> ${metrics.host || '--'}</div>
+              <div class="col-span-2"><span class="text-slate-400">Run Dir:</span> <span class="font-mono truncate">${metrics.environment?.run_dir || '--'}</span></div>
+            </div>
+          </div>
+          
+          ${metrics.validation ? `
+          <div class="border-t border-slate-700 pt-4">
+            <div class="text-sm font-medium mb-2">Legacy Validation</div>
+            <div class="flex flex-wrap gap-2">
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.has_signals ? 'bg-emerald-700' : 'bg-red-700'}">${metrics.validation.has_signals ? '✓ Has Signals' : '✗ No Signals'}</span>
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.has_segments ? 'bg-emerald-700' : 'bg-amber-700'}">${metrics.validation.has_segments ? '✓ Has Segments' : '⚠ No Segments'}</span>
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.pipeline_working ? 'bg-emerald-700' : 'bg-red-700'}">${metrics.validation.pipeline_working ? '✓ Pipeline OK' : '✗ Pipeline Issue'}</span>
+            </div>
+          </div>
+          ` : ''}
+        `;
+        
+        modal.showModal();
+        
+        // Store metrics for copy
+        window.__currentMetrics = metrics;
+      }
+
+      // ========== SETUP EVENT LISTENERS ==========
+      // Readiness modal
+      document.getElementById('closeReadinessModal')?.addEventListener('click', () => {
+        document.getElementById('readinessModal').close();
+      });
+      document.getElementById('readinessDoneBtn')?.addEventListener('click', () => {
+        document.getElementById('readinessModal').close();
+      });
+      document.getElementById('btnRefreshReadiness')?.addEventListener('click', refreshReadinessCheck);
+
+      // History modal
+      document.getElementById('closeHistoryModal')?.addEventListener('click', () => {
+        document.getElementById('historyModal').close();
+      });
+      document.getElementById('historyDoneBtn')?.addEventListener('click', () => {
+        document.getElementById('historyModal').close();
+      });
+
+      // Scenario modal
+      document.getElementById('closeScenarioModal')?.addEventListener('click', () => {
+        document.getElementById('scenarioModal').close();
+      });
+      document.getElementById('scenarioDoneBtn')?.addEventListener('click', () => {
+        document.getElementById('scenarioModal').close();
+      });
+      document.getElementById('btnRunScenarios')?.addEventListener('click', runSelectedScenarios);
+      
+      // Scenario tier buttons
+      document.querySelectorAll('.scenario-tier-btn').forEach(btn => {
+        btn.addEventListener('click', () => selectTier(btn.getAttribute('data-tier')));
+      });
+
+      // Metrics copy button
+      document.getElementById('btnCopyMetrics')?.addEventListener('click', () => {
+        if (window.__currentMetrics) {
+          navigator.clipboard.writeText(JSON.stringify(window.__currentMetrics, null, 2))
+            .then(() => alert('Metrics copied to clipboard'))
+            .catch(e => alert('Failed to copy: ' + e));
+        }
+      });
+
+      // ========== EXPOSE DESKTOP API ==========
+      window.__edrDesktop = {
+        openReadinessCheck,
+        openRunHistory,
+        openScenarioRunner,
+        
+        async startRun() {
+          try {
+            const duration = parseInt(document.getElementById('runDuration').value) || 10;
+            const selectedPlaybooks = Array.from(document.querySelectorAll('#playbookSelector input:checked'))
+              .map(cb => cb.value);
+            
+            const status = await invoke('start_run', { 
+              durationMinutes: duration,
+              selectedPlaybooks: selectedPlaybooks.length > 0 ? selectedPlaybooks : null
+            });
+            
+            updateRunUI(status);
+          } catch (e) {
+            document.getElementById('runErrorBox').classList.remove('hidden');
+            document.getElementById('runErrorBox').textContent = e;
+          }
+        },
+        
+        async stopRun() {
+          try {
+            const status = await invoke('stop_all');
+            updateRunUI(status);
+          } catch (e) {
+            console.error('Stop failed:', e);
+          }
+        },
+        
+        async showMetrics() {
+          try {
+            const status = await invoke('get_status');
+            if (status.run_id) {
+              const metrics = await invoke('get_run_metrics', { runId: status.run_id });
+              showMetricsData(metrics);
+            } else {
+              // No current run, try to get latest
+              const runs = await invoke('list_runs');
+              if (runs && runs.length > 0) {
+                const metrics = await invoke('get_run_metrics', { runId: runs[0].run_id });
+                showMetricsData(metrics);
+              } else {
+                document.getElementById('metricsContent').innerHTML = 
+                  '<div class="text-slate-400 text-center py-8">No metrics available. Complete a run first.</div>';
+                document.getElementById('metricsModal').showModal();
+              }
+            }
+          } catch (e) {
+            console.error('Failed to show metrics:', e);
+          }
+        },
+        
+        async openTelemetryFolder() {
+          await invoke('open_telemetry_folder');
+        },
+        
+        async openLogsFolder() {
+          await invoke('open_logs_folder');
+        }
+      };
+
+      // ========== STATUS POLLING ==========
+      function updateRunUI(status) {
+        const statusIcon = document.getElementById('runStatusIcon');
+        const statusText = document.getElementById('runStatusText');
+        const statusSub = document.getElementById('runStatusSub');
+        const adminBadge = document.getElementById('adminBadge');
+        const btnStart = document.getElementById('btnStartRun');
+        const btnStop = document.getElementById('btnStopRun');
+        
+        // Update admin badge
+        if (status.is_admin) {
+          adminBadge.textContent = '🔓 Admin';
+          adminBadge.className = 'px-2 py-1 rounded text-xs bg-emerald-700';
+        } else {
+          adminBadge.textContent = '🔒 Limited';
+          adminBadge.className = 'px-2 py-1 rounded text-xs bg-amber-700';
+        }
+        
+        // Update run stats
+        document.getElementById('runSegments').textContent = status.segments_count || '--';
+        document.getElementById('runSignals').textContent = status.signals_count || '--';
+        
+        if (status.running) {
+          statusIcon.textContent = '▶️';
+          statusText.textContent = `Running: ${status.run_id || 'active'}`;
+          statusSub.textContent = status.run_dir ? `Output: ${status.run_dir}` : 'Capturing telemetry...';
+          
+          btnStart.classList.add('hidden');
+          btnStop.classList.remove('hidden');
+          
+          // Update remaining time
+          if (status.run_remaining_seconds !== undefined) {
+            const mins = Math.floor(status.run_remaining_seconds / 60);
+            const secs = status.run_remaining_seconds % 60;
+            document.getElementById('runRemaining').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+          }
+        } else {
+          statusIcon.textContent = '⏹️';
+          statusText.textContent = 'Stack Stopped';
+          statusSub.textContent = 'Ready to start capture';
+          document.getElementById('runRemaining').textContent = '--';
+          
+          btnStart.classList.remove('hidden');
+          btnStop.classList.add('hidden');
+        }
+        
+        // Show/hide error
+        if (status.last_error) {
+          document.getElementById('runErrorBox').classList.remove('hidden');
+          document.getElementById('runErrorBox').textContent = 
+            `${status.crashed_process || 'Error'}: ${status.last_error}`;
+        } else {
+          document.getElementById('runErrorBox').classList.add('hidden');
+        }
+        
+        // Update admin warning banner
+        const adminBanner = document.getElementById('adminWarningBanner');
+        if (status.limited_mode && adminBanner) {
+          adminBanner.classList.remove('hidden');
+        }
+      }
+
+      async function pollStatus() {
+        try {
+          const status = await invoke('get_status');
+          updateRunUI(status);
+        } catch (e) {
+          console.error('Status poll failed:', e);
+        }
+      }
+
+      // Load playbooks
+      async function loadPlaybooks() {
+        try {
+          const playbooks = await invoke('get_available_playbooks');
+          const selector = document.getElementById('playbookSelector');
+          
+          if (!playbooks || playbooks.length === 0) {
+            selector.innerHTML = '<span class="text-xs text-slate-500">No playbooks found</span>';
+            return;
+          }
+          
+          selector.innerHTML = playbooks.map(p => `
+            <label class="flex items-center gap-1 px-2 py-1 rounded bg-slate-700/50 hover:bg-slate-700 cursor-pointer text-xs">
+              <input type="checkbox" value="${p}" class="rounded-sm bg-slate-800 border-slate-600" />
+              ${p}
+            </label>
+          `).join('');
+        } catch (e) {
+          console.error('Failed to load playbooks:', e);
+        }
+      }
+
+      // Initialize
+      loadPlaybooks();
+      pollStatus();
+      setInterval(pollStatus, 3000);
+
+      // Expose applyFix globally for inline onclick
+      window.applyFix = applyFix;
+      window.openRunFolder = openRunFolder;
+      window.viewRunMetrics = viewRunMetrics;
+    })();
+  </script>
+</body>
+</html>
