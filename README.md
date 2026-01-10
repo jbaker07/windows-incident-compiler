@@ -421,9 +421,10 @@ capture_windows_rotating → segments/*.jsonl → edr-locald → signals → edr
 - [docs/playbooks_windows_coverage.md](docs/playbooks_windows_coverage.md) - Playbook → MITRE mapping
 - [docs/facts_windows.md](docs/facts_windows.md) - Event ID → Fact type mapping
 - [docs/ui_workflow.md](docs/ui_workflow.md) - UI usage guide
-- [docs/VM_BRINGUP.md](docs/VM_BRINGUP.md) - VM deployment guide
-- [docs/PUSH_CHECKLIST.md](docs/PUSH_CHECKLIST.md) - Pre-push verification
-- [BASELINE_SYSTEM_DESIGN.md](BASELINE_SYSTEM_DESIGN.md) - System architecture
+- [docs/LICENSING.md](docs/LICENSING.md) - Licensing documentation
+- [docs/SHIPPING.md](docs/SHIPPING.md) - Release process
+- [docs/IMPORT_ARCHITECTURE.md](docs/IMPORT_ARCHITECTURE.md) - Import bundle system
+- [docs/MISSION_UI_WORKFLOW.md](docs/MISSION_UI_WORKFLOW.md) - Mission Control workflow
 
 ## License
 

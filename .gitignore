@@ -42,3 +42,7 @@ node_modules/
 # editor junk
 .DS_Store
 *.swp
+
+# build output
+dist/
+

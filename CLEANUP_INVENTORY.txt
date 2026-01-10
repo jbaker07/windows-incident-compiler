@@ -1,0 +1,537 @@
+.github/PULL_REQUEST_TEMPLATE.md
+.github/workflows/ci.yml
+.github/workflows/release.yml
+.gitignore
+CHANGELOG.md
+Cargo.lock
+Cargo.toml
+GROUNDED_GATES_RUNBOOK.md
+LICENSE
+README.md
+RUNBOOK_VERIFY.md
+SHIP_CHECKLIST.md
+crates/agent-windows/Cargo.toml
+crates/agent-windows/src/bin/capture_windows_rotating.rs
+crates/agent-windows/src/bin/wevt_smoke.rs
+crates/agent-windows/src/bookmark_manager.rs
+crates/agent-windows/src/capture_windows_rotating.rs
+crates/agent-windows/src/config.rs
+crates/agent-windows/src/evtlog_state.rs
+crates/agent-windows/src/host.rs
+crates/agent-windows/src/lib.rs
+crates/agent-windows/src/main.rs
+crates/agent-windows/src/self_test.rs
+crates/agent-windows/src/sensors/attack_surface.rs
+crates/agent-windows/src/sensors/collect.rs
+crates/agent-windows/src/sensors/defender_adapter.rs
+crates/agent-windows/src/sensors/etw_adapter.rs
+crates/agent-windows/src/sensors/evidence_deref_example.rs
+crates/agent-windows/src/sensors/evtx_collector.rs
+crates/agent-windows/src/sensors/lateral_movement_monitor.rs
+crates/agent-windows/src/sensors/log_tamper_monitor.rs
+crates/agent-windows/src/sensors/mod.rs
+crates/agent-windows/src/sensors/powershell_monitor.rs
+crates/agent-windows/src/sensors/primitives/archive_tool_exec.rs
+crates/agent-windows/src/sensors/primitives/auth_event.rs
+crates/agent-windows/src/sensors/primitives/composite_detectors.rs
+crates/agent-windows/src/sensors/primitives/credential_access.rs
+crates/agent-windows/src/sensors/primitives/defense_evasion.rs
+crates/agent-windows/src/sensors/primitives/discovery_exec.rs
+crates/agent-windows/src/sensors/primitives/mod.rs
+crates/agent-windows/src/sensors/primitives/network_connection.rs
+crates/agent-windows/src/sensors/primitives/persistence_change.rs
+crates/agent-windows/src/sensors/primitives/process_injection.rs
+crates/agent-windows/src/sensors/primitives/script_exec.rs
+crates/agent-windows/src/sensors/primitives/staging_write.rs
+crates/agent-windows/src/sensors/registry_monitor.rs
+crates/agent-windows/src/sensors/service_monitor.rs
+crates/agent-windows/src/sensors/sysmon_adapter.rs
+crates/agent-windows/src/sensors/sysmon_adapter_ext.rs
+crates/agent-windows/src/sensors/task_scheduler_monitor.rs
+crates/agent-windows/src/sensors/wmi_monitor.rs
+crates/agent-windows/src/telemetry.rs
+crates/agent-windows/src/telemetry_types.rs
+crates/agent-windows/src/wevt_bookmarks.rs
+crates/agent-windows/src/wevt_reader.rs
+crates/core/Cargo.toml
+crates/core/src/diff.rs
+crates/core/src/error.rs
+crates/core/src/event.rs
+crates/core/src/event_keys.rs
+crates/core/src/event_validation_test.rs
+crates/core/src/evidence_ptr.rs
+crates/core/src/explain.rs
+crates/core/src/install_id.rs
+crates/core/src/lib.rs
+crates/core/src/license.rs
+crates/core/src/license_manager.rs
+crates/core/src/license_protection.rs
+crates/core/src/machine_fingerprint.rs
+crates/core/src/narrative.rs
+crates/core/src/severity.rs
+crates/core/src/signal_result.rs
+crates/core/src/watermark.rs
+crates/locald/Cargo.toml
+crates/locald/src/baseline/baseline_query.rs
+crates/locald/src/baseline/baseline_store.rs
+crates/locald/src/baseline/baseline_update.rs
+crates/locald/src/baseline/mod.rs
+crates/locald/src/baseline/types.rs
+crates/locald/src/bin/explain_harness.rs
+crates/locald/src/bin/metrics_run.rs
+crates/locald/src/bin/proof_run.rs
+crates/locald/src/canonical/event.rs
+crates/locald/src/canonical/fact.rs
+crates/locald/src/canonical/scope.rs
+crates/locald/src/edr_locald.rs
+crates/locald/src/evidence/deref.rs
+crates/locald/src/evidence/evidence_ptr.rs
+crates/locald/src/evidence/evidence_store.rs
+crates/locald/src/evidence/mod.rs
+crates/locald/src/evidence/path_safety.rs
+crates/locald/src/evidence_deref.rs
+crates/locald/src/explanation_builder.rs
+crates/locald/src/hypothesis_controller.rs
+crates/locald/src/integrations/config.rs
+crates/locald/src/integrations/export.rs
+crates/locald/src/integrations/ingest.rs
+crates/locald/src/integrations/metrics.rs
+crates/locald/src/integrations/mod.rs
+crates/locald/src/integrations/profile.rs
+crates/locald/src/integrations/vendor_alert.rs
+crates/locald/src/lib.rs
+crates/locald/src/main.rs
+crates/locald/src/narrative_builder.rs
+crates/locald/src/os/linux/mod.rs
+crates/locald/src/os/linux/signal_engine.rs
+crates/locald/src/os/macos/mod.rs
+crates/locald/src/os/macos/signal_engine.rs
+crates/locald/src/os/mod.rs
+crates/locald/src/os/windows/fact_extractor.rs
+crates/locald/src/os/windows/mod.rs
+crates/locald/src/os/windows/playbooks.rs
+crates/locald/src/os/windows/signal_engine.rs
+crates/locald/src/os/windows/signal_result.rs
+crates/locald/src/os/windows/signals_windows.rs
+crates/locald/src/pipeline.rs
+crates/locald/src/playbook_loader.rs
+crates/locald/src/safety.rs
+crates/locald/src/scoring/elliptic_envelope.rs
+crates/locald/src/scoring/elliptic_envelope_lite.rs
+crates/locald/src/scoring/engine.rs
+crates/locald/src/scoring/krim.rs
+crates/locald/src/scoring/krim_lite.rs
+crates/locald/src/scoring/mahalanobis.rs
+crates/locald/src/scoring/mod.rs
+crates/locald/src/scoring/scored_signal.rs
+crates/locald/src/scoring/scoring_engine.rs
+crates/locald/src/signal_orchestrator.rs
+crates/locald/src/signal_persistence.rs
+crates/locald/src/signal_result.rs
+crates/locald/src/slot_matcher.rs
+crates/locald/src/slot_matcher_tests.rs
+crates/locald/tests/credibility_locks_tests.rs
+crates/locald/tests/golden_replay_test.rs
+crates/locald/tests/hypothesis_wiring_test.rs
+crates/locald/tests/integration_acceptance.rs
+crates/locald/tests/integration_pipeline.rs
+crates/locald/tests/pipeline_integration.rs
+crates/server/Cargo.toml
+crates/server/bundles/golden/credential_access/cmdline_pattern_002/manifest.json
+crates/server/bundles/golden/credential_access/cmdline_pattern_002/recompute/config_snapshot.json
+crates/server/bundles/golden/credential_access/cmdline_pattern_002/recompute/events.jsonl
+crates/server/bundles/golden/credential_access/cmdline_pattern_002/replay/report_bundle.json
+crates/server/bundles/golden/credential_access/mimikatz_lsass_001/manifest.json
+crates/server/bundles/golden/credential_access/mimikatz_lsass_001/recompute/config_snapshot.json
+crates/server/bundles/golden/credential_access/mimikatz_lsass_001/recompute/events.jsonl
+crates/server/bundles/golden/credential_access/mimikatz_lsass_001/replay/report_bundle.json
+crates/server/bundles/golden/defense_evasion/process_hollow_001/manifest.json
+crates/server/bundles/golden/defense_evasion/process_hollow_001/recompute/config_snapshot.json
+crates/server/bundles/golden/defense_evasion/process_hollow_001/recompute/events.jsonl
+crates/server/bundles/golden/defense_evasion/process_hollow_001/replay/report_bundle.json
+crates/server/bundles/golden/dns_anomaly/tunnel_pattern_001/manifest.json
+crates/server/bundles/golden/dns_anomaly/tunnel_pattern_001/recompute/config_snapshot.json
+crates/server/bundles/golden/dns_anomaly/tunnel_pattern_001/recompute/events.jsonl
+crates/server/bundles/golden/dns_anomaly/tunnel_pattern_001/replay/report_bundle.json
+crates/server/bundles/golden/edge_cases/cmdline_alignment_005/manifest.json
+crates/server/bundles/golden/edge_cases/cmdline_alignment_005/recompute/config_snapshot.json
+crates/server/bundles/golden/edge_cases/cmdline_alignment_005/recompute/events.jsonl
+crates/server/bundles/golden/edge_cases/cmdline_alignment_005/replay/report_bundle.json
+crates/server/bundles/golden/edge_cases/imported_namespace_004/manifest.json
+crates/server/bundles/golden/edge_cases/imported_namespace_004/recompute/config_snapshot.json
+crates/server/bundles/golden/edge_cases/imported_namespace_004/recompute/events.jsonl
+crates/server/bundles/golden/edge_cases/imported_namespace_004/replay/report_bundle.json
+crates/server/bundles/golden/edge_cases/late_arrival_001/manifest.json
+crates/server/bundles/golden/edge_cases/late_arrival_001/recompute/config_snapshot.json
+crates/server/bundles/golden/edge_cases/late_arrival_001/recompute/events.jsonl
+crates/server/bundles/golden/edge_cases/late_arrival_001/replay/report_bundle.json
+crates/server/bundles/golden/edge_cases/throttling_summary_002/manifest.json
+crates/server/bundles/golden/edge_cases/throttling_summary_002/recompute/config_snapshot.json
+crates/server/bundles/golden/edge_cases/throttling_summary_002/recompute/events.jsonl
+crates/server/bundles/golden/edge_cases/throttling_summary_002/replay/report_bundle.json
+crates/server/bundles/golden/edge_cases/visibility_degraded_003/manifest.json
+crates/server/bundles/golden/edge_cases/visibility_degraded_003/recompute/config_snapshot.json
+crates/server/bundles/golden/edge_cases/visibility_degraded_003/recompute/events.jsonl
+crates/server/bundles/golden/edge_cases/visibility_degraded_003/replay/report_bundle.json
+crates/server/bundles/golden/exfiltration/chunked_https_001/manifest.json
+crates/server/bundles/golden/exfiltration/chunked_https_001/recompute/config_snapshot.json
+crates/server/bundles/golden/exfiltration/chunked_https_001/recompute/events.jsonl
+crates/server/bundles/golden/exfiltration/chunked_https_001/replay/report_bundle.json
+crates/server/bundles/golden/lateral_movement/psexec_remote_001/manifest.json
+crates/server/bundles/golden/lateral_movement/psexec_remote_001/recompute/config_snapshot.json
+crates/server/bundles/golden/lateral_movement/psexec_remote_001/recompute/events.jsonl
+crates/server/bundles/golden/lateral_movement/psexec_remote_001/replay/report_bundle.json
+crates/server/bundles/golden/lateral_movement/wmi_lateral_002/manifest.json
+crates/server/bundles/golden/lateral_movement/wmi_lateral_002/recompute/config_snapshot.json
+crates/server/bundles/golden/lateral_movement/wmi_lateral_002/recompute/events.jsonl
+crates/server/bundles/golden/lateral_movement/wmi_lateral_002/replay/report_bundle.json
+crates/server/bundles/golden/persistence/registry_run_002/manifest.json
+crates/server/bundles/golden/persistence/registry_run_002/recompute/config_snapshot.json
+crates/server/bundles/golden/persistence/registry_run_002/recompute/events.jsonl
+crates/server/bundles/golden/persistence/registry_run_002/replay/report_bundle.json
+crates/server/bundles/golden/persistence/schtask_basic_001/manifest.json
+crates/server/bundles/golden/persistence/schtask_basic_001/recompute/config_snapshot.json
+crates/server/bundles/golden/persistence/schtask_basic_001/recompute/events.jsonl
+crates/server/bundles/golden/persistence/schtask_basic_001/replay/report_bundle.json
+crates/server/bundles/golden/privilege_escalation/token_impersonate_001/manifest.json
+crates/server/bundles/golden/privilege_escalation/token_impersonate_001/recompute/config_snapshot.json
+crates/server/bundles/golden/privilege_escalation/token_impersonate_001/recompute/events.jsonl
+crates/server/bundles/golden/privilege_escalation/token_impersonate_001/replay/report_bundle.json
+crates/server/bundles/golden/process_injection/dll_inject_001/manifest.json
+crates/server/bundles/golden/process_injection/dll_inject_001/recompute/config_snapshot.json
+crates/server/bundles/golden/process_injection/dll_inject_001/recompute/events.jsonl
+crates/server/bundles/golden/process_injection/dll_inject_001/replay/report_bundle.json
+crates/server/fonts/LiberationMono-Bold.ttf
+crates/server/fonts/LiberationMono-BoldItalic.ttf
+crates/server/fonts/LiberationMono-Italic.ttf
+crates/server/fonts/LiberationMono-Regular.ttf
+crates/server/fonts/LiberationSans-Bold.ttf
+crates/server/fonts/LiberationSans-BoldItalic.ttf
+crates/server/fonts/LiberationSans-Italic.ttf
+crates/server/fonts/LiberationSans-Regular.ttf
+crates/server/fonts/LiberationSerif-Bold.ttf
+crates/server/fonts/LiberationSerif-BoldItalic.ttf
+crates/server/fonts/LiberationSerif-Italic.ttf
+crates/server/fonts/LiberationSerif-Regular.ttf
+crates/server/src/bin/golden_cli.rs
+crates/server/src/bin/license_gen.rs
+crates/server/src/bundle_exchange.rs
+crates/server/src/capture_control.rs
+crates/server/src/db.rs
+crates/server/src/diagnostics.rs
+crates/server/src/diff_api.rs
+crates/server/src/golden_bundle.rs
+crates/server/src/health.rs
+crates/server/src/integration_api.rs
+crates/server/src/lib.rs
+crates/server/src/license_api.rs
+crates/server/src/main.rs
+crates/server/src/probe.rs
+crates/server/src/query_isolation.rs
+crates/server/src/report.rs
+crates/server/src/support_bundle.rs
+crates/server/src/verification_pack.rs
+crates/server/src/write_isolation.rs
+crates/server/tests/analyst_workflow_tests.rs
+crates/server/tests/bundle_exchange_tests.rs
+crates/server/tests/capture_control_tests.rs
+crates/server/tests/credibility_lock_tests.rs
+crates/server/tests/diagnostics_probe_tests.rs
+crates/server/tests/diff_api_tests.rs
+crates/server/tests/entity_extraction_tests.rs
+crates/server/tests/integration_profiles_test.rs
+crates/server/tests/license_api_tests.rs
+crates/server/tests/pdf_report_tests.rs
+crates/server/tests/support_bundle_tests.rs
+crates/server/tests/verification_tests.rs
+crates/workbench/Cargo.toml
+crates/workbench/src/api.rs
+crates/workbench/src/document.rs
+crates/workbench/src/export.rs
+crates/workbench/src/lib.rs
+crates/workbench/src/mod.rs
+crates/workbench/src/session.rs
+dist/LICENSING.md
+dist/README.md
+dist/capture_windows_rotating.exe
+dist/edr-locald.exe
+dist/edr-server.exe
+dist/ui/app.js
+dist/ui/graph.html
+dist/ui/index.html
+dist/ui/loading.html
+dist/ui/workbench.html
+docs/DESKTOP_ARCHITECTURE.md
+docs/IMPORT_ARCHITECTURE.md
+docs/IMPORT_PIPELINE_MAP.md
+docs/IMPORT_TROUBLESHOOTING.md
+docs/LICENSING.md
+docs/MISSION_REAL_TELEMETRY.md
+docs/MISSION_UI_WORKFLOW.md
+docs/MISSION_WORKFLOW_WALKTHROUGH.md
+docs/SHIPPING.md
+docs/SMOKE_CHECKLIST_LICENSING.md
+docs/explainability_inventory.md
+docs/facts_windows.md
+docs/playbooks_windows_coverage.md
+docs/schemas/quality_report.schema.json
+docs/schemas/run_summary.schema.json
+docs/ui_workflow.md
+locald/baseline/baseline_query.rs
+locald/baseline/baseline_store.rs
+locald/baseline/baseline_update.rs
+locald/baseline/mod.rs
+locald/baseline/types.rs
+locald/edr_locald.rs
+locald/evidence_deref_example.rs
+locald/hypothesis/api.rs
+locald/hypothesis/arbitration.rs
+locald/hypothesis/audit.rs
+locald/hypothesis/canonical_event.rs
+locald/hypothesis/canonical_fact.rs
+locald/hypothesis/changes.rs
+locald/hypothesis/closure.rs
+locald/hypothesis/command_alignment.rs
+locald/hypothesis/copilot.rs
+locald/hypothesis/determinism.rs
+locald/hypothesis/disambiguator.rs
+locald/hypothesis/explanation.rs
+locald/hypothesis/hardening.rs
+locald/hypothesis/hypothesis_state.rs
+locald/hypothesis/incident.rs
+locald/hypothesis/mod.rs
+locald/hypothesis/ordering.rs
+locald/hypothesis/promotion.rs
+locald/hypothesis/scope_keys.rs
+locald/hypothesis/session.rs
+locald/hypothesis/storage.rs
+locald/hypothesis/tier0.rs
+locald/hypothesis/versioning.rs
+locald/hypothesis/visibility.rs
+locald/mod.rs
+locald/os/linux.rs
+locald/os/macos.rs
+locald/os/mod.rs
+locald/os/windows.rs
+locald/os/windows/signal_engine.rs
+locald/os/windows/signal_result.rs
+locald/os/windows/signals_windows.rs
+locald/playbook_loader.rs
+locald/scoring/elliptic_envelope_lite.rs
+locald/scoring/krim_lite.rs
+locald/scoring/mahalanobis.rs
+locald/scoring/mod.rs
+locald/scoring/scored_signal.rs
+locald/scoring/scoring_engine.rs
+locald/signal_orchestrator.rs
+locald/signal_persistence.rs
+packaging/allowlist.json
+packaging/allowlist.schema.json
+packaging/validate_allowlist.ps1
+playbooks/import/atomic_technique_coverage.yaml
+playbooks/import/endpoint_inventory.yaml
+playbooks/import/network_alert_correlation.yaml
+playbooks/import/recon_attack_surface.yaml
+playbooks/import/signal_beaconing.yaml
+playbooks/import/signal_data_exfiltration.yaml
+playbooks/import/signal_dns_tunneling.yaml
+playbooks/import/signal_ssl_anomalies.yaml
+playbooks/import/signal_suspicious_download.yaml
+playbooks/import/signal_web_brute_force.yaml
+playbooks/import/signal_web_scanning.yaml
+playbooks/import/web_vulnerability_summary.yaml
+playbooks/import/windows_security_events.yaml
+playbooks/import/yara_malware_detection.yaml
+playbooks/windows/signal_bitsadmin_abuse.yaml
+playbooks/windows/signal_certutil_abuse.yaml
+playbooks/windows/signal_credential_access.yaml
+playbooks/windows/signal_defense_evasion.yaml
+playbooks/windows/signal_discovery_burst.yaml
+playbooks/windows/signal_dll_side_loading.yaml
+playbooks/windows/signal_encoded_powershell.yaml
+playbooks/windows/signal_file_staging.yaml
+playbooks/windows/signal_group_membership_change.yaml
+playbooks/windows/signal_lateral_movement_detection.yaml
+playbooks/windows/signal_log_tamper_detection.yaml
+playbooks/windows/signal_log_tampering.yaml
+playbooks/windows/signal_logon_anomaly.yaml
+playbooks/windows/signal_lolbin_abuse.yaml
+playbooks/windows/signal_mshta_abuse.yaml
+playbooks/windows/signal_net_command_abuse.yaml
+playbooks/windows/signal_office_child_process.yaml
+playbooks/windows/signal_persistence_windows.yaml
+playbooks/windows/signal_powershell_download.yaml
+playbooks/windows/signal_process_injection.yaml
+playbooks/windows/signal_registry_persistence.yaml
+playbooks/windows/signal_regsvr32_abuse.yaml
+playbooks/windows/signal_rundll32_abuse.yaml
+playbooks/windows/signal_sc_abuse.yaml
+playbooks/windows/signal_schtasks_abuse.yaml
+playbooks/windows/signal_security_tool_disable.yaml
+playbooks/windows/signal_service_persistence.yaml
+playbooks/windows/signal_task_persistence.yaml
+playbooks/windows/signal_wmic_abuse.yaml
+playbooks/windows/signal_wscript_cscript_abuse.yaml
+scripts/diagnose_import.ps1
+scripts/e2e_explainability_verify.ps1
+scripts/enable_advanced_telemetry.ps1
+scripts/eval_windows.ps1
+scripts/quick_explain_check.ps1
+scripts/run_stack_windows.ps1
+scripts/smoke_stack.ps1
+scripts/verify_explainability.ps1
+scripts/verify_narration.ps1
+src-tauri/Cargo.lock
+src-tauri/Cargo.toml
+src-tauri/README.md
+src-tauri/build.rs
+src-tauri/gen/schemas/acl-manifests.json
+src-tauri/gen/schemas/capabilities.json
+src-tauri/gen/schemas/desktop-schema.json
+src-tauri/gen/schemas/macOS-schema.json
+src-tauri/gen/schemas/windows-schema.json
+src-tauri/icons/128x128.svg
+src-tauri/icons/32x32.png
+src-tauri/icons/32x32.svg
+src-tauri/icons/icon.ico
+src-tauri/icons/icon.png
+src-tauri/loading.html
+src-tauri/sanity_check.sh
+src-tauri/src/adapters/atomic.rs
+src-tauri/src/adapters/evtx_json.rs
+src-tauri/src/adapters/har.rs
+src-tauri/src/adapters/jsonl.rs
+src-tauri/src/adapters/mod.rs
+src-tauri/src/adapters/nmap.rs
+src-tauri/src/adapters/osquery.rs
+src-tauri/src/adapters/plaintext.rs
+src-tauri/src/adapters/suricata.rs
+src-tauri/src/adapters/velociraptor.rs
+src-tauri/src/adapters/yara.rs
+src-tauri/src/adapters/zap.rs
+src-tauri/src/adapters/zeek.rs
+src-tauri/src/backend.rs
+src-tauri/src/baseline.rs
+src-tauri/src/bin/import_bundle.rs
+src-tauri/src/grounded_gates.rs
+src-tauri/src/health_gates.rs
+src-tauri/src/import_types.rs
+src-tauri/src/importer.rs
+src-tauri/src/lib.rs
+src-tauri/src/logging.rs
+src-tauri/src/main.rs
+src-tauri/src/mission_commands.rs
+src-tauri/src/missions.rs
+src-tauri/src/pipeline_counters.rs
+src-tauri/src/port.rs
+src-tauri/src/quality_gates.rs
+src-tauri/src/run_metrics.rs
+src-tauri/src/scenario_packs/mod.rs
+src-tauri/src/scenario_packs/windows.rs
+src-tauri/src/scenario_profiles.rs
+src-tauri/src/supervisor.rs
+src-tauri/tauri.conf.json
+src-tauri/tests/import_integration_test.rs
+src-tauri/tests/test_mission_e2e.ps1
+src-tauri/tests/test_real_telemetry_e2e.ps1
+test_e2e/index.json
+test_e2e/index.json.bak
+testdata/imports/README.md
+testdata/imports/atomic_sample.json
+testdata/imports/nmap_sample.xml
+testdata/imports/osquery_sample.json
+testdata/imports/plaintext_sample.txt
+testdata/imports/yara_sample.json
+ui/app.js
+ui/graph.html
+ui/index.html
+ui/loading.html
+ui/workbench.html
+warnings.txt
+
+=== DOCS ===
+
+DESKTOP_ARCHITECTURE.md
+explainability_inventory.md
+facts_windows.md
+IMPORT_ARCHITECTURE.md
+IMPORT_PIPELINE_MAP.md
+IMPORT_TROUBLESHOOTING.md
+LICENSING.md
+MISSION_REAL_TELEMETRY.md
+MISSION_UI_WORKFLOW.md
+MISSION_WORKFLOW_WALKTHROUGH.md
+playbooks_windows_coverage.md
+SHIPPING.md
+SMOKE_CHECKLIST_LICENSING.md
+ui_workflow.md
+
+=== SCRIPTS ===
+
+diagnose_import.ps1
+e2e_explainability_verify.ps1
+enable_advanced_telemetry.ps1
+eval_windows.ps1
+quick_explain_check.ps1
+run_stack_windows.ps1
+smoke_stack.ps1
+verify_explainability.ps1
+verify_narration.ps1
+
+=== WORKFLOWS ===
+
+ci.yml
+release.yml
+
+=== LARGEST 50 FILES (excl target/) ===
+
+8451584 dist/edr-server.exe
+3841536 dist/edr-locald.exe
+906752 dist/capture_windows_rotating.exe
+415816 crates/server/fonts/LiberationSans-Italic.ttf
+414456 crates/server/fonts/LiberationSans-Bold.ttf
+410712 crates/server/fonts/LiberationSans-Regular.ttf
+408996 crates/server/fonts/LiberationSans-BoldItalic.ttf
+393576 crates/server/fonts/LiberationSerif-Regular.ttf
+376772 crates/server/fonts/LiberationSerif-BoldItalic.ttf
+375632 crates/server/fonts/LiberationSerif-Italic.ttf
+370096 crates/server/fonts/LiberationSerif-Bold.ttf
+319508 crates/server/fonts/LiberationMono-Regular.ttf
+307996 crates/server/fonts/LiberationMono-Bold.ttf
+284068 crates/server/fonts/LiberationMono-BoldItalic.ttf
+281536 crates/server/fonts/LiberationMono-Italic.ttf
+214570 ui/index.html
+212110 ui/app.js
+192712 dist/ui/index.html
+172354 dist/ui/app.js
+151052 src-tauri/Cargo.lock
+135925 src-tauri/gen/schemas/windows-schema.json
+135925 src-tauri/gen/schemas/macOS-schema.json
+135925 src-tauri/gen/schemas/desktop-schema.json
+121541 locald/edr_locald.rs
+121243 crates/locald/src/edr_locald.rs
+95678 crates/server/src/main.rs
+88025 Cargo.lock
+72581 src-tauri/gen/schemas/acl-manifests.json
+66983 src-tauri/src/supervisor.rs
+66601 src-tauri/src/grounded_gates.rs
+60300 crates/server/src/capture_control.rs
+53957 crates/server/src/golden_bundle.rs
+53303 crates/server/src/bundle_exchange.rs
+45523 crates/server/src/diagnostics.rs
+44859 locald/hypothesis/copilot.rs
+43260 warnings.txt
+40733 crates/locald/src/os/windows/fact_extractor.rs
+39284 crates/server/src/probe.rs
+37265 src-tauri/src/quality_gates.rs
+35698 crates/server/src/report.rs
+35334 locald/hypothesis/ordering.rs
+33841 crates/agent-windows/src/wevt_reader.rs
+33381 scripts/run_stack_windows.ps1
+31785 crates/server/src/integration_api.rs
+31674 locald/hypothesis/storage.rs
+31017 src-tauri/src/importer.rs
+30963 src-tauri/src/scenario_profiles.rs
+30642 crates/locald/src/narrative_builder.rs
+29720 locald/hypothesis/hypothesis_state.rs
+29481 crates/server/src/db.rs
