@@ -108,7 +108,10 @@ pub struct PipelineCounterFetcher {
 
 impl PipelineCounterFetcher {
     pub fn new(run_dir: PathBuf, api_base_url: String) -> Self {
-        Self { run_dir, api_base_url }
+        Self {
+            run_dir,
+            api_base_url,
+        }
     }
 
     /// Fetch all counters from the pipeline
@@ -117,8 +120,8 @@ impl PipelineCounterFetcher {
         let locald = self.fetch_locald_counters();
         let server = self.fetch_server_counters().await;
 
-        let pipeline_healthy = capture.is_running 
-            && locald.is_running 
+        let pipeline_healthy = capture.is_running
+            && locald.is_running
             && server.api_healthy
             && capture.error.is_none()
             && locald.error.is_none();
@@ -150,18 +153,22 @@ impl PipelineCounterFetcher {
                         // Parse segments
                         if let Some(segments) = json["segments"].as_array() {
                             counters.segments_count = segments.len() as u32;
-                            
+
                             for seg in segments {
                                 counters.events_total += seg["records"].as_u64().unwrap_or(0);
                                 counters.bytes_written += seg["size_bytes"].as_u64().unwrap_or(0);
-                                
+
                                 // Track last segment timestamp
                                 if let Some(ts) = seg["ts_last"].as_u64() {
                                     let ts_str = chrono::DateTime::from_timestamp_millis(ts as i64)
                                         .map(|dt| dt.to_rfc3339())
                                         .unwrap_or_default();
-                                    if counters.last_segment_ts.is_none() 
-                                        || ts_str > *counters.last_segment_ts.as_ref().unwrap_or(&String::new()) 
+                                    if counters.last_segment_ts.is_none()
+                                        || ts_str
+                                            > *counters
+                                                .last_segment_ts
+                                                .as_ref()
+                                                .unwrap_or(&String::new())
                                     {
                                         counters.last_segment_ts = Some(ts_str);
                                     }
@@ -171,16 +178,18 @@ impl PipelineCounterFetcher {
 
                         // Compute events per second
                         if let (Some(first_ts), Some(last_ts)) = (
-                            json["segments"].as_array()
+                            json["segments"]
+                                .as_array()
                                 .and_then(|s| s.first())
                                 .and_then(|s| s["ts_first"].as_u64()),
-                            json["segments"].as_array()
+                            json["segments"]
+                                .as_array()
                                 .and_then(|s| s.last())
                                 .and_then(|s| s["ts_last"].as_u64()),
                         ) {
                             let duration_ms = last_ts.saturating_sub(first_ts);
                             if duration_ms > 0 {
-                                counters.events_per_second = 
+                                counters.events_per_second =
                                     (counters.events_total as f64 * 1000.0) / duration_ms as f64;
                             }
                         }
@@ -207,8 +216,12 @@ impl PipelineCounterFetcher {
                         // Try to read first line to detect channel
                         if let Ok(content) = fs::read_to_string(entry.path()) {
                             if let Some(first_line) = content.lines().next() {
-                                if let Ok(event) = serde_json::from_str::<serde_json::Value>(first_line) {
-                                    if let Some(channel) = event["fields"]["windows.channel"].as_str() {
+                                if let Ok(event) =
+                                    serde_json::from_str::<serde_json::Value>(first_line)
+                                {
+                                    if let Some(channel) =
+                                        event["fields"]["windows.channel"].as_str()
+                                    {
                                         if !counters.channels.contains(&channel.to_string()) {
                                             counters.channels.push(channel.to_string());
                                         }
@@ -233,7 +246,8 @@ impl PipelineCounterFetcher {
             // Also try analysis.db
             let alt_path = self.run_dir.join("analysis.db");
             if !alt_path.exists() {
-                counters.error = Some("Database not found (workbench.db / analysis.db)".to_string());
+                counters.error =
+                    Some("Database not found (workbench.db / analysis.db)".to_string());
                 return counters;
             }
         }
@@ -249,18 +263,16 @@ impl PipelineCounterFetcher {
                 counters.is_running = true;
 
                 // Count signals
-                if let Ok(count) = conn.query_row(
-                    "SELECT COUNT(*) FROM signals",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                ) {
+                if let Ok(count) = conn.query_row("SELECT COUNT(*) FROM signals", [], |row| {
+                    row.get::<_, i64>(0)
+                }) {
                     counters.signals_count = count as u64;
                 }
 
                 // Signals by severity
-                if let Ok(mut stmt) = conn.prepare(
-                    "SELECT severity, COUNT(*) FROM signals GROUP BY severity"
-                ) {
+                if let Ok(mut stmt) =
+                    conn.prepare("SELECT severity, COUNT(*) FROM signals GROUP BY severity")
+                {
                     if let Ok(rows) = stmt.query_map([], |row| {
                         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
                     }) {
@@ -271,9 +283,9 @@ impl PipelineCounterFetcher {
                 }
 
                 // Signals by playbook (from signal_type which often matches playbook)
-                if let Ok(mut stmt) = conn.prepare(
-                    "SELECT signal_type, COUNT(*) FROM signals GROUP BY signal_type"
-                ) {
+                if let Ok(mut stmt) =
+                    conn.prepare("SELECT signal_type, COUNT(*) FROM signals GROUP BY signal_type")
+                {
                     if let Ok(rows) = stmt.query_map([], |row| {
                         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
                     }) {
@@ -290,11 +302,11 @@ impl PipelineCounterFetcher {
                     |row| row.get::<_, i64>(0),
                 ) {
                     if count > 0 {
-                        if let Ok(fact_count) = conn.query_row(
-                            "SELECT COUNT(*) FROM facts",
-                            [],
-                            |row| row.get::<_, i64>(0),
-                        ) {
+                        if let Ok(fact_count) =
+                            conn.query_row("SELECT COUNT(*) FROM facts", [], |row| {
+                                row.get::<_, i64>(0)
+                            })
+                        {
                             counters.facts_count = fact_count as u64;
                         }
                     }
@@ -318,11 +330,11 @@ impl PipelineCounterFetcher {
                 }
 
                 // Count explanations
-                if let Ok(count) = conn.query_row(
-                    "SELECT COUNT(*) FROM signal_explanations",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                ) {
+                if let Ok(count) =
+                    conn.query_row("SELECT COUNT(*) FROM signal_explanations", [], |row| {
+                        row.get::<_, i64>(0)
+                    })
+                {
                     counters.incidents_count = count as u64; // Using explanations as proxy
                 }
             }
@@ -352,7 +364,7 @@ impl PipelineCounterFetcher {
         // Health check
         let health_url = format!("{}/api/health", self.api_base_url);
         let start = std::time::Instant::now();
-        
+
         match client.get(&health_url).send().await {
             Ok(resp) => {
                 counters.response_time_ms = start.elapsed().as_millis() as u64;
@@ -380,8 +392,10 @@ impl PipelineCounterFetcher {
         if let Ok(resp) = client.get(&stats_url).send().await {
             if let Ok(json) = resp.json::<serde_json::Value>().await {
                 counters.explanations_count = json["explanations_generated"].as_u64().unwrap_or(0);
-                counters.evidence_derefs_success = json["evidence_derefs_success"].as_u64().unwrap_or(0);
-                counters.evidence_derefs_failed = json["evidence_derefs_failed"].as_u64().unwrap_or(0);
+                counters.evidence_derefs_success =
+                    json["evidence_derefs_success"].as_u64().unwrap_or(0);
+                counters.evidence_derefs_failed =
+                    json["evidence_derefs_failed"].as_u64().unwrap_or(0);
             }
         }
 
@@ -440,27 +454,32 @@ pub struct EvidenceExcerpt {
 /// Prove that signals originated from captured segments
 pub async fn prove_signal_provenance(
     run_dir: &Path,
-    api_base_url: &str,
+    _api_base_url: &str,
 ) -> Result<Vec<SignalProvenanceProof>, String> {
     let mut proofs = Vec::new();
 
     // Load segment index
     let index_path = run_dir.join("index.json");
     let segments: Vec<SegmentReference> = if index_path.exists() {
-        let content = fs::read_to_string(&index_path)
-            .map_err(|e| format!("Failed to read index: {}", e))?;
-        let json: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse index: {}", e))?;
-        
-        json["segments"].as_array()
-            .map(|segs| segs.iter().filter_map(|s| {
-                Some(SegmentReference {
-                    segment_id: s["segment_id"].as_str()?.to_string(),
-                    rel_path: s["rel_path"].as_str()?.to_string(),
-                    sha256: s["sha256_segment"].as_str().unwrap_or("").to_string(),
-                    records: s["records"].as_u64().unwrap_or(0) as u32,
-                })
-            }).collect())
+        let content =
+            fs::read_to_string(&index_path).map_err(|e| format!("Failed to read index: {}", e))?;
+        let json: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| format!("Failed to parse index: {}", e))?;
+
+        json["segments"]
+            .as_array()
+            .map(|segs| {
+                segs.iter()
+                    .filter_map(|s| {
+                        Some(SegmentReference {
+                            segment_id: s["segment_id"].as_str()?.to_string(),
+                            rel_path: s["rel_path"].as_str()?.to_string(),
+                            sha256: s["sha256_segment"].as_str().unwrap_or("").to_string(),
+                            records: s["records"].as_u64().unwrap_or(0) as u32,
+                        })
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     } else {
         Vec::new()
@@ -481,20 +500,21 @@ pub async fn prove_signal_provenance(
         .map_err(|e| format!("Failed to open database: {}", e))?;
 
     // Get signals with evidence pointers
-    let mut stmt = conn.prepare(
-        "SELECT signal_id, signal_type, evidence_ptrs FROM signals LIMIT 10"
-    ).map_err(|e| format!("Failed to prepare query: {}", e))?;
+    let mut stmt = conn
+        .prepare("SELECT signal_id, signal_type, evidence_ptrs FROM signals LIMIT 10")
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
-    let signal_rows: Vec<(String, String, String)> = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-        ))
-    })
-    .map_err(|e| format!("Failed to query signals: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
+    let signal_rows: Vec<(String, String, String)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to query signals: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
 
     for (signal_id, signal_type, evidence_ptrs_json) in signal_rows {
         let mut proof = SignalProvenanceProof {
@@ -522,10 +542,15 @@ pub async fn prove_signal_provenance(
                     });
 
                     // Find matching segment
-                    if let Some(seg) = segments.iter().find(|s| {
-                        s.segment_id.contains(&segment_id.to_string())
-                    }) {
-                        if !proof.source_segments.iter().any(|s| s.segment_id == seg.segment_id) {
+                    if let Some(seg) = segments
+                        .iter()
+                        .find(|s| s.segment_id.contains(&segment_id.to_string()))
+                    {
+                        if !proof
+                            .source_segments
+                            .iter()
+                            .any(|s| s.segment_id == seg.segment_id)
+                        {
                             proof.source_segments.push(seg.clone());
                         }
 
@@ -534,14 +559,17 @@ pub async fn prove_signal_provenance(
                         if segment_path.exists() {
                             if let Ok(content) = fs::read_to_string(&segment_path) {
                                 if let Some(line) = content.lines().nth(record_index as usize) {
-                                    if let Ok(event) = serde_json::from_str::<serde_json::Value>(line) {
+                                    if let Ok(event) =
+                                        serde_json::from_str::<serde_json::Value>(line)
+                                    {
                                         let mut key_fields = HashMap::new();
-                                        
+
                                         // Extract key fields
                                         for key in ["exe", "cmdline", "pid", "host", "event_kind"] {
                                             if let Some(val) = event["fields"][key].as_str() {
                                                 key_fields.insert(key.to_string(), val.to_string());
-                                            } else if let Some(val) = event["fields"][key].as_i64() {
+                                            } else if let Some(val) = event["fields"][key].as_i64()
+                                            {
                                                 key_fields.insert(key.to_string(), val.to_string());
                                             }
                                         }

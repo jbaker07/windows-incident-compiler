@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.5] - 2025-01-08
+
+### Added
+- **Team V1 UX Polish**
+  - Auto-refresh store status every 10 seconds when Team tab is open
+  - Case list search with debounce (300ms)
+  - Tag filter dropdown populated from all case tags
+  - Sort options: Updated, Created, # Runs, # Notes
+  - "Has Runs Only" filter to hide empty cases
+  - Provenance chips showing host/user info on cases and runs
+  - Case detail sub-tabs: Runs, Notes, Tags, Overview
+  - Multi-select checkboxes for bulk run import
+  - Bulk import progress bar with per-run status
+  - Copy buttons throughout: bundle path, notes, case ID, diagnostics
+  - Notes grouped by day with timeline view
+  - Toast notifications (success/warning/error styles)
+  - Create case form collapsible toggle
+
+- **Team V2 Case Aggregation (Preview)**
+  - New `GET /api/team/cases/:case_id/aggregate` endpoint
+  - Merges data across all runs in a case without local import
+  - Shows: run count, unique hosts, deduplicated findings, activity timeline
+  - Findings deduplicated by rule_id with occurrence counts
+  - Timeline limited to 100 events
+  - Overview tab renders aggregate data when available
+
+### Changed
+- `importTeamRun` now uses toast notification instead of alert
+- Team tab documentation added: `docs/TEAM_V1_WORKFLOW.md`
+- UI verification checklist updated with Section L (Team UX Polish tests)
+- API contract updated with aggregate endpoint documentation
+
 ## [0.3.4] - 2026-01-06
 
 ### Added

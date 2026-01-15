@@ -1,6 +1,20 @@
 // windows/sensors/wmi_monitor.rs
-// WMI activity monitoring: process execution, object modification
-// Sources: Microsoft-Windows-WMI-Activity/Operational (Event IDs for WMI method execution)
+//! WMI activity monitoring: process execution, object modification
+//!
+//! # Architecture Note
+//! This module is intentionally a STUB. WMI persistence events are captured via the
+//! unified WEVTAPI polling path (`wevt_reader.rs`), then normalized in
+//! `attack_surface.rs::parse_wmi_persistence()`.
+//!
+//! The sources handled by the main pipeline are:
+//! - Sysmon EventID 19: WMI filter created
+//! - Sysmon EventID 20: WMI consumer created
+//! - Sysmon EventID 21: WMI filter/consumer binding
+//!
+//! Note: WMI-Activity/Operational events (5857-5861) are also polled for additional
+//! context but the primary detection path is through Sysmon WMI events.
+//!
+//! This module remains for reference and to document the expected event schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

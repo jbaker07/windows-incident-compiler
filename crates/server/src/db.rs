@@ -9,6 +9,7 @@ use workbench::Document;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StoredSignal {
     pub signal_id: String,
+    pub run_id: String,
     pub signal_type: String,
     pub severity: String,
     pub host: String,
@@ -18,9 +19,49 @@ pub struct StoredSignal {
     pub proc_key: Option<String>,
     pub file_key: Option<String>,
     pub identity_key: Option<String>,
+    /// Detector that produced this signal (e.g., "playbook:ransomware_v2")
+    pub detector_id: String,
+    /// Detector version (e.g., "1.2.0")
+    pub detector_version: String,
+    /// Data source/sensor that provided evidence (e.g., "etw:kernel", "sysmon")
+    pub source_sensor: String,
     pub metadata: serde_json::Value,
     pub evidence_ptrs: Vec<serde_json::Value>,
     pub dropped_evidence_count: usize,
+}
+
+/// Run record stored in the database
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RunRecord {
+    pub run_id: String,
+    pub name: Option<String>,  // User-assigned name for the run
+    pub profile: Option<String>,
+    pub started_at: String,
+    pub stopped_at: Option<String>,
+    pub run_dir: Option<String>,
+    pub events_total: u64,
+    pub segments_count: u32,
+    pub facts_extracted: u64,
+    pub signals_fired: u64,
+    pub bytes_written: u64,
+    pub status: String,  // "running", "stopping", "stopped"
+    // Baseline fields (Pro/Team foundation)
+    #[serde(default)]
+    pub baseline_scope: Option<String>,  // "host" | "install" | null
+    #[serde(default)]
+    pub baseline_enabled: bool,  // true if this run is marked as baseline
+    #[serde(default)]
+    pub baseline_set_at: Option<String>,  // ISO timestamp when marked as baseline
+}
+
+/// Metrics from a run (used for finalization)
+#[derive(Debug, Clone, Default)]
+pub struct RunMetrics {
+    pub events_total: u64,
+    pub segments_count: u32,
+    pub facts_extracted: u64,
+    pub signals_fired: u64,
+    pub bytes_written: u64,
 }
 
 pub struct Database {
@@ -49,6 +90,8 @@ impl Database {
 
     fn init_schema(&self) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
+        
+        // Step 1: Create main tables (without indices that depend on columns that might need migration)
         conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS documents (
@@ -66,6 +109,7 @@ impl Database {
             
             CREATE TABLE IF NOT EXISTS signals (
                 signal_id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL DEFAULT 'unknown',
                 signal_type TEXT NOT NULL,
                 severity TEXT NOT NULL,
                 host TEXT NOT NULL,
@@ -75,11 +119,46 @@ impl Database {
                 proc_key TEXT,
                 file_key TEXT,
                 identity_key TEXT,
+                detector_id TEXT NOT NULL DEFAULT 'unknown',
+                detector_version TEXT NOT NULL DEFAULT '0.0.0',
+                source_sensor TEXT NOT NULL DEFAULT 'unknown',
                 metadata TEXT NOT NULL,
                 evidence_ptrs TEXT NOT NULL,
                 dropped_evidence_count INTEGER NOT NULL,
                 created_at TEXT NOT NULL
             );
+            "#,
+        )?;
+        
+        // Step 2: Run migrations BEFORE creating indices on new columns
+        self.migrate_signals_table(&conn)?;
+        self.migrate_runs_table(&conn)?;
+        
+        // Step 3: Create indices and remaining tables (after migration ensures columns exist)
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_signals_run_id ON signals(run_id);
+            CREATE INDEX IF NOT EXISTS idx_signals_ts ON signals(ts);
+            
+            -- Runs table (persisted run records)
+            CREATE TABLE IF NOT EXISTS runs (
+                run_id TEXT PRIMARY KEY,
+                name TEXT,
+                profile TEXT,
+                started_at TEXT NOT NULL,
+                stopped_at TEXT,
+                run_dir TEXT,
+                events_total INTEGER NOT NULL DEFAULT 0,
+                segments_count INTEGER NOT NULL DEFAULT 0,
+                facts_extracted INTEGER NOT NULL DEFAULT 0,
+                signals_fired INTEGER NOT NULL DEFAULT 0,
+                bytes_written INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'running',
+                created_at TEXT NOT NULL
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_runs_started_at ON runs(started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
             
             -- Narratives table (evidence-cited explanations)
             CREATE TABLE IF NOT EXISTS narratives (
@@ -137,9 +216,244 @@ impl Database {
                 ON mission_specs(is_active);
         "#,
         )?;
+        
+        Ok(())
+    }
+    
+    /// Migrate existing signals table to add new columns if missing
+    fn migrate_signals_table(&self, conn: &std::sync::MutexGuard<'_, Connection>) -> Result<(), rusqlite::Error> {
+        // Check which columns exist
+        let mut stmt = conn.prepare("PRAGMA table_info(signals)")?;
+        let mut rows = stmt.query([])?;
+        
+        let mut existing_columns: std::collections::HashSet<String> = std::collections::HashSet::new();
+        while let Some(row) = rows.next()? {
+            let name: String = row.get(1)?;
+            existing_columns.insert(name);
+        }
+        
+        // Migrations for new columns with safe defaults
+        let migrations = [
+            ("run_id", "ALTER TABLE signals ADD COLUMN run_id TEXT NOT NULL DEFAULT 'unknown'"),
+            ("detector_id", "ALTER TABLE signals ADD COLUMN detector_id TEXT NOT NULL DEFAULT 'unknown'"),
+            ("detector_version", "ALTER TABLE signals ADD COLUMN detector_version TEXT NOT NULL DEFAULT '0.0.0'"),
+            ("source_sensor", "ALTER TABLE signals ADD COLUMN source_sensor TEXT NOT NULL DEFAULT 'unknown'"),
+        ];
+        
+        for (column, sql) in migrations {
+            if !existing_columns.contains(column) {
+                tracing::info!("Migrating signals table: adding column '{}'", column);
+                if let Err(e) = conn.execute(sql, []) {
+                    // Column might already exist from a partial migration
+                    if !e.to_string().contains("duplicate column") {
+                        tracing::warn!("Migration warning for '{}': {}", column, e);
+                    }
+                }
+            }
+        }
+        
+        // Ensure index exists
+        let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_signals_run_id ON signals(run_id)", []);
+        
         Ok(())
     }
 
+    /// Migrate existing runs table to add new columns if missing
+    fn migrate_runs_table(&self, conn: &std::sync::MutexGuard<'_, Connection>) -> Result<(), rusqlite::Error> {
+        // Check if runs table exists first
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='runs'",
+                [],
+                |row| row.get::<_, i32>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false);
+        
+        if !table_exists {
+            return Ok(());
+        }
+        
+        // Check which columns exist
+        let mut stmt = conn.prepare("PRAGMA table_info(runs)")?;
+        let mut rows = stmt.query([])?;
+        
+        let mut existing_columns: std::collections::HashSet<String> = std::collections::HashSet::new();
+        while let Some(row) = rows.next()? {
+            let name: String = row.get(1)?;
+            existing_columns.insert(name);
+        }
+        
+        // Add name column if missing
+        if !existing_columns.contains("name") {
+            tracing::info!("Migrating runs table: adding column 'name'");
+            if let Err(e) = conn.execute("ALTER TABLE runs ADD COLUMN name TEXT", []) {
+                if !e.to_string().contains("duplicate column") {
+                    tracing::warn!("Migration warning for 'name': {}", e);
+                }
+            }
+        }
+        
+        // Add baseline columns (Pro/Team foundation)
+        if !existing_columns.contains("baseline_scope") {
+            tracing::info!("Migrating runs table: adding baseline columns");
+            if let Err(e) = conn.execute("ALTER TABLE runs ADD COLUMN baseline_scope TEXT", []) {
+                if !e.to_string().contains("duplicate column") {
+                    tracing::warn!("Migration warning for 'baseline_scope': {}", e);
+                }
+            }
+        }
+        if !existing_columns.contains("baseline_enabled") {
+            if let Err(e) = conn.execute("ALTER TABLE runs ADD COLUMN baseline_enabled INTEGER NOT NULL DEFAULT 0", []) {
+                if !e.to_string().contains("duplicate column") {
+                    tracing::warn!("Migration warning for 'baseline_enabled': {}", e);
+                }
+            }
+        }
+        if !existing_columns.contains("baseline_set_at") {
+            if let Err(e) = conn.execute("ALTER TABLE runs ADD COLUMN baseline_set_at TEXT", []) {
+                if !e.to_string().contains("duplicate column") {
+                    tracing::warn!("Migration warning for 'baseline_set_at': {}", e);
+                }
+            }
+        }
+        
+        // W6 FIX: Recover orphan runs (runs stuck in "running" status from previous crashes)
+        // Uses smart heuristic to avoid false positives on long-running or paused sessions
+        self.recover_orphan_runs(&conn)?;
+        
+        Ok(())
+    }
+    
+    /// W6 FIX: Recover orphan runs left in "running" status from server crashes
+    /// Uses a smart heuristic to avoid false positives:
+    /// 1) Requires >10 minutes since started_at (grace period for long runs)
+    /// 2) OR if run_dir exists, checks for stale checkpoint (no file activity in run_dir for >5 min)
+    /// 3) Does NOT abandon runs that have recent segment activity
+    fn recover_orphan_runs(&self, conn: &std::sync::MutexGuard<'_, Connection>) -> Result<(), rusqlite::Error> {
+        // Find candidate orphan runs: status='running' and started >10 minutes ago
+        // This is the minimum threshold to avoid false positives on long runs
+        let mut stmt = conn.prepare(
+            r#"SELECT run_id, run_dir, started_at FROM runs 
+               WHERE status = 'running' 
+               AND datetime(started_at) < datetime('now', '-10 minutes')"#
+        )?;
+        
+        let mut candidates: Vec<(String, Option<String>, String)> = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let run_id: String = row.get(0)?;
+            let run_dir: Option<String> = row.get(1)?;
+            let started_at: String = row.get(2)?;
+            candidates.push((run_id, run_dir, started_at));
+        }
+        drop(rows);
+        drop(stmt);
+        
+        if candidates.is_empty() {
+            return Ok(());
+        }
+        
+        tracing::info!("W6 Recovery: Checking {} candidate orphan run(s)", candidates.len());
+        
+        let now = chrono::Utc::now();
+        let now_str = now.to_rfc3339();
+        let mut abandoned_count = 0;
+        
+        for (run_id, run_dir, started_at) in candidates {
+            let should_abandon = if let Some(ref dir) = run_dir {
+                // If we have a run_dir, check if it's truly stale
+                // Look for recent file activity (checkpoint, segments, run.db)
+                is_run_dir_stale(dir)
+            } else {
+                // No run_dir - rely on time-based heuristic only
+                // If started >10 minutes ago and no run_dir, likely orphan
+                true
+            };
+            
+            if should_abandon {
+                tracing::info!("W6 Recovery: Marking run '{}' as abandoned (started: {}, dir: {:?})", 
+                    run_id, started_at, run_dir);
+                
+                conn.execute(
+                    "UPDATE runs SET status = 'abandoned', stopped_at = ?2 WHERE run_id = ?1",
+                    params![run_id, now_str],
+                )?;
+                abandoned_count += 1;
+            } else {
+                tracing::debug!("W6 Recovery: Run '{}' has recent activity, not abandoning", run_id);
+            }
+        }
+        
+        if abandoned_count > 0 {
+            tracing::info!("W6 Recovery: Marked {} run(s) as 'abandoned'", abandoned_count);
+        }
+        
+        Ok(())
+    }
+}
+
+/// Check if a run directory appears stale (no recent file activity)
+/// Returns true if the directory doesn't exist OR has no files modified in last 5 minutes
+fn is_run_dir_stale(run_dir: &str) -> bool {
+    use std::path::Path;
+    use std::time::{Duration, SystemTime};
+    
+    let path = Path::new(run_dir);
+    if !path.exists() {
+        // Directory doesn't exist - definitely stale/orphan
+        return true;
+    }
+    
+    let stale_threshold = Duration::from_secs(5 * 60); // 5 minutes
+    let now = SystemTime::now();
+    
+    // Check key files that would be updated during an active run
+    let key_files = [
+        "run.db",
+        "index.json", 
+        "run_meta.json",
+        "checkpoint.json",
+    ];
+    
+    for filename in &key_files {
+        let file_path = path.join(filename);
+        if let Ok(metadata) = std::fs::metadata(&file_path) {
+            if let Ok(modified) = metadata.modified() {
+                if let Ok(elapsed) = now.duration_since(modified) {
+                    if elapsed < stale_threshold {
+                        // Found a recently modified file - not stale
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Also check segments directory for recent segment files
+    let segments_dir = path.join("segments");
+    if segments_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&segments_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                if let Ok(metadata) = entry.metadata() {
+                    if let Ok(modified) = metadata.modified() {
+                        if let Ok(elapsed) = now.duration_since(modified) {
+                            if elapsed < stale_threshold {
+                                // Found a recently modified segment - not stale
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // No recent activity found - consider stale
+    true
+}
+
+impl Database {
     // Document operations
 
     pub fn save_document(&self, doc: &Document) -> Result<(), rusqlite::Error> {
@@ -200,12 +514,13 @@ impl Database {
 
             conn.execute(
                 r#"INSERT OR REPLACE INTO signals 
-                   (signal_id, signal_type, severity, host, ts, ts_start, ts_end,
-                    proc_key, file_key, identity_key, metadata, evidence_ptrs, 
-                    dropped_evidence_count, created_at)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
+                   (signal_id, run_id, signal_type, severity, host, ts, ts_start, ts_end,
+                    proc_key, file_key, identity_key, detector_id, detector_version,
+                    source_sensor, metadata, evidence_ptrs, dropped_evidence_count, created_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"#,
                 params![
                     signal.signal_id,
+                    signal.run_id,
                     signal.signal_type,
                     signal.severity,
                     signal.host,
@@ -215,6 +530,9 @@ impl Database {
                     signal.proc_key,
                     signal.file_key,
                     signal.identity_key,
+                    signal.detector_id,
+                    signal.detector_version,
+                    signal.source_sensor,
                     metadata,
                     evidence,
                     signal.dropped_evidence_count,
@@ -230,8 +548,9 @@ impl Database {
     pub fn get_signal(&self, signal_id: &str) -> Result<Option<StoredSignal>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT signal_id, signal_type, severity, host, ts, ts_start, ts_end, 
-                    proc_key, file_key, identity_key, metadata, evidence_ptrs, dropped_evidence_count
+            "SELECT signal_id, run_id, signal_type, severity, host, ts, ts_start, ts_end, 
+                    proc_key, file_key, identity_key, detector_id, detector_version, source_sensor,
+                    metadata, evidence_ptrs, dropped_evidence_count
              FROM signals WHERE signal_id = ?1"
         )?;
 
@@ -284,21 +603,28 @@ impl Database {
     /// List recent signals with optional filters
     pub fn list_signals(
         &self,
+        run_id: Option<&str>,
         host: Option<&str>,
         signal_type: Option<&str>,
         severity: Option<&str>,
         limit: usize,
+        offset: usize,
     ) -> Result<Vec<StoredSignal>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
 
         let mut sql = String::from(
-            "SELECT signal_id, signal_type, severity, host, ts, ts_start, ts_end,
-                    proc_key, file_key, identity_key, metadata, evidence_ptrs, dropped_evidence_count
+            "SELECT signal_id, run_id, signal_type, severity, host, ts, ts_start, ts_end,
+                    proc_key, file_key, identity_key, detector_id, detector_version, source_sensor,
+                    metadata, evidence_ptrs, dropped_evidence_count
              FROM signals WHERE 1=1"
         );
 
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
+        if let Some(r) = run_id {
+            sql.push_str(" AND run_id = ?");
+            params_vec.push(Box::new(r.to_string()));
+        }
         if let Some(h) = host {
             sql.push_str(" AND host = ?");
             params_vec.push(Box::new(h.to_string()));
@@ -312,8 +638,9 @@ impl Database {
             params_vec.push(Box::new(s.to_string()));
         }
 
-        sql.push_str(" ORDER BY ts DESC LIMIT ?");
+        sql.push_str(" ORDER BY ts DESC LIMIT ? OFFSET ?");
         params_vec.push(Box::new(limit as i64));
+        params_vec.push(Box::new(offset as i64));
 
         let params_refs: Vec<&dyn rusqlite::ToSql> =
             params_vec.iter().map(|p| p.as_ref()).collect();
@@ -369,6 +696,261 @@ impl Database {
             by_host,
             by_type,
         })
+    }
+
+    // ==========================================================================
+    // Run Record Operations
+    // ==========================================================================
+
+    /// Insert a new run record (called when a run starts)
+    pub fn insert_run(&self, run: &RunRecord) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        
+        conn.execute(
+            r#"INSERT OR REPLACE INTO runs 
+               (run_id, name, profile, started_at, stopped_at, run_dir, 
+                events_total, segments_count, facts_extracted, signals_fired, bytes_written,
+                status, baseline_scope, baseline_enabled, baseline_set_at, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"#,
+            params![
+                run.run_id,
+                run.name,
+                run.profile,
+                run.started_at,
+                run.stopped_at,
+                run.run_dir,
+                run.events_total as i64,
+                run.segments_count as i64,
+                run.facts_extracted as i64,
+                run.signals_fired as i64,
+                run.bytes_written as i64,
+                run.status,
+                run.baseline_scope,
+                if run.baseline_enabled { 1 } else { 0 },
+                run.baseline_set_at,
+                now
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Update run record on stop (with final metrics)
+    pub fn finalize_run(&self, run_id: &str, stopped_at: &str, metrics: &RunMetrics) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        
+        conn.execute(
+            r#"UPDATE runs SET 
+                stopped_at = ?2,
+                events_total = ?3,
+                segments_count = ?4,
+                facts_extracted = ?5,
+                signals_fired = ?6,
+                bytes_written = ?7,
+                status = 'stopped'
+               WHERE run_id = ?1"#,
+            params![
+                run_id,
+                stopped_at,
+                metrics.events_total as i64,
+                metrics.segments_count as i64,
+                metrics.facts_extracted as i64,
+                metrics.signals_fired as i64,
+                metrics.bytes_written as i64,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// List all runs (newest first)
+    pub fn list_runs(&self, limit: usize) -> Result<Vec<RunRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT run_id, name, profile, started_at, stopped_at, run_dir,
+                      events_total, segments_count, facts_extracted, signals_fired, bytes_written,
+                      status, baseline_scope, baseline_enabled, baseline_set_at
+               FROM runs 
+               ORDER BY started_at DESC 
+               LIMIT ?1"#
+        )?;
+        
+        let mut rows = stmt.query(params![limit as i64])?;
+        let mut runs = Vec::new();
+        
+        while let Some(row) = rows.next()? {
+            runs.push(RunRecord {
+                run_id: row.get(0)?,
+                name: row.get(1)?,
+                profile: row.get(2)?,
+                started_at: row.get(3)?,
+                stopped_at: row.get(4)?,
+                run_dir: row.get(5)?,
+                events_total: row.get::<_, i64>(6)? as u64,
+                segments_count: row.get::<_, i64>(7)? as u32,
+                facts_extracted: row.get::<_, i64>(8)? as u64,
+                signals_fired: row.get::<_, i64>(9)? as u64,
+                bytes_written: row.get::<_, i64>(10)? as u64,
+                status: row.get(11)?,
+                baseline_scope: row.get(12)?,
+                baseline_enabled: row.get::<_, i64>(13).unwrap_or(0) != 0,
+                baseline_set_at: row.get(14)?,
+            });
+        }
+        Ok(runs)
+    }
+
+    /// Get a single run by ID
+    pub fn get_run(&self, run_id: &str) -> Result<Option<RunRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT run_id, name, profile, started_at, stopped_at, run_dir,
+                      events_total, segments_count, facts_extracted, signals_fired, bytes_written,
+                      status, baseline_scope, baseline_enabled, baseline_set_at
+               FROM runs WHERE run_id = ?1"#
+        )?;
+        
+        let mut rows = stmt.query(params![run_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(RunRecord {
+                run_id: row.get(0)?,
+                name: row.get(1)?,
+                profile: row.get(2)?,
+                started_at: row.get(3)?,
+                stopped_at: row.get(4)?,
+                run_dir: row.get(5)?,
+                events_total: row.get::<_, i64>(6)? as u64,
+                segments_count: row.get::<_, i64>(7)? as u32,
+                facts_extracted: row.get::<_, i64>(8)? as u64,
+                signals_fired: row.get::<_, i64>(9)? as u64,
+                bytes_written: row.get::<_, i64>(10)? as u64,
+                status: row.get(11)?,
+                baseline_scope: row.get(12)?,
+                baseline_enabled: row.get::<_, i64>(13).unwrap_or(0) != 0,
+                baseline_set_at: row.get(14)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Set a run as baseline (transactional: clears other defaults for same scope)
+    pub fn set_baseline(&self, run_id: &str, scope: &str, set_as_default: bool) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+        
+        // If setting as default, first clear existing defaults for this scope
+        if set_as_default {
+            conn.execute(
+                "UPDATE runs SET baseline_enabled = 0 WHERE baseline_scope = ?1 AND baseline_enabled = 1",
+                params![scope],
+            )?;
+        }
+        
+        // Set this run as baseline
+        let rows_affected = conn.execute(
+            "UPDATE runs SET baseline_scope = ?2, baseline_enabled = ?3, baseline_set_at = ?4 WHERE run_id = ?1",
+            params![run_id, scope, if set_as_default { 1 } else { 0 }, now],
+        )?;
+        
+        Ok(rows_affected > 0)
+    }
+
+    /// Get the default baseline for a scope
+    pub fn get_default_baseline(&self, scope: &str) -> Result<Option<RunRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT run_id, name, profile, started_at, stopped_at, run_dir,
+                      events_total, segments_count, facts_extracted, signals_fired, bytes_written,
+                      status, baseline_scope, baseline_enabled, baseline_set_at
+               FROM runs WHERE baseline_scope = ?1 AND baseline_enabled = 1 LIMIT 1"#
+        )?;
+        
+        let mut rows = stmt.query(params![scope])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(RunRecord {
+                run_id: row.get(0)?,
+                name: row.get(1)?,
+                profile: row.get(2)?,
+                started_at: row.get(3)?,
+                stopped_at: row.get(4)?,
+                run_dir: row.get(5)?,
+                events_total: row.get::<_, i64>(6)? as u64,
+                segments_count: row.get::<_, i64>(7)? as u32,
+                facts_extracted: row.get::<_, i64>(8)? as u64,
+                signals_fired: row.get::<_, i64>(9)? as u64,
+                bytes_written: row.get::<_, i64>(10)? as u64,
+                status: row.get(11)?,
+                baseline_scope: row.get(12)?,
+                baseline_enabled: row.get::<_, i64>(13).unwrap_or(0) != 0,
+                baseline_set_at: row.get(14)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List all baseline runs
+    pub fn list_baselines(&self) -> Result<Vec<RunRecord>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            r#"SELECT run_id, name, profile, started_at, stopped_at, run_dir,
+                      events_total, segments_count, facts_extracted, signals_fired, bytes_written,
+                      status, baseline_scope, baseline_enabled, baseline_set_at
+               FROM runs WHERE baseline_scope IS NOT NULL ORDER BY baseline_set_at DESC"#
+        )?;
+        
+        let mut baselines = Vec::new();
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            baselines.push(RunRecord {
+                run_id: row.get(0)?,
+                name: row.get(1)?,
+                profile: row.get(2)?,
+                started_at: row.get(3)?,
+                stopped_at: row.get(4)?,
+                run_dir: row.get(5)?,
+                events_total: row.get::<_, i64>(6)? as u64,
+                segments_count: row.get::<_, i64>(7)? as u32,
+                facts_extracted: row.get::<_, i64>(8)? as u64,
+                signals_fired: row.get::<_, i64>(9)? as u64,
+                bytes_written: row.get::<_, i64>(10)? as u64,
+                status: row.get(11)?,
+                baseline_scope: row.get(12)?,
+                baseline_enabled: row.get::<_, i64>(13).unwrap_or(0) != 0,
+                baseline_set_at: row.get(14)?,
+            });
+        }
+        Ok(baselines)
+    }
+
+    /// Remove baseline marking from a run
+    pub fn unset_baseline(&self, run_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let rows_affected = conn.execute(
+            "UPDATE runs SET baseline_scope = NULL, baseline_enabled = 0, baseline_set_at = NULL WHERE run_id = ?1",
+            params![run_id],
+        )?;
+        Ok(rows_affected > 0)
+    }
+
+    /// Rename a run (set user-friendly name)
+    pub fn rename_run(&self, run_id: &str, name: Option<&str>) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let rows_affected = conn.execute(
+            "UPDATE runs SET name = ?2 WHERE run_id = ?1",
+            params![run_id, name],
+        )?;
+        Ok(rows_affected > 0)
+    }
+
+    /// Delete a run record
+    pub fn delete_run(&self, run_id: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let rows_affected = conn.execute(
+            "DELETE FROM runs WHERE run_id = ?1",
+            params![run_id],
+        )?;
+        Ok(rows_affected > 0)
     }
 
     // ==========================================================================
@@ -659,14 +1241,21 @@ impl Database {
         conn.query_row("SELECT 1", [], |_| Ok(()))?;
         Ok(())
     }
+}
 
+/// Stats for a single event stream
+#[derive(Debug, Clone, Default)]
+pub struct StreamStats {
+    pub last_seen_ts: Option<chrono::DateTime<chrono::Utc>>,
+    pub event_count: u64,
+}
+
+impl Database {
     /// Get stream stats for diagnostics
     pub fn get_stream_stats(
         &self,
-    ) -> Result<std::collections::HashMap<String, crate::diagnostics::StreamStats>, rusqlite::Error>
+    ) -> Result<std::collections::HashMap<String, StreamStats>, rusqlite::Error>
     {
-        use crate::diagnostics::StreamStats;
-
         let conn = self.conn.lock().unwrap();
 
         // Map signal_type to stream_id
@@ -711,23 +1300,27 @@ impl Database {
     }
 
     fn row_to_signal(row: &rusqlite::Row) -> Result<StoredSignal, rusqlite::Error> {
-        let metadata_str: String = row.get(10)?;
-        let evidence_str: String = row.get(11)?;
+        let metadata_str: String = row.get(14)?;
+        let evidence_str: String = row.get(15)?;
 
         Ok(StoredSignal {
             signal_id: row.get(0)?,
-            signal_type: row.get(1)?,
-            severity: row.get(2)?,
-            host: row.get(3)?,
-            ts: row.get(4)?,
-            ts_start: row.get(5)?,
-            ts_end: row.get(6)?,
-            proc_key: row.get(7)?,
-            file_key: row.get(8)?,
-            identity_key: row.get(9)?,
+            run_id: row.get(1)?,
+            signal_type: row.get(2)?,
+            severity: row.get(3)?,
+            host: row.get(4)?,
+            ts: row.get(5)?,
+            ts_start: row.get(6)?,
+            ts_end: row.get(7)?,
+            proc_key: row.get(8)?,
+            file_key: row.get(9)?,
+            identity_key: row.get(10)?,
+            detector_id: row.get(11)?,
+            detector_version: row.get(12)?,
+            source_sensor: row.get(13)?,
             metadata: serde_json::from_str(&metadata_str).unwrap_or_default(),
             evidence_ptrs: serde_json::from_str(&evidence_str).unwrap_or_default(),
-            dropped_evidence_count: row.get(12)?,
+            dropped_evidence_count: row.get(16)?,
         })
     }
 }
@@ -775,6 +1368,7 @@ mod tests {
         let signals = vec![
             StoredSignal {
                 signal_id: "sig_001".to_string(),
+                run_id: "run_20241201_100000".to_string(),
                 signal_type: "ProcessInjection".to_string(),
                 severity: "critical".to_string(),
                 host: "HOST1".to_string(),
@@ -784,12 +1378,16 @@ mod tests {
                 proc_key: Some("proc_123".to_string()),
                 file_key: None,
                 identity_key: Some("SYSTEM".to_string()),
+                detector_id: "playbook:process_injection_v1".to_string(),
+                detector_version: "1.0.0".to_string(),
+                source_sensor: "etw:kernel".to_string(),
                 metadata: serde_json::json!({"technique": "T1055"}),
                 evidence_ptrs: vec![serde_json::json!({"stream_id": "s1", "segment_id": 0})],
                 dropped_evidence_count: 0,
             },
             StoredSignal {
                 signal_id: "sig_002".to_string(),
+                run_id: "run_20241201_100000".to_string(),
                 signal_type: "SuspiciousExec".to_string(),
                 severity: "high".to_string(),
                 host: "HOST2".to_string(),
@@ -799,6 +1397,9 @@ mod tests {
                 proc_key: None,
                 file_key: Some("file_abc".to_string()),
                 identity_key: None,
+                detector_id: "playbook:suspicious_exec_v1".to_string(),
+                detector_version: "1.0.0".to_string(),
+                source_sensor: "sysmon".to_string(),
                 metadata: serde_json::json!({}),
                 evidence_ptrs: vec![],
                 dropped_evidence_count: 0,
@@ -813,18 +1414,24 @@ mod tests {
         let sig = db.get_signal("sig_001").unwrap().unwrap();
         assert_eq!(sig.signal_type, "ProcessInjection");
         assert_eq!(sig.severity, "critical");
+        assert_eq!(sig.run_id, "run_20241201_100000");
+        assert_eq!(sig.detector_id, "playbook:process_injection_v1");
 
         // List all
-        let all = db.list_signals(None, None, None, 100).unwrap();
+        let all = db.list_signals(None, None, None, None, 100, 0).unwrap();
         assert_eq!(all.len(), 2);
 
         // Filter by host
-        let host1 = db.list_signals(Some("HOST1"), None, None, 100).unwrap();
+        let host1 = db.list_signals(None, Some("HOST1"), None, None, 100, 0).unwrap();
         assert_eq!(host1.len(), 1);
 
         // Filter by severity
-        let critical = db.list_signals(None, None, Some("critical"), 100).unwrap();
+        let critical = db.list_signals(None, None, None, Some("critical"), 100, 0).unwrap();
         assert_eq!(critical.len(), 1);
+        
+        // Filter by run_id
+        let run_signals = db.list_signals(Some("run_20241201_100000"), None, None, None, 100, 0).unwrap();
+        assert_eq!(run_signals.len(), 2);
 
         // Stats
         let stats = db.signal_stats().unwrap();

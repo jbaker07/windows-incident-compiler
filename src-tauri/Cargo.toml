@@ -6,6 +6,7 @@ authors = ["EDR Team"]
 license = "MIT"
 repository = "https://github.com/jbaker07/git-glue"
 edition = "2021"
+default-run = "edr-desktop"
 
 # Keep this package out of the parent workspace
 [workspace]
@@ -42,15 +43,20 @@ regex = "1"
 csv = "1"
 quick-xml = "0.37"
 sha2 = "0.10"
+md5 = "0.7"
 zip = "2"
 # Database for baseline/pipeline counters
 rusqlite = { version = "0.32", features = ["bundled"] }
+flate2 = "1.1.5"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
 default = ["custom-protocol"]

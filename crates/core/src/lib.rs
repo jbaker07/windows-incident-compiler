@@ -1,20 +1,34 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE modules: always compiled (required for core loop)
+// ─────────────────────────────────────────────────────────────────────────────
 pub mod error;
 pub mod event;
 pub mod event_keys;
 pub mod evidence_ptr;
 pub mod explain;
+pub mod explain_api;
 pub mod install_id;
 pub mod license;
 pub mod license_manager;
 pub mod license_protection;
 pub mod machine_fingerprint;
-pub mod narrative;
 pub mod severity;
 pub mod signal_result;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NON-CORE modules: compile-time gated via Cargo features
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Narrative module: Natural language narratives (Pro feature)
+#[cfg(feature = "narrative")]
+pub mod narrative;
+
+/// Watermark module: Report watermarking (Pro feature)
+#[cfg(feature = "watermark")]
 pub mod watermark;
 
-// Diff module: always compiled, runtime-gated via license entitlement
-// (Previously compile-time gated, now "one binary" approach)
+/// Diff module: Delta reports between runs (Pro feature)
+#[cfg(feature = "diff")]
 pub mod diff;
 
 #[cfg(test)]
@@ -34,16 +48,33 @@ pub const fn pro_enabled() -> bool {
 
 /// Check if diff mode is enabled via license entitlement.
 /// This is the new runtime check that should replace `pro_enabled()`.
+#[cfg(feature = "diff")]
 pub fn diff_mode_enabled() -> bool {
     license_manager::diff_mode_enabled()
 }
+
+#[cfg(not(feature = "diff"))]
+pub fn diff_mode_enabled() -> bool {
+    false
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE re-exports: always available
+// ─────────────────────────────────────────────────────────────────────────────
 
 pub use error::{ErrorCode, ErrorReport};
 pub use event::Event;
 pub use evidence_ptr::EvidencePtr;
 pub use explain::{
-    EntityBundle, EvidenceExcerpt, ExplanationBundle, ExplanationBundleBuilder,
+    DetectionReasonEntry, EntityBundle, EvidenceExcerpt, ExplanationBundle, ExplanationBundleBuilder,
     ExplanationCounters, FactEntityKeys, MatchedFact, SlotExplanation, SlotStatus,
+};
+// Canonical Explainability API types (ship hardening)
+pub use explain_api::{
+    build_scoring_from_signal, normalize_entities, normalize_evidence_array,
+    normalize_evidence_from_json, normalize_evidence_ptr, reason_codes, EvidenceKind,
+    EvidencePointer, ExplainResponse, ScoringBreakdown, ScoringReason, SignalEntities,
+    SignalSummary,
 };
 pub use install_id::{
     get_edr_data_dir, get_install_id_path, get_license_path, get_or_create_install_id,
@@ -57,6 +88,14 @@ pub use license_manager::{
     LicenseStatus,
 };
 pub use machine_fingerprint::MachineFingerprint;
+pub use severity::Severity;
+pub use signal_result::SignalResult;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NON-CORE re-exports: only available when feature is enabled
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "narrative")]
 pub use narrative::{
     ArbitrationDoc, CapabilityGap, CapabilitySuggestion, DereferencedExcerpt, DisambiguationDoc,
     DisambiguationQuestion, ExpectedObservable, MissingObservable, MissionFocusWindow, MissionSpec,
@@ -65,10 +104,8 @@ pub use narrative::{
     RankedHypothesisDoc, SentenceReceipts, SentenceType, SlotDetail, SlotStatusSummary, UserAction,
     UserActionType,
 };
-pub use severity::Severity;
-pub use signal_result::SignalResult;
 
-// Diff types: always available, usage is runtime-gated via license
+#[cfg(feature = "diff")]
 pub use diff::{
     diff_snapshots, ChangedSignal, DiffResult, DiffSignal, DiffSummary, FieldChange, SignalDelta,
     SignalSnapshot, SnapshotSignal,

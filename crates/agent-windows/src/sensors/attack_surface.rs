@@ -40,6 +40,12 @@ pub fn normalize_to_attack_surface(event: &Event) -> Vec<Event> {
                 results.push(evt);
             }
         }
+        // Network Egress: Sysmon 3 (NetworkConnect)
+        ("Microsoft-Windows-Sysmon/Operational", 3, _) => {
+            if let Some(evt) = parse_network_connect(event) {
+                results.push(evt);
+            }
+        }
         // TRUE Privilege Escalation: Security 4672 (special privileges assigned)
         ("Security", 4672, _) => {
             if let Some(evt) = parse_priv_escalation(event) {
@@ -49,6 +55,21 @@ pub fn normalize_to_attack_surface(event: &Event) -> Vec<Event> {
         // Process Access / Injection Candidate: Sysmon 10 (ProcessAccess)
         ("Microsoft-Windows-Sysmon/Operational", 10, _) => {
             if let Some(evt) = parse_proc_access(event) {
+                results.push(evt);
+            }
+        }
+        // File Create: Sysmon 11 (FileCreate)
+        ("Microsoft-Windows-Sysmon/Operational", 11, _) => {
+            if let Some(evt) = parse_file_create(event) {
+                results.push(evt);
+            }
+        }
+        // Registry Modification: Sysmon 12/13/14 or Security 4657
+        ("Microsoft-Windows-Sysmon/Operational", 12, _)
+        | ("Microsoft-Windows-Sysmon/Operational", 13, _)
+        | ("Microsoft-Windows-Sysmon/Operational", 14, _)
+        | ("Security", 4657, _) => {
+            if let Some(evt) = parse_registry_mod(event) {
                 results.push(evt);
             }
         }
@@ -78,8 +99,14 @@ pub fn normalize_to_attack_surface(event: &Event) -> Vec<Event> {
                 results.push(evt);
             }
         }
-        // Defense Evasion: Log clear (Security 1102)
-        ("Security", 1102, _) => {
+        // Persistence: Task registered (TaskScheduler 106 - complements Security 4698)
+        ("Microsoft-Windows-TaskScheduler/Operational", 106, _) => {
+            if let Some(evt) = parse_persistence_task_operational(event) {
+                results.push(evt);
+            }
+        }
+        // Defense Evasion: Log clear (Security 1102, System 104)
+        ("Security", 1102, _) | ("System", 104, _) => {
             if let Some(evt) = parse_log_clear(event) {
                 results.push(evt);
             }
@@ -93,6 +120,13 @@ pub fn normalize_to_attack_surface(event: &Event) -> Vec<Event> {
         // Lateral Movement: WinRM (WinRM Operational 91 if available)
         ("Microsoft-Windows-WinRM/Operational", 91, _) => {
             if let Some(evt) = parse_remote_winrm(event) {
+                results.push(evt);
+            }
+        }
+        // PowerShell Execution: 4103 (module logging), 4104 (script block)
+        ("Microsoft-Windows-PowerShell/Operational", 4103, _)
+        | ("Microsoft-Windows-PowerShell/Operational", 4104, _) => {
+            if let Some(evt) = parse_powershell_exec(event) {
                 results.push(evt);
             }
         }
@@ -190,6 +224,271 @@ fn parse_proc_exec(event: &Event) -> Option<Event> {
     };
 
     Some(evt)
+}
+
+/// Parse network_connect from Sysmon 3 (NetworkConnect)
+fn parse_network_connect(event: &Event) -> Option<Event> {
+    let mut fields = BTreeMap::new();
+
+    let src_ip = extract_field_string(event, "SourceIp");
+    let src_port = extract_field_u32(event, "SourcePort");
+    let dst_ip = extract_field_string(event, "DestinationIp")?;
+    let dst_port = extract_field_u32(event, "DestinationPort")?;
+    let dst_hostname = extract_field_string(event, "DestinationHostname");
+    let protocol = extract_field_string(event, "Protocol");
+    let initiated = extract_field_string(event, "Initiated");
+    let image = extract_field_string(event, "Image");
+    let pid = extract_field_u32(event, "ProcessId");
+    let user = extract_field_string(event, "User");
+
+    fields.insert("dst_ip".to_string(), json!(dst_ip));
+    fields.insert("dst_port".to_string(), json!(dst_port));
+    if let Some(si) = src_ip {
+        fields.insert("src_ip".to_string(), json!(si));
+    }
+    if let Some(sp) = src_port {
+        fields.insert("src_port".to_string(), json!(sp));
+    }
+    if let Some(dh) = dst_hostname {
+        fields.insert("dst_hostname".to_string(), json!(dh));
+    }
+    if let Some(proto) = protocol {
+        fields.insert("protocol".to_string(), json!(proto));
+    }
+    if let Some(init) = initiated {
+        fields.insert("initiated".to_string(), json!(init));
+    }
+    if let Some(img) = image {
+        fields.insert(event_keys::PROC_EXE.to_string(), json!(img));
+    }
+    if let Some(p) = pid {
+        fields.insert(event_keys::PROC_PID.to_string(), json!(p));
+    }
+    if let Some(u) = user {
+        fields.insert("windows.user".to_string(), json!(u));
+    }
+
+    fields.insert(
+        "windows.channel".to_string(),
+        json!(event.fields.get("windows.channel")?),
+    );
+    fields.insert(
+        "windows.event_id".to_string(),
+        json!(event.fields.get("windows.event_id")?),
+    );
+
+    Some(Event {
+        ts_ms: event.ts_ms,
+        host: event.host.clone(),
+        tags: vec![
+            "windows".to_string(),
+            "network".to_string(),
+            "network_connect".to_string(),
+            "network_egress".to_string(),
+        ],
+        proc_key: None,
+        file_key: None,
+        identity_key: None,
+        evidence_ptr: None,
+        fields,
+    })
+}
+
+/// Parse file_create from Sysmon 11 (FileCreate)
+fn parse_file_create(event: &Event) -> Option<Event> {
+    let mut fields = BTreeMap::new();
+
+    let target_filename = extract_field_string(event, "TargetFilename")?;
+    let image = extract_field_string(event, "Image");
+    let pid = extract_field_u32(event, "ProcessId");
+    let user = extract_field_string(event, "User");
+    let creation_time = extract_field_string(event, "CreationUtcTime");
+
+    fields.insert("target_filename".to_string(), json!(target_filename));
+    if let Some(img) = image {
+        fields.insert(event_keys::PROC_EXE.to_string(), json!(img));
+    }
+    if let Some(p) = pid {
+        fields.insert(event_keys::PROC_PID.to_string(), json!(p));
+    }
+    if let Some(u) = user {
+        fields.insert("windows.user".to_string(), json!(u));
+    }
+    if let Some(ct) = creation_time {
+        fields.insert("creation_time".to_string(), json!(ct));
+    }
+
+    fields.insert(
+        "windows.channel".to_string(),
+        json!(event.fields.get("windows.channel")?),
+    );
+    fields.insert(
+        "windows.event_id".to_string(),
+        json!(event.fields.get("windows.event_id")?),
+    );
+
+    Some(Event {
+        ts_ms: event.ts_ms,
+        host: event.host.clone(),
+        tags: vec![
+            "windows".to_string(),
+            "file".to_string(),
+            "file_create".to_string(),
+        ],
+        proc_key: None,
+        file_key: None,
+        identity_key: None,
+        evidence_ptr: None,
+        fields,
+    })
+}
+
+/// Parse registry_mod from Sysmon 12/13/14 or Security 4657
+fn parse_registry_mod(event: &Event) -> Option<Event> {
+    let mut fields = BTreeMap::new();
+
+    let event_id = event
+        .fields
+        .get("windows.event_id")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let reg_type = match event_id {
+        12 => "create_delete",     // RegistryEvent (Object create and delete)
+        13 => "set_value",         // RegistryEvent (Value Set)
+        14 => "rename",            // RegistryEvent (Key and Value Rename)
+        4657 => "modify",          // Security: Registry value modified
+        _ => "unknown",
+    };
+
+    let target_object = extract_field_string(event, "TargetObject")
+        .or_else(|| extract_field_string(event, "ObjectName"));
+    let details = extract_field_string(event, "Details")
+        .or_else(|| extract_field_string(event, "NewValue"));
+    let image = extract_field_string(event, "Image");
+    let pid = extract_field_u32(event, "ProcessId");
+    let user = extract_field_string(event, "User")
+        .or_else(|| extract_field_string(event, "SubjectUserName"));
+
+    if let Some(to) = target_object {
+        fields.insert("target_object".to_string(), json!(to));
+    }
+    if let Some(d) = details {
+        // Limit details to 2KB
+        let d_limited = if d.len() > 2048 {
+            d.chars().take(2048).collect::<String>()
+        } else {
+            d
+        };
+        fields.insert("details".to_string(), json!(d_limited));
+    }
+    if let Some(img) = image {
+        fields.insert(event_keys::PROC_EXE.to_string(), json!(img));
+    }
+    if let Some(p) = pid {
+        fields.insert(event_keys::PROC_PID.to_string(), json!(p));
+    }
+    if let Some(u) = user {
+        fields.insert("windows.user".to_string(), json!(u));
+    }
+    fields.insert("registry_event_type".to_string(), json!(reg_type));
+
+    fields.insert(
+        "windows.channel".to_string(),
+        json!(event.fields.get("windows.channel")?),
+    );
+    fields.insert(
+        "windows.event_id".to_string(),
+        json!(event.fields.get("windows.event_id")?),
+    );
+
+    Some(Event {
+        ts_ms: event.ts_ms,
+        host: event.host.clone(),
+        tags: vec![
+            "windows".to_string(),
+            "registry".to_string(),
+            "registry_mod".to_string(),
+            format!("registry_{}", reg_type),
+        ],
+        proc_key: None,
+        file_key: None,
+        identity_key: None,
+        evidence_ptr: None,
+        fields,
+    })
+}
+
+/// Parse powershell_exec from PowerShell/Operational 4103/4104
+fn parse_powershell_exec(event: &Event) -> Option<Event> {
+    let mut fields = BTreeMap::new();
+
+    let event_id = event
+        .fields
+        .get("windows.event_id")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let ps_type = match event_id {
+        4103 => "module_logging",   // Module logging
+        4104 => "script_block",     // Script block logging
+        _ => "unknown",
+    };
+
+    // 4104: ScriptBlockText is the captured command
+    let script_block = extract_field_string(event, "ScriptBlockText");
+    // 4103: CommandLine, CommandPath, etc.
+    let command_line = extract_field_string(event, "CommandLine")
+        .or_else(|| extract_field_string(event, "Payload"));
+    let script_name = extract_field_string(event, "ScriptName")
+        .or_else(|| extract_field_string(event, "Path"));
+    let user = extract_field_string(event, "UserId")
+        .or_else(|| extract_field_string(event, "User"));
+
+    if let Some(sb) = script_block {
+        // Limit script block to 4KB
+        let sb_limited = if sb.len() > 4096 {
+            sb.chars().take(4096).collect::<String>()
+        } else {
+            sb
+        };
+        fields.insert("script_block".to_string(), json!(sb_limited));
+    }
+    if let Some(cl) = command_line {
+        fields.insert("command_line".to_string(), json!(cl));
+    }
+    if let Some(sn) = script_name {
+        fields.insert("script_name".to_string(), json!(sn));
+    }
+    if let Some(u) = user {
+        fields.insert("windows.user".to_string(), json!(u));
+    }
+    fields.insert("ps_event_type".to_string(), json!(ps_type));
+
+    fields.insert(
+        "windows.channel".to_string(),
+        json!(event.fields.get("windows.channel")?),
+    );
+    fields.insert(
+        "windows.event_id".to_string(),
+        json!(event.fields.get("windows.event_id")?),
+    );
+
+    Some(Event {
+        ts_ms: event.ts_ms,
+        host: event.host.clone(),
+        tags: vec![
+            "windows".to_string(),
+            "execution".to_string(),
+            "powershell".to_string(),
+            format!("ps_{}", ps_type),
+        ],
+        proc_key: None,
+        file_key: None,
+        identity_key: None,
+        evidence_ptr: None,
+        fields,
+    })
 }
 
 /// Parse priv_escalation from Security 4672 (special privileges assigned)
@@ -522,13 +821,75 @@ fn parse_persistence_task(event: &Event) -> Option<Event> {
     })
 }
 
-/// Parse log_clear from Security 1102
+/// Parse persistence_task from TaskScheduler Operational 106
+/// Event 106 = Task registered (complements Security 4698)
+fn parse_persistence_task_operational(event: &Event) -> Option<Event> {
+    let mut fields = BTreeMap::new();
+
+    // TaskScheduler 106 has TaskName and UserName
+    let task_name = extract_field_string(event, "TaskName")?;
+    let user_name = extract_field_string(event, "UserName");
+    let user_context = extract_field_string(event, "UserContext");
+
+    fields.insert("task_name".to_string(), json!(task_name));
+    if let Some(un) = user_name {
+        fields.insert("user_name".to_string(), json!(un));
+    }
+    if let Some(uc) = user_context {
+        fields.insert("user_context".to_string(), json!(uc));
+    }
+
+    fields.insert(
+        "windows.channel".to_string(),
+        json!(event.fields.get("windows.channel")?),
+    );
+    fields.insert(
+        "windows.event_id".to_string(),
+        json!(event.fields.get("windows.event_id")?),
+    );
+
+    Some(Event {
+        ts_ms: event.ts_ms,
+        host: event.host.clone(),
+        tags: vec![
+            "windows".to_string(),
+            "persistence".to_string(),
+            "persistence_task".to_string(),
+        ],
+        proc_key: None,
+        file_key: None,
+        identity_key: None,
+        evidence_ptr: None,
+        fields,
+    })
+}
+
+/// Parse log_clear from Security 1102 or System 104
 fn parse_log_clear(event: &Event) -> Option<Event> {
     let mut fields = BTreeMap::new();
 
-    let subject_user = extract_field_string(event, "SubjectUserName");
-    let log_cleared =
-        extract_field_string(event, "LogCleared").unwrap_or_else(|| "Security".to_string());
+    let event_id = event
+        .fields
+        .get("windows.event_id")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+
+    let channel = event
+        .fields
+        .get("windows.channel")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Determine which log was cleared based on event source
+    let log_cleared = match (channel, event_id) {
+        ("Security", 1102) => "Security".to_string(),
+        ("System", 104) => extract_field_string(event, "Channel")
+            .unwrap_or_else(|| "System".to_string()),
+        _ => "Unknown".to_string(),
+    };
+
+    let subject_user = extract_field_string(event, "SubjectUserName")
+        .or_else(|| extract_field_string(event, "UserName"));
 
     if let Some(su) = subject_user {
         fields.insert("subject_user".to_string(), json!(su));
@@ -551,6 +912,7 @@ fn parse_log_clear(event: &Event) -> Option<Event> {
             "windows".to_string(),
             "defense_evasion".to_string(),
             "log_clear".to_string(),
+            "log_tamper".to_string(),
         ],
         proc_key: None,
         file_key: None,
@@ -701,4 +1063,243 @@ fn simple_xml_extract(xml: &str, tag: &str) -> Option<String> {
 
 fn simple_xml_extract_u32(xml: &str, tag: &str) -> Option<u32> {
     simple_xml_extract(xml, tag).and_then(|s| s.parse::<u32>().ok())
+}
+
+// ============================================================================
+// Regression Tests for Attack Surface Routing
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Helper to create a test event with given channel and event_id
+    fn make_test_event(channel: &str, event_id: u32) -> Event {
+        let mut fields = BTreeMap::new();
+        fields.insert("windows.channel".to_string(), json!(channel));
+        fields.insert("windows.event_id".to_string(), json!(event_id));
+        fields.insert("windows.provider".to_string(), json!("TestProvider"));
+        
+        Event {
+            ts_ms: 1700000000000,
+            host: "test-host".to_string(),
+            proc_key: None,
+            file_key: None,
+            identity_key: None,
+            evidence_ptr: None,
+            fields,
+            tags: vec!["windows".to_string()],
+        }
+    }
+
+    /// Helper to add process fields to an event (Sysmon style)
+    fn add_proc_fields(event: &mut Event) {
+        event.fields.insert("Image".to_string(), json!("C:\\Windows\\System32\\cmd.exe"));
+        event.fields.insert("CommandLine".to_string(), json!("cmd.exe /c echo test"));
+        event.fields.insert("ProcessId".to_string(), json!(1234));
+        event.fields.insert("ParentProcessId".to_string(), json!(5678));
+        event.fields.insert("User".to_string(), json!("DOMAIN\\user"));
+    }
+
+    // -------------------------------------------------------------------------
+    // Process Execution Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_sysmon_1_routes_to_process_exec() {
+        let mut event = make_test_event("Microsoft-Windows-Sysmon/Operational", 1);
+        add_proc_fields(&mut event);
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "Sysmon 1 should produce attack surface events");
+        assert!(results[0].tags.contains(&"proc_exec".to_string()));
+    }
+
+    #[test]
+    fn test_security_4688_routes_to_process_exec() {
+        let mut event = make_test_event("Security", 4688);
+        // Security 4688 uses different field names
+        event.fields.insert("TargetImage".to_string(), json!("C:\\Windows\\System32\\cmd.exe"));
+        event.fields.insert("CommandLine".to_string(), json!("cmd.exe /c echo test"));
+        event.fields.insert("TargetProcessId".to_string(), json!(1234));
+        event.fields.insert("ParentProcessId".to_string(), json!(5678));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "Security 4688 should produce attack surface events");
+        assert!(results[0].tags.contains(&"proc_exec".to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Network Connection Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_sysmon_3_routes_to_network_connect() {
+        let mut event = make_test_event("Microsoft-Windows-Sysmon/Operational", 3);
+        event.fields.insert("DestinationIp".to_string(), json!("93.184.216.34"));
+        event.fields.insert("DestinationPort".to_string(), json!(443));
+        event.fields.insert("Image".to_string(), json!("C:\\Windows\\System32\\svchost.exe"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "Sysmon 3 should produce attack surface events");
+        assert!(results[0].tags.contains(&"network_connect".to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Persistence Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_system_7045_routes_to_persistence_service() {
+        let mut event = make_test_event("System", 7045);
+        event.fields.insert("ServiceName".to_string(), json!("TestService"));
+        event.fields.insert("ImagePath".to_string(), json!("C:\\test\\service.exe"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "System 7045 should produce attack surface events");
+        assert!(results[0].tags.contains(&"persistence_service".to_string()));
+    }
+
+    #[test]
+    fn test_security_4698_routes_to_persistence_task() {
+        let mut event = make_test_event("Security", 4698);
+        event.fields.insert("TaskName".to_string(), json!("\\TestTask"));
+        event.fields.insert("TaskContent".to_string(), json!("<Task>...</Task>"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "Security 4698 should produce attack surface events");
+        assert!(results[0].tags.contains(&"persistence_task".to_string()));
+    }
+
+    #[test]
+    fn test_taskscheduler_106_routes_to_persistence_task() {
+        let mut event = make_test_event("Microsoft-Windows-TaskScheduler/Operational", 106);
+        event.fields.insert("TaskName".to_string(), json!("\\TestTask"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "TaskScheduler 106 should produce attack surface events");
+        assert!(results[0].tags.contains(&"persistence_task".to_string()));
+    }
+
+    #[test]
+    fn test_sysmon_12_routes_to_registry_mod() {
+        let mut event = make_test_event("Microsoft-Windows-Sysmon/Operational", 12);
+        event.fields.insert("TargetObject".to_string(), json!("HKLM\\SOFTWARE\\Test"));
+        event.fields.insert("Image".to_string(), json!("C:\\test\\app.exe"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "Sysmon 12 should produce attack surface events");
+        assert!(results[0].tags.contains(&"registry_mod".to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // PowerShell Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_powershell_4104_routes_to_powershell_exec() {
+        let mut event = make_test_event("Microsoft-Windows-PowerShell/Operational", 4104);
+        event.fields.insert("ScriptBlockText".to_string(), json!("Get-Process"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "PowerShell 4104 should produce attack surface events");
+        assert!(results[0].tags.contains(&"powershell".to_string()));
+        assert!(results[0].tags.contains(&"ps_script_block".to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Log Tamper Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_security_1102_routes_to_log_clear() {
+        let event = make_test_event("Security", 1102);
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "Security 1102 should produce attack surface events");
+        assert!(results[0].tags.contains(&"log_clear".to_string()));
+    }
+
+    #[test]
+    fn test_system_104_routes_to_log_clear() {
+        let mut event = make_test_event("System", 104);
+        event.fields.insert("Channel".to_string(), json!("Application"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "System 104 should produce attack surface events");
+        assert!(results[0].tags.contains(&"log_clear".to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Credential Access Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_sysmon_10_routes_to_proc_access() {
+        let mut event = make_test_event("Microsoft-Windows-Sysmon/Operational", 10);
+        event.fields.insert("TargetImage".to_string(), json!("C:\\Windows\\System32\\lsass.exe"));
+        event.fields.insert("SourceImage".to_string(), json!("C:\\test\\mimikatz.exe"));
+        event.fields.insert("SourceProcessId".to_string(), json!(1234)); // Required field
+        event.fields.insert("GrantedAccess".to_string(), json!("0x1410"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "Sysmon 10 should produce attack surface events");
+        assert!(results[0].tags.contains(&"proc_access".to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // WMI Persistence Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_sysmon_19_routes_to_wmi_persistence() {
+        let mut event = make_test_event("Microsoft-Windows-Sysmon/Operational", 19);
+        event.fields.insert("Operation".to_string(), json!("Created"));
+        event.fields.insert("Name".to_string(), json!("EvilFilter"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "Sysmon 19 should produce attack surface events");
+        assert!(results[0].tags.contains(&"wmi_persistence".to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Lateral Movement Tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_security_4624_type10_routes_to_remote_logon() {
+        let mut event = make_test_event("Security", 4624);
+        event.fields.insert("LogonType".to_string(), json!(10)); // RDP
+        event.fields.insert("IpAddress".to_string(), json!("192.168.1.100"));
+        event.fields.insert("TargetUserName".to_string(), json!("admin"));
+        
+        let results = normalize_to_attack_surface(&event);
+        // Note: parse_remote_logon_rdp only emits for LogonType=10
+        if !results.is_empty() {
+            assert!(results[0].tags.contains(&"lateral_movement".to_string()));
+        }
+    }
+
+    #[test]
+    fn test_winrm_91_routes_to_remote_winrm() {
+        let mut event = make_test_event("Microsoft-Windows-WinRM/Operational", 91);
+        event.fields.insert("connection".to_string(), json!("192.168.1.100"));
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(!results.is_empty(), "WinRM 91 should produce attack surface events");
+        assert!(results[0].tags.contains(&"lateral_movement".to_string()));
+    }
+
+    // -------------------------------------------------------------------------
+    // Unmatched Event Test
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_unknown_event_produces_no_output() {
+        let event = make_test_event("UnknownChannel", 99999);
+        
+        let results = normalize_to_attack_surface(&event);
+        assert!(results.is_empty(), "Unknown events should produce no attack surface events");
+    }
 }

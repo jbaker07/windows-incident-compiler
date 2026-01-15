@@ -101,6 +101,23 @@ pub struct WindowsSignalEngine {
 }
 
 impl WindowsSignalEngine {
+    /// RD-4 FIX: Self-process allowlist to prevent export from triggering signals
+    /// Returns true if the process name belongs to LocInt's own processes
+    fn is_self_process(proc_name: &str) -> bool {
+        let proc_lower = proc_name.to_lowercase();
+        let self_processes = [
+            "locint.exe",
+            "edr-server.exe", 
+            "edr-locald.exe",
+            "capture_windows_rotating.exe",
+            "locint",
+            "edr-server",
+            "edr-locald",
+            "capture_windows_rotating",
+        ];
+        self_processes.iter().any(|p| proc_lower.contains(p))
+    }
+
     pub fn new(host: String) -> Self {
         // Check if workflow seed is enabled via env var
         let workflow_seed_enabled = env::var("EDR_WORKFLOW_SEED")
@@ -479,6 +496,11 @@ impl WindowsSignalEngine {
             });
 
         if let Some((accessor_exe, ts, accessor_pid, evidence)) = snap_data {
+            // RD-4 FIX: Skip if accessor is one of our own processes (prevents export false positives)
+            if Self::is_self_process(&accessor_exe) {
+                return;
+            }
+
             let entity_hash = accessor_exe.clone();
             if self.should_fire("LSASSAccessSuspicious", &entity_hash, 300) {
                 // 5 min cooldown

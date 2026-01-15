@@ -22,18 +22,14 @@
 //!  └─────────────────────────────────────────────────────────────┘
 //! ```
 //!
-//! ## Usage
+//! ## Feature Gating
 //!
-//! ```ignore
-//! use edr_locald::{Pipeline, Platform, MemorySink};
-//! use std::sync::Arc;
-//!
-//! let mut pipeline = Pipeline::new("hostname", Platform::MacOS);
-//! pipeline.add_sink(Arc::new(MemorySink::new()));
-//!
-//! // Process telemetry from agents
-//! let signals = pipeline.process(telemetry_input);
-//! ```
+//! - `core` (default): Core detection loop only
+//! - `integrations`: SIEM/vendor integrations
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE modules: always compiled (required for core loop)
+// ─────────────────────────────────────────────────────────────────────────────
 
 pub mod os;
 pub mod pipeline;
@@ -43,6 +39,7 @@ pub mod signal_result;
 // Platform-agnostic modules
 pub mod baseline;
 pub mod playbook_loader;
+pub mod playbook_manager;
 pub mod scoring;
 pub mod signal_persistence;
 
@@ -51,34 +48,45 @@ pub mod slot_matcher;
 #[cfg(test)]
 mod slot_matcher_tests;
 
+// E2E integration tests for YAML playbook loading and firing
+#[cfg(test)]
+mod e2e_playbook_test;
+
 // Evidence system with path safety (Ship Hardening)
 pub mod evidence;
 
 // Evidence dereference helper (for explainability)
 pub mod evidence_deref;
 
+// Explanation reason codes (for availability tracking)
+pub mod explanation_reason;
 // Explanation builder (for API responses)
 pub mod explanation_builder;
-
-// Narrative builder (evidence-cited narration)
-pub mod narrative_builder;
 
 // Credibility locks: path safety, namespace isolation, ZIP safety
 pub mod safety;
 
 // Hypothesis/Incident detection system (incident compiler)
-// Uses path attribute to include from workspace root (legacy location)
-#[path = "../../../locald/hypothesis/mod.rs"]
 pub mod hypothesis;
 
 // HypothesisController: Runtime wiring for the incident compiler
 pub mod hypothesis_controller;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NON-CORE modules: compile-time gated via Cargo features
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Narrative builder: evidence-cited narration (Pro feature)
+#[cfg(feature = "narrative")]
+pub mod narrative_builder;
+
 // Integration layer: export incidents + ingest third-party alerts
+#[cfg(feature = "integrations")]
 pub mod integrations;
 
-// Main daemon - has legacy dependencies, skip for now
-// pub mod edr_locald;
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE re-exports: always available
+// ─────────────────────────────────────────────────────────────────────────────
 
 pub use os::linux::LinuxSignalEngine;
 pub use os::macos::MacOSSignalEngine;

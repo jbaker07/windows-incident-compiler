@@ -2,26 +2,61 @@
 //!
 //! Exposes report generation and test utilities for in-process testing.
 //! Ship Hardening: Includes health checks, path safety, and write isolation.
+//!
+//! ## Shared Infrastructure
+//!
+//! Both `edr-server` and `locint` binaries share the same router construction
+//! via [`server_core`] types. This prevents drift between the two entrypoints.
+//!
+//! ## Feature Gating
+//!
+//! - `core` (default): Core loop functionality only
+//! - `golden_bundle`: Golden bundle CI testing
+//! - `support_bundle`: Support bundle generation
+//! - `integrations`: SIEM/vendor integrations
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE modules: always compiled (required for core loop)
+// ─────────────────────────────────────────────────────────────────────────────
 pub mod bundle_exchange;
-pub mod golden_bundle;
+pub mod capability;
+pub mod db;
+pub mod flight_recorder;
 pub mod health;
-pub mod integration_api;
+pub mod instance_lock;
 pub mod query_isolation;
 pub mod report;
-pub mod support_bundle;
+pub mod run_coverage;
+pub mod server_core;
+pub mod services;
+pub mod supervisor;
+pub mod team;
 pub mod write_isolation;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NON-CORE modules: compile-time gated via Cargo features
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Golden bundle: CI verification bundles
+#[cfg(feature = "golden_bundle")]
+pub mod golden_bundle;
+
+/// Support bundle: Debug bundle generation
+#[cfg(feature = "support_bundle")]
+pub mod support_bundle;
+
+/// Integration API: SIEM/vendor integrations
+#[cfg(feature = "integrations")]
+pub mod integration_api;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE re-exports: always available
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Re-export key types for tests
 pub use report::{
     ClaimEntry, DisambiguatorEntry, HypothesisSummary, IntegrityNoteEntry, PdfRenderer,
     ReportBundle, ReportBundleBuilder, ReportRequest, TimelineEntry, VisibilitySection,
-};
-
-pub use golden_bundle::{
-    generate_all_golden_bundles, generate_golden_bundle, get_predefined_scenarios,
-    verify_all_bundles, verify_bundle_in_process, BundleVerifyResult, GoldenFeatures,
-    GoldenScenario, Verdict, VerificationReport, VerifyMode,
 };
 
 // Ship Hardening: Health and isolation types
@@ -39,7 +74,21 @@ pub use query_isolation::{
     NamespaceFilter, QuerySource,
 };
 
-// Integration Profile API
+// Server core types for shared infrastructure
+pub use server_core::{ServerConfig, ShippedResources, StartupError};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NON-CORE re-exports: only available when feature is enabled
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "golden_bundle")]
+pub use golden_bundle::{
+    generate_all_golden_bundles, generate_golden_bundle, get_predefined_scenarios,
+    verify_all_bundles, verify_bundle_in_process, BundleVerifyResult, GoldenFeatures,
+    GoldenScenario, Verdict, VerificationReport, VerifyMode,
+};
+
+#[cfg(feature = "integrations")]
 pub use integration_api::{
     integration_api_router, CapabilitiesMatrixApi, CapabilitySource, CollectorInfo,
     DerivedScopeKey, Fidelity, HealthStatus, IntegrationApiState, IntegrationDetailApi,

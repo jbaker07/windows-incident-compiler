@@ -1,0 +1,133 @@
+---
+# playbooks/windows/signal_certutil_abuse.yaml
+# Detection of certutil.exe abuse for download/decode operations
+
+id: "windows_certutil_abuse_001"
+title: "CertUtil LOLBin Abuse"
+name: "CertUtil Abuse Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects abuse of certutil.exe for:
+  - File download (-urlcache)
+  - Base64 encode/decode (-encode/-decode)
+  - Payload staging and evasion
+  
+  CertUtil is a legitimate Windows tool but frequently abused as a LOLBin.
+
+enabled: true
+confidence_threshold: 0.80
+
+# Capability requirements
+requires:
+  - security_log
+  - audit_proc_creation
+
+# MITRE ATT&CK mapping
+mitre:
+  tactics:
+    - defense_evasion
+    - command_and_control
+  techniques:
+    - T1140      # Deobfuscate/Decode
+    - T1105      # Ingress Tool Transfer
+    - T1218      # System Binary Proxy Execution
+
+# Input fact types
+input_facts:
+  required:
+    - Exec
+
+# Slot definitions
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)certutil\\.exe"
+  optional:
+    - name: download_flag
+      type: string
+      pattern: "(?i)-urlcache|-split"
+    - name: decode_flag
+      type: string
+      pattern: "(?i)-decode|-encode"
+    - name: remote_url
+      type: string
+      pattern: "(?i)https?://"
+
+# Detection rules
+rules:
+  - name: "CertUtil Download"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)certutil"
+      - field: cmdline
+        matches: "(?i)-urlcache.*-split.*https?://"
+    actions:
+      - severity: HIGH
+        tags:
+          - "download"
+          - "lolbin"
+          - "certutil"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+        field_mapping:
+          process: "NewProcessName"
+          cmdline: "CommandLine"
+          url: "CommandLine"
+
+  - name: "CertUtil Decode Operation"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)certutil"
+      - field: cmdline
+        matches: "(?i)-decode"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "decode"
+          - "payload_staging"
+
+  - name: "CertUtil Encode Operation"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)certutil"
+      - field: cmdline
+        matches: "(?i)-encode"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "encode"
+          - "exfiltration_prep"
+
+  - name: "CertUtil Cache Clear (Evasion)"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)certutil"
+      - field: cmdline
+        matches: "(?i)-urlcache.*delete"
+    actions:
+      - severity: HIGH
+        tags:
+          - "anti_forensics"
+          - "cleanup"
+
+# Response
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "CertUtil Abuse Detected"
+    priority: "high"
+
+false_positives:
+  - "PKI administrators using certutil legitimately"
+  - "Certificate enrollment operations"

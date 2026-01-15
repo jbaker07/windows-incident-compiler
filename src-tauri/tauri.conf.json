@@ -6,8 +6,7 @@
   "build": {
     "beforeBuildCommand": "",
     "beforeDevCommand": "",
-    "frontendDist": "../ui",
-    "devUrl": "http://localhost:3000"
+    "frontendDist": "../ui"
   },
   "app": {
     "windows": [

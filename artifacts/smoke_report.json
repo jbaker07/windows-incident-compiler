@@ -1,0 +1,80 @@
+{
+  "timestamp": "1768097461Z",
+  "total_steps": 12,
+  "passed": 11,
+  "failed": 1,
+  "results": [
+    {
+      "step": "Preflight",
+      "passed": true,
+      "message": "Cargo available",
+      "duration_ms": 0
+    },
+    {
+      "step": "Build",
+      "passed": true,
+      "message": "Build succeeded",
+      "duration_ms": 18354
+    },
+    {
+      "step": "Port Check",
+      "passed": true,
+      "message": "Port 3000 available",
+      "duration_ms": 1
+    },
+    {
+      "step": "Server Start",
+      "passed": true,
+      "message": "Server healthy",
+      "duration_ms": 1141
+    },
+    {
+      "step": "Selfcheck",
+      "passed": true,
+      "message": "Selfcheck passed",
+      "duration_ms": 2
+    },
+    {
+      "step": "Start Run",
+      "passed": false,
+      "message": "Failed to start run",
+      "duration_ms": 9
+    },
+    {
+      "step": "Poll Status",
+      "passed": true,
+      "message": "Endpoint OK (no active run)",
+      "duration_ms": 15387
+    },
+    {
+      "step": "Metrics",
+      "passed": true,
+      "message": "Metrics endpoint OK",
+      "duration_ms": 2
+    },
+    {
+      "step": "Stop Run",
+      "passed": true,
+      "message": "Run stopped",
+      "duration_ms": 1016
+    },
+    {
+      "step": "Signals API",
+      "passed": true,
+      "message": "Found 0 signals, pagination OK (limit_cap=true, offset=true)",
+      "duration_ms": 13
+    },
+    {
+      "step": "Explain Endpoint",
+      "passed": true,
+      "message": "No signals to test",
+      "duration_ms": 8
+    },
+    {
+      "step": "Export/Import",
+      "passed": true,
+      "message": "Round-trip OK",
+      "duration_ms": 78
+    }
+  ]
+}

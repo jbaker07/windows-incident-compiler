@@ -39,9 +39,7 @@
   "expected_ui_files": [
     "ui/app.js",
     "ui/index.html",
-    "ui/graph.html",
-    "ui/loading.html",
-    "ui/workbench.html"
+    "ui/loading.html"
   ],
   
   "notes": {

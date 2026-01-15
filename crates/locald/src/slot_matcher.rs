@@ -211,6 +211,9 @@ pub struct PlaybookDef {
     pub family: String,
     /// Severity level
     pub severity: String,
+    /// Playbook version (e.g., "2.0")
+    #[serde(default)]
+    pub version: String,
     /// Entity scope pattern (e.g., "host|user|exe")
     #[serde(default = "default_entity_scope")]
     pub entity_scope: String,
@@ -421,6 +424,7 @@ impl SlotMatcher {
             FactType::SecurityToolDisable { .. } => "SecurityToolDisable",
             FactType::ShellCommand { .. } => "ShellCommand",
             FactType::ScriptExec { .. } => "ScriptExec",
+            FactType::ProcessAccess { .. } => "ProcessAccess",
             FactType::Unknown { .. } => "Unknown",
         }
     }
@@ -709,6 +713,7 @@ mod tests {
             title: "Test Playbook".to_string(),
             family: "test".to_string(),
             severity: "high".to_string(),
+            version: "1.0".to_string(),
             entity_scope: "host|user".to_string(),
             ttl_seconds: 300,
             cooldown_seconds: 60,

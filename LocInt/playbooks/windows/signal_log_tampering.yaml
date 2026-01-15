@@ -1,0 +1,158 @@
+---
+# playbooks/windows/signal_log_tampering.yaml
+# Detection of event log tampering/evasion
+# Monitors Security/System logs for clearing, modification attempts
+
+name: "Windows Log Tampering Detection"
+id: "windows_log_tamper_001"
+version: "1.0"
+description: |
+  Detects attempts to clear, modify, or tamper with Windows event logs.
+  Highly indicative of post-exploitation/evasion activity.
+  Looks for:
+  - wevtutil.exe usage with 'clear' or 'export' operations
+  - PowerShell event log clearing commands
+  - Event Log Service stop/disable
+  - Security/System log cleared events (1102/104)
+
+enabled: true
+confidence_threshold: 0.95  # Very high confidence - log clearing is suspicious
+
+# Input signals from log_tamper_monitor
+signals:
+  - tag: "windows_log_tamper"
+  - tag: "evasion"
+
+# Correlation rules
+rules:
+  - name: "Event Log Clear Detected"
+    window: 10  # Immediate detection
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "log_cleared"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "evasion"
+          - "anti_forensics"
+          - "confirmed_malicious"
+    evidence:
+      - event_type: "log_tampering"
+        event_id: [1102, 104]  # Security/System logs cleared
+        field_mapping:
+          user: "SubjectUserName"
+          timestamp: "TimeGenerated"
+
+  - name: "Log Clear Tool Invocation"
+    window: 10
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "log_clear_attempt"
+      - process: "wevtutil.exe"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "defense_evasion"
+          - "anti_forensics"
+    evidence:
+      - event_type: "process_execution"
+        event_id: 4688
+        field_mapping:
+          command_line: "CommandLine"
+          user: "SubjectUserName"
+          process_id: "NewProcessId"
+
+  - name: "PowerShell Log Clearing"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "log_clear_attempt"
+      - process: "powershell.exe"
+      - or:
+          - command: "*Clear-EventLog*"
+          - command: "*Remove-EventLog*"
+          - command: "*wevtutil*"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "execution"
+          - "defense_evasion"
+
+  - name: "EventLog Service Stop"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "evasion"
+      - process: ["sc.exe", "net.exe"]
+      - command: "*eventlog*"
+    actions:
+      - severity: HIGH
+        tags:
+          - "service_disruption"
+          - "defense_evasion"
+
+# Playbook response
+response:
+  - type: "immediate_isolation"
+    description: "Isolate host from network to prevent lateral movement"
+    actions:
+      - "Block outbound network traffic except to SIEM"
+      - "Preserve volatile memory state"
+      - "Snapshot disk for forensic analysis"
+    
+  - type: "log_preservation"
+    description: "Backup remaining event logs to protected location"
+    actions:
+      - "Export Security log to \\\\SIEM_SERVER\\forensics"
+      - "Export System log to protected share"
+      - "Export PowerShell Operational log"
+      - "Export Sysmon log for correlation"
+
+  - type: "process_termination"
+    target: "suspicious_process"
+    description: "Kill process/parent process chain"
+    recursive: true
+    
+  - type: "alert"
+    channel: ["siem", "email", "slack"]
+    title: "CRITICAL: Event Log Tampering Detected"
+    priority: "critical"
+    escalation: "immediate"
+
+# Remediation steps
+remediation:
+  steps:
+    - "DO NOT shut down system until forensics complete"
+    - "Isolate system from network (disconnect network cable or firewall)"
+    - "Collect memory dump: 'Invoke-WinPmem -OutputFile memory.dmp'"
+    - "Preserve disk image for forensic analysis"
+    - "Check for persistence mechanisms installed during compromise"
+    - "Review recent Windows Update patches installed"
+    - "Analyze process execution chain to identify attack vector"
+    - "Check for lateral movement attempts across network"
+    - "Perform deep malware analysis on collected artifacts"
+    - "Review access logs for unauthorized remote access"
+
+# Incident severity escalation
+escalation:
+  level: "CRITICAL"
+  classification: "Confirmed Compromise - Anti-Forensics Activity"
+  incident_response: "Initiate full IR procedure"
+  legal_notification: "required"
+  law_enforcement: "may_be_required"
+
+# Exceptions/whitelisting
+whitelist:
+  - processes:
+    - "wevtutil.exe"  # Allow if part of scheduled admin maintenance
+    - "PowerShell.exe"  # Only specific scripts
+  - users_exempt:  # NONE - log clearing is always suspicious
+    # Never whitelist log clearing - any such attempt should be investigated
+  - commands_allowed:
+    # Allow ONLY explicit backup/archive operations with approval
+    - "wevtutil export-log Security /logfile:archive"
+    - "wevtutil archive-log"

@@ -6,6 +6,8 @@
 //! - Detecting regressions and deltas
 //! - Persisting baseline metadata
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -117,11 +119,12 @@ pub struct MetricDeltas {
 }
 
 impl MetricDeltas {
+    #[allow(dead_code)]
     fn calculate(current: &BaselineMetricsSnapshot, baseline: &BaselineMetricsSnapshot) -> Self {
         let events_delta = current.events_count as i64 - baseline.events_count as i64;
         let facts_delta = current.facts_count as i64 - baseline.facts_count as i64;
         let signals_delta = current.signals_count as i64 - baseline.signals_count as i64;
-        
+
         Self {
             events_delta,
             events_delta_pct: pct_delta(current.events_count, baseline.events_count),
@@ -137,9 +140,14 @@ impl MetricDeltas {
     }
 }
 
+#[allow(dead_code)]
 fn pct_delta(current: u64, baseline: u64) -> f64 {
     if baseline == 0 {
-        if current > 0 { 100.0 } else { 0.0 }
+        if current > 0 {
+            100.0
+        } else {
+            0.0
+        }
     } else {
         ((current as f64 - baseline as f64) / baseline as f64) * 100.0
     }
@@ -163,6 +171,7 @@ pub enum RegressionSeverity {
 }
 
 impl RegressionSeverity {
+    #[allow(dead_code)]
     pub fn emoji(&self) -> &'static str {
         match self {
             Self::Critical => "🔴",
@@ -189,6 +198,7 @@ pub enum ComparisonVerdict {
 }
 
 impl ComparisonVerdict {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Stable => "stable",
@@ -198,6 +208,7 @@ impl ComparisonVerdict {
         }
     }
 
+    #[allow(dead_code)]
     pub fn emoji(&self) -> &'static str {
         match self {
             Self::Stable => "✅",
@@ -241,7 +252,7 @@ impl BaselineManager {
         if !path.exists() {
             return Ok(BaselineRegistry::default());
         }
-        
+
         let content = fs::read_to_string(&path)
             .map_err(|e| format!("Failed to read baseline registry: {}", e))?;
         serde_json::from_str(&content)
@@ -264,7 +275,7 @@ impl BaselineManager {
         mission_profile: Option<String>,
     ) -> Result<BaselineMetadata, String> {
         let run_dir = self.telemetry_root.join("runs").join(run_id);
-        
+
         if !run_dir.exists() {
             return Err(format!("Run directory not found: {}", run_id));
         }
@@ -306,7 +317,9 @@ impl BaselineManager {
 
         // Update registry
         let mut registry = self.load_registry()?;
-        registry.baselines.insert(run_id.to_string(), metadata.clone());
+        registry
+            .baselines
+            .insert(run_id.to_string(), metadata.clone());
         if registry.default_baseline.is_none() {
             registry.default_baseline = Some(run_id.to_string());
         }
@@ -318,11 +331,11 @@ impl BaselineManager {
     /// Set the default baseline for comparisons
     pub fn set_default_baseline(&self, run_id: &str) -> Result<(), String> {
         let mut registry = self.load_registry()?;
-        
+
         if !registry.baselines.contains_key(run_id) {
             return Err(format!("Run {} is not marked as a baseline", run_id));
         }
-        
+
         registry.default_baseline = Some(run_id.to_string());
         self.save_registry(&registry)
     }
@@ -330,7 +343,7 @@ impl BaselineManager {
     /// Get the default baseline
     pub fn get_default_baseline(&self) -> Result<Option<BaselineMetadata>, String> {
         let registry = self.load_registry()?;
-        
+
         match &registry.default_baseline {
             Some(run_id) => Ok(registry.baselines.get(run_id).cloned()),
             None => Ok(None),
@@ -346,18 +359,18 @@ impl BaselineManager {
     /// Remove baseline marking from a run
     pub fn unmark_baseline(&self, run_id: &str) -> Result<(), String> {
         let mut registry = self.load_registry()?;
-        
+
         registry.baselines.remove(run_id);
         if registry.default_baseline.as_deref() == Some(run_id) {
             registry.default_baseline = None;
         }
-        
+
         // Remove baseline.json from run dir
         let baseline_path = self.run_baseline_path(run_id);
         if baseline_path.exists() {
             fs::remove_file(&baseline_path).ok();
         }
-        
+
         self.save_registry(&registry)
     }
 
@@ -370,7 +383,10 @@ impl BaselineManager {
         // Get baseline to compare against
         let baseline = if let Some(baseline_id) = baseline_run_id {
             let registry = self.load_registry()?;
-            registry.baselines.get(baseline_id).cloned()
+            registry
+                .baselines
+                .get(baseline_id)
+                .cloned()
                 .ok_or_else(|| format!("Baseline not found: {}", baseline_id))?
         } else {
             self.get_default_baseline()?
@@ -407,7 +423,8 @@ impl BaselineManager {
                 baseline_value: baseline.metrics_snapshot.events_count.to_string(),
                 current_value: current_metrics.events_count.to_string(),
                 delta: format!("{:.1}%", deltas.events_delta_pct),
-                explanation: "Significant drop in event capture - check telemetry sources".to_string(),
+                explanation: "Significant drop in event capture - check telemetry sources"
+                    .to_string(),
             });
         } else if deltas.events_delta_pct < -20.0 {
             regressions.push(RegressionItem {
@@ -448,7 +465,7 @@ impl BaselineManager {
             } else {
                 RegressionSeverity::Minor
             };
-            
+
             regressions.push(RegressionItem {
                 metric: "signals_count".to_string(),
                 severity,
@@ -468,13 +485,8 @@ impl BaselineManager {
 
         // Determine verdict
         let verdict = if !regressions.is_empty() {
-            let has_critical = regressions.iter()
-                .any(|r| r.severity == RegressionSeverity::Critical);
-            if has_critical {
-                ComparisonVerdict::Regressed
-            } else {
-                ComparisonVerdict::Regressed
-            }
+            // All regressions lead to Regressed verdict regardless of severity
+            ComparisonVerdict::Regressed
         } else if !improvements.is_empty() {
             ComparisonVerdict::Improved
         } else {
@@ -492,16 +504,22 @@ impl BaselineManager {
             ComparisonVerdict::Improved => {
                 format!(
                     "Run {} shows {} improvements over baseline {}",
-                    current_run_id, improvements.len(), baseline.run_id
+                    current_run_id,
+                    improvements.len(),
+                    baseline.run_id
                 )
             }
             ComparisonVerdict::Regressed => {
-                let critical_count = regressions.iter()
+                let critical_count = regressions
+                    .iter()
                     .filter(|r| r.severity == RegressionSeverity::Critical)
                     .count();
                 format!(
                     "Run {} has {} regressions ({} critical) vs baseline {}",
-                    current_run_id, regressions.len(), critical_count, baseline.run_id
+                    current_run_id,
+                    regressions.len(),
+                    critical_count,
+                    baseline.run_id
                 )
             }
             ComparisonVerdict::Incomparable => {
@@ -523,8 +541,8 @@ impl BaselineManager {
 
     /// Extract metrics from a run_summary.json
     fn extract_metrics_from_summary(&self, path: &Path) -> Result<BaselineMetricsSnapshot, String> {
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read run summary: {}", e))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read run summary: {}", e))?;
         let json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse run summary: {}", e))?;
 
@@ -532,9 +550,7 @@ impl BaselineManager {
             .as_u64()
             .or_else(|| json["capture"]["events_captured"].as_u64())
             .unwrap_or(0);
-        let segments_count = json["capture"]["segments_written"]
-            .as_u64()
-            .unwrap_or(0) as u32;
+        let segments_count = json["capture"]["segments_written"].as_u64().unwrap_or(0) as u32;
         let facts_count = json["compiler"]["facts_extracted"]
             .as_u64()
             .or_else(|| json["compiler"]["facts_generated"].as_u64())
@@ -543,9 +559,7 @@ impl BaselineManager {
             .as_u64()
             .or_else(|| json["compiler"]["signals_fired"].as_u64())
             .unwrap_or(0);
-        let incidents_count = json["compiler"]["incidents_formed"]
-            .as_u64()
-            .unwrap_or(0);
+        let incidents_count = json["compiler"]["incidents_formed"].as_u64().unwrap_or(0);
         let duration_seconds = json["timing"]["duration_actual_sec"]
             .as_u64()
             .or_else(|| json["timing"]["duration_seconds"].as_u64())
@@ -575,7 +589,10 @@ impl BaselineManager {
     }
 
     /// Compute metrics from raw artifacts (index.json + DB)
-    fn compute_metrics_from_artifacts(&self, run_dir: &Path) -> Result<BaselineMetricsSnapshot, String> {
+    fn compute_metrics_from_artifacts(
+        &self,
+        run_dir: &Path,
+    ) -> Result<BaselineMetricsSnapshot, String> {
         let mut snapshot = BaselineMetricsSnapshot::default();
 
         // Read index.json for event/segment counts
@@ -598,11 +615,9 @@ impl BaselineManager {
         if db_path.exists() {
             if let Ok(conn) = rusqlite::Connection::open(&db_path) {
                 // Count signals
-                if let Ok(count) = conn.query_row(
-                    "SELECT COUNT(*) FROM signals",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                ) {
+                if let Ok(count) = conn.query_row("SELECT COUNT(*) FROM signals", [], |row| {
+                    row.get::<_, i64>(0)
+                }) {
                     snapshot.signals_count = count as u64;
                 }
             }
@@ -634,8 +649,10 @@ struct BaselineRegistry {
 fn is_elevated() -> bool {
     use std::mem;
     use std::ptr;
-    use windows_sys::Win32::Foundation::{HANDLE, CloseHandle};
-    use windows_sys::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::Security::{
+        GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+    };
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
     unsafe {
@@ -643,10 +660,10 @@ fn is_elevated() -> bool {
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
             return false;
         }
-        
+
         let mut elevation: TOKEN_ELEVATION = mem::zeroed();
         let mut size = mem::size_of::<TOKEN_ELEVATION>() as u32;
-        
+
         let result = GetTokenInformation(
             token,
             TokenElevation,
@@ -654,9 +671,9 @@ fn is_elevated() -> bool {
             size,
             &mut size,
         );
-        
+
         CloseHandle(token);
-        
+
         result != 0 && elevation.TokenIsElevated != 0
     }
 }
@@ -739,7 +756,7 @@ mod tests {
         };
 
         let deltas = MetricDeltas::calculate(&current, &baseline);
-        
+
         assert_eq!(deltas.events_delta, 200);
         assert_eq!(deltas.signals_delta, -2);
         assert!(deltas.events_delta_pct > 19.0 && deltas.events_delta_pct < 21.0);

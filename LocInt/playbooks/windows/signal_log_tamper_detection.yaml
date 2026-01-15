@@ -1,0 +1,162 @@
+---
+# playbooks/windows/signal_log_tampering.yaml
+# Detection of log tampering and evasion attempts
+# Monitors Security event log (1102, 104) and process creation (4688)
+
+name: "Windows Log Tampering Detection"
+id: "windows_log_tampering_001"
+version: "1.0"
+description: |
+  Detects attempts to tamper with or erase event logs.
+  Indicators:
+  - Event log clearing (Event IDs 1102, 104)
+  - Execution of log management tools (wevtutil, PowerShell Clear-EventLog)
+  - Suspicious process creation patterns (e.g., cmd /c taskkill /f /im EventLog.exe)
+  - Elevation of privileges followed by log operations
+  
+  NOTE: Log tampering is a strong indicator of post-compromise activity
+
+enabled: true
+confidence_threshold: 0.9
+severity_floor: HIGH  # Always HIGH or CRITICAL
+
+# Input signals from log_tamper_monitor
+signals:
+  - tag: "windows_log_tamper"
+  - tag: "evasion"
+
+# Correlation rules
+rules:
+  - name: "Direct Log Clearing"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - event_id: [1102, 104]
+      - tag: "log_cleared"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "log_tampering"
+          - "incident_response_evasion"
+          - "post_exploitation"
+    evidence:
+      - event_type: "log_cleared"
+        event_id: [1102, 104]
+        field_mapping:
+          cleared_user: "SubjectUserName"
+          timestamp: "TimeGenerated"
+
+  - name: "Log Clear Utility Execution"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - event_id: 4688
+      - tag: "log_clear_attempt"
+      - or:
+          - command_line: "*wevtutil*clear*"
+          - command_line: "*Clear-EventLog*"
+          - command_line: "*Remove-EventLog*"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "log_tampering"
+          - "evasion"
+    evidence:
+      - event_type: "process_creation"
+        event_id: 4688
+        field_mapping:
+          executable: "NewProcessName"
+          command_line: "CommandLine"
+          user: "TargetUserName"
+          parent_process: "ParentProcessName"
+
+  - name: "Privileged Log Operations"
+    window: 300
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "log_clear_attempt"
+      - user_privilege: "SYSTEM"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "post_exploitation"
+          - "lateral_movement"
+
+  - name: "Chain: Privilege Escalation → Log Clear"
+    window: 300  # 5 minutes
+    aggregation: sequence
+    threshold: 2
+    conditions:
+      - event_id: 4688
+        process: "*powershell*|*cmd*|*cscript*"
+      - then:
+        event_id: [1102, 104]
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "post_exploitation"
+          - "log_tampering"
+          - "multi_stage_attack"
+
+# Playbook response (IMMEDIATE)
+response:
+  - type: "freeze_evidence"
+    target: "event_logs"
+    action: "backup"
+    description: "Immediately backup all event logs before further analysis"
+    priority: CRITICAL
+
+  - type: "isolate_host"
+    target: "endpoint"
+    action: "network_isolation"
+    description: "Isolate host from network pending forensics"
+    priority: CRITICAL
+
+  - type: "preserve_memory"
+    target: "host_memory"
+    action: "dump"
+    description: "Perform emergency memory dump for volatile evidence"
+
+  - type: "alert"
+    channel: ["siem", "soc", "ir_team"]
+    title: "CRITICAL: Event Log Tampering Detected - Possible Breach"
+    priority: "critical"
+    escalation: "immediate"
+
+# Remediation steps
+remediation:
+  steps:
+    - "IMMEDIATE: Isolate host from network while preserving connection for forensics"
+    - "Export all available event logs: 'Get-WinEvent -ListLog * | Export-EventLog'"
+    - "Check for log forwarding configuration (Event Log Forwarding to external server)"
+    - "Search for backup event log files in %SYSTEMROOT%\\System32\\winevt\\Logs\\"
+    - "Review process creation events (4688) within 1 hour BEFORE log clear attempt"
+    - "Identify parent process of suspicious log clearing tool (chain of custody)"
+    - "Check network logs for lateral movement/exfiltration in same timeframe"
+    - "Engage incident response team for full forensic analysis"
+    - "Review account lockout events (4740) for brute force activity"
+    - "Check Windows Firewall logs for unauthorized connections"
+
+# CRITICAL: Special handling for log tampering
+critical_actions:
+  - "Log tampering indicates active exploitation or post-compromise cleanup"
+  - "Attacker likely still on system or has recently left"
+  - "Logs may be unrecoverable - rely on alternative telemetry:"
+    - "PowerShell event log (Event ID 4104 - script block)"
+    - "Sysmon logs (if enabled)"
+    - "Network traffic analysis"
+    - "Endpoint Detection & Response (EDR) logs"
+    - "DNS query logs"
+
+# Exceptions/whitelisting
+whitelist:
+  - never  # Log tampering is ALWAYS suspicious - no exceptions
+  
+# Detection tuning
+tuning:
+  alert_on_any_log_clear: true  # Low false positive rate
+  suppress_expected_admin_maintenance: false  # DO NOT SUPPRESS - log tampering requires investigation
+  immediate_escalation: true

@@ -370,7 +370,12 @@ impl MetricsCollector {
     }
 
     /// Build final run summary
-    pub async fn build_summary(&self, segments_written: u32, playbooks_loaded: u32, incidents_promoted: u32) -> RunSummary {
+    pub async fn build_summary(
+        &self,
+        segments_written: u32,
+        playbooks_loaded: u32,
+        incidents_promoted: u32,
+    ) -> RunSummary {
         let ended_at = chrono::Utc::now();
         let duration_actual_sec = self.start_time.elapsed().as_secs() as u32;
 
@@ -386,7 +391,10 @@ impl MetricsCollector {
         let perf_samples = self.perf_samples.read().await.clone();
 
         // Calculate perf stats
-        let peak_rss_mb = perf_samples.iter().map(|s| s.rss_mb).fold(0.0_f64, f64::max);
+        let peak_rss_mb = perf_samples
+            .iter()
+            .map(|s| s.rss_mb)
+            .fold(0.0_f64, f64::max);
         let avg_rss_mb = if perf_samples.is_empty() {
             0.0
         } else {
@@ -457,8 +465,7 @@ impl MetricsCollector {
         let path = self.run_dir.join("run_summary.json");
         let json = serde_json::to_string_pretty(summary)
             .map_err(|e| format!("Failed to serialize run summary: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Failed to write run summary: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write run summary: {}", e))?;
         Ok(path)
     }
 }
@@ -479,12 +486,22 @@ mod tests {
     #[tokio::test]
     async fn test_metrics_collector() {
         let dir = tempdir().unwrap();
-        let collector = MetricsCollector::new("20260107_120000".to_string(), dir.path().to_path_buf());
+        let collector =
+            MetricsCollector::new("20260107_120000".to_string(), dir.path().to_path_buf());
 
         // Simulate some activity
-        collector.counters().events_read.fetch_add(100, Ordering::Relaxed);
-        collector.counters().facts_extracted.fetch_add(50, Ordering::Relaxed);
-        collector.counters().signals_emitted.fetch_add(5, Ordering::Relaxed);
+        collector
+            .counters()
+            .events_read
+            .fetch_add(100, Ordering::Relaxed);
+        collector
+            .counters()
+            .facts_extracted
+            .fetch_add(50, Ordering::Relaxed);
+        collector
+            .counters()
+            .signals_emitted
+            .fetch_add(5, Ordering::Relaxed);
 
         collector.record_source_events("Security", 80, 10000).await;
         collector.record_source_events("Sysmon", 20, 3000).await;
@@ -494,11 +511,14 @@ mod tests {
         collector.record_signal_severity("medium").await;
 
         let summary = collector.build_summary(3, 10, 1).await;
-        
+
         assert_eq!(summary.capture.events_read, 100);
         assert_eq!(summary.compiler.facts_extracted, 50);
         assert_eq!(summary.compiler.signals_emitted, 5);
         assert!(summary.capture.source_breakdown.contains_key("Security"));
-        assert!(summary.compiler.playbooks_matched.contains(&"signal_lolbin_abuse".to_string()));
+        assert!(summary
+            .compiler
+            .playbooks_matched
+            .contains(&"signal_lolbin_abuse".to_string()));
     }
 }

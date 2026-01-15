@@ -1,0 +1,607 @@
+================================================================================
+WINDOWS-INCIDENT-COMPILER ARCHITECTURE AUDIT
+================================================================================
+Generated: 2026-01-10
+Repository: windows-incident-compiler
+
+================================================================================
+SECTION A — ONE-SENTENCE TRUTH
+================================================================================
+
+The product is a Windows EDR incident compiler that captures Windows Event Log
+telemetry via ETW, extracts canonical facts (Exec, ProcSpawn, OutboundConnect,
+etc.), matches them against YAML playbook slot predicates using a hypothesis
+engine, promotes complete hypotheses to signals with full explainability, and
+serves results via HTTP API with browser-based UI.
+
+================================================================================
+SECTION B — "ONE COMMAND" RUNTIME MODEL
+================================================================================
+
+ENTRYPOINT BINARY:
+  cargo run --release -p edr-server
+  OR: target/release/edr-server.exe
+
+  Path: crates/server/src/main.rs:2516 (async fn main)
+
+STARTUP SEQUENCE:
+  1. Parse CLI args: --port, --no-open, --telemetry-root
+     (main.rs:2527-2554)
+  2. Initialize data directory: %LOCALAPPDATA%/attack-workbench/ OR --telemetry-root
+     (main.rs:2556-2560)
+  3. Open/create workbench.db SQLite database
+     (main.rs:2564-2567)
+  4. Initialize ThrottleController with CaptureProfile::Core
+     (main.rs:2572-2575)
+  5. Initialize DiagnosticEngine, ProbeRunner
+     (main.rs:2578-2580)
+  6. Create RunController for browser-accessible capture lifecycle
+     (main.rs:2583)
+  7. Build Axum router with all routes
+     (main.rs:2620-2727)
+  8. Serve static UI from /ui directory (ui/index.html, ui/app.js)
+     (main.rs:2610-2615, 2727)
+  9. Auto-open browser to http://127.0.0.1:3000/ui/
+     (main.rs:2751-2755)
+
+ENVIRONMENT VARIABLES:
+  - EDR_SERVER_PORT: Port override (default 3000)
+  - EDR_TELEMETRY_ROOT: Data directory override
+  - EDR_WORKFLOW_SEED: Legacy WorkflowSeed signal emission (1 or true)
+
+WORKSPACE Cargo.toml:
+  Path: Cargo.toml:1-35
+  Members: core, workbench, server, locald, agent-windows, wi-run-all
+
+================================================================================
+SECTION C — END-TO-END DATAFLOW
+================================================================================
+
+STEP 1: UI LOADS
+  Files: ui/index.html (50KB), ui/app.js (93KB)
+  Served by: crates/server/src/main.rs:2727 (.nest_service("/ui", ServeDir::new(&ui_dir)))
+
+STEP 2: START RUN (Browser Click)
+  Route: POST /api/run/start
+  Handler: crates/server/src/main.rs:2224 (run_start)
+  Controller: crates/server/src/run_control.rs:188 (RunController::start)
+  Actions:
+    a) Creates run directory: %LOCALAPPDATA%/attack-workbench/runs/run_YYYYMMDD_HHMMSS/
+    b) Creates subdirs: segments/, logs/
+    c) Spawns capture_windows_rotating.exe (run_control.rs:254)
+    d) Spawns edr-locald.exe (run_control.rs:289)
+    e) Writes run.pid
+  Written: run_dir/run.pid, run_dir/logs/capture.log, run_dir/logs/locald.log
+
+STEP 3: CAPTURE PROCESS
+  Binary: capture_windows_rotating.exe
+  Entry: crates/agent-windows/src/bin/capture_windows_rotating.rs:8
+  Purpose: Windows Event Log capture via WEVT API
+  Module: crates/agent-windows/src/capture_windows_rotating.rs
+  Sensors: crates/agent-windows/src/sensors/ (collect.rs, evtx_collector.rs)
+  Output: run_dir/segments/*.jsonl (rotating segment files)
+  Index: run_dir/index.json (segment manifest)
+
+STEP 4: INGEST/COMPILE (LOCALD)
+  Binary: edr-locald.exe
+  Entry: crates/locald/src/main.rs:216 (fn main)
+  Pipeline:
+    a) Watch index.json for new segments (main.rs:357)
+    b) Parse segment JSONL records to Event structs (main.rs:67-105)
+    c) extract_facts(event) -> Vec<Fact> (os/windows/mod.rs, fact_extractor.rs)
+    d) hypothesis_controller.ingest_fact(fact) (main.rs:428)
+    e) Slot matching via PlaybookIndex (hypothesis_controller.rs:226-360)
+    f) Hypothesis promotion to Incident when all required slots satisfied
+  Written: run_dir/workbench.db (signals, signal_explanations, coverage_rollup tables)
+
+  PlaybookManager:
+    File: crates/locald/src/playbook_manager.rs
+    Loads from: playbooks/windows/*.yaml (30 files)
+    Currently loads: 23 playbooks (7 skipped - tag-based format not supported)
+    Registers with: HypothesisController (main.rs:320-331)
+
+STEP 5: SIGNAL STORAGE
+  Database: run_dir/workbench.db (SQLite)
+  
+  Tables (crates/locald/src/main.rs:243-291):
+    - signals: signal_id, signal_type, severity, host, ts, ts_start, ts_end,
+               proc_key, file_key, identity_key, metadata, evidence_ptrs, 
+               dropped_evidence_count, created_at
+    - signal_explanations: signal_id, explanation_json, created_at
+    - locald_checkpoint: key, value (for resume after restart)
+    - coverage_rollup: ts_minute, host, sensor_mode, fact_type, fact_count,
+                       signal_type, signal_count, enabled_capabilities
+
+  Insert signal: main.rs:492-511
+  Insert explanation: main.rs:540-545
+
+STEP 6: EXPLAIN ENDPOINT
+  Route: GET /api/signals/:id/explain
+  Handler: crates/server/src/main.rs:556 (get_signal_explanation)
+  Reads:
+    - signals table for signal metadata
+    - signal_explanations table for ExplanationBundle JSON
+  Returns: ExplainResponse (core/src/explain_api.rs:444)
+  Schema: ExplanationBundle (core/src/explain.rs:20)
+    - signal_id, playbook_id, slot_fills, matched_facts, evidence_excerpts,
+      counters, confidence, scoring_breakdown
+
+  Builder: crates/locald/src/explanation_builder.rs:17 (build_explanation_from_hypothesis)
+
+STEP 7: COVERAGE ENDPOINT
+  Route: GET /api/runs/:run_id/coverage
+  Handler: crates/server/src/run_coverage.rs:133 (get_run_coverage)
+  Reads:
+    - run_dir/workbench.db OR run_dir/analysis.db
+    - coverage_rollup table
+  Returns: CoverageAvailable or CoverageUnavailable
+  Schema: run_coverage.rs:95-136 (CoverageAvailable)
+    - available, run_id, facts_total, fact_types[], top_hosts[],
+      sensor_modes[], sensors[], pipeline_diagnostics
+
+  PipelineDiagnostics includes:
+    - playbooks_loaded, playbook_names, playbooks_fired_this_run,
+      scoring_enabled, coverage_minutes, explanation
+
+STEP 8: EXPORT BUNDLE
+  Route: POST /api/export/bundle
+  Handler: crates/server/src/main.rs:1371 (export_bundle)
+  Request: ExportBundleRequest (redact, include_evidence_excerpts, include_recompute)
+  Output: ZIP file containing:
+    - incident_bundle.json (report, session, replay sections)
+    - recompute/ section (if requested)
+  Builder: ReportBundleBuilder (server/src/report.rs)
+  Exchange: crates/server/src/bundle_exchange.rs
+
+STEP 9: IMPORT BUNDLE
+  Route: POST /api/import/bundle
+  Handler: crates/server/src/main.rs:1509 (import_bundle_endpoint)
+  Reads: ZIP body
+  Actions:
+    - Parse and validate bundle
+    - Create namespace for isolation
+    - Store session metadata
+  Returns: ImportBundleResponse (bundle_id, hypothesis_count, timeline_entry_count)
+
+================================================================================
+SECTION D — API SURFACE (ACTUAL ROUTES)
+================================================================================
+
+HEALTH/STATUS
+  GET  /health                     health()                    main.rs:2412   Used by: wi_run_all
+  GET  /api/health                 health()                    main.rs:2624   Used by: wi_run_all
+  GET  /api/selfcheck              run_self_check_v2()         main.rs:2686   Used by: UI, wi_run_all
+  POST /api/selfcheck              run_self_check_legacy()     main.rs:2686   Legacy
+  GET  /api/selfcheck/actions      get_self_check_actions()    main.rs:2689   Used by: UI
+  POST /api/selfcheck/probe        run_self_check_probe()      main.rs:2690   Used by: UI
+
+RUN CONTROL
+  POST /api/run/start              run_start()                 main.rs:2706   Used by: UI, wi_run_all
+  POST /api/run/stop               run_stop()                  main.rs:2707   Used by: UI, wi_run_all
+  GET  /api/run/status             run_status()                main.rs:2708   Used by: UI, wi_run_all
+  GET  /api/run/metrics            run_metrics()               main.rs:2709   Used by: UI
+
+RUNS/SIGNALS
+  GET  /api/runs                   list_runs_endpoint()        main.rs:2653   Used by: UI, wi_run_all
+  GET  /api/runs/:run_id/coverage  get_run_coverage()          main.rs:2654   Used by: UI, wi_run_all
+  GET  /api/signals                list_signals()              main.rs:2640   Used by: UI, wi_run_all
+  POST /api/signals                ingest_signals()            main.rs:2640   Used by: locald
+  GET  /api/signals/stats          signal_stats()              main.rs:2641   Used by: UI
+  GET  /api/signals/:id            get_signal()                main.rs:2642   Used by: UI
+  GET  /api/signals/:id/explain    get_signal_explanation()    main.rs:2643   Used by: UI, wi_run_all
+  GET  /api/signals/:id/narrative  get_signal_narrative()      main.rs:2644   Used by: UI
+
+EXPORT/IMPORT
+  POST /api/export/bundle          export_bundle()             main.rs:2673   Used by: UI
+  POST /api/import/bundle          import_bundle_endpoint()    main.rs:2674   Used by: UI
+  POST /api/import/bundle/recompute recompute_bundle_endpoint() main.rs:2675  Used by: UI
+  POST /api/support/bundle         generate_support_bundle()   main.rs:2680   Used by: UI
+
+CAPTURE CONFIG
+  GET  /api/capture/profile        get_capture_profile()       main.rs:2693   Used by: UI
+  POST /api/capture/profile        set_capture_profile()       main.rs:2693   Used by: UI
+  GET  /api/capture/profiles       list_capture_profiles()     main.rs:2697   Used by: UI
+  GET  /api/capture/config         get_capture_config()        main.rs:2698   Used by: UI
+  POST /api/capture/test-throttle  test_throttle_decision()    main.rs:2699   Internal
+  GET  /api/visibility/throttle    get_throttle_visibility()   main.rs:2700   Used by: UI
+  POST /api/visibility/throttle/reset reset_throttle_counters() main.rs:2701  Used by: UI
+
+LICENSE
+  GET  /api/license/status         license_status_endpoint()   main.rs:2646   Used by: UI
+  POST /api/license/install        license_install_endpoint()  main.rs:2647   Used by: UI
+  POST /api/license/reload         license_reload_endpoint()   main.rs:2648   Used by: UI
+  GET  /api/features               get_feature_flags()         main.rs:2650   Used by: UI
+
+MISSION/EVAL
+  GET  /api/mission                get_mission_mode()          main.rs:2661   Used by: UI
+  POST /api/mission                create_mission()            main.rs:2661   Used by: UI
+  PUT  /api/mission/active         set_active_mission()        main.rs:2662   Used by: UI
+  GET  /api/missions               list_missions()             main.rs:2663   Used by: UI
+  GET  /api/missions/:id           get_mission()               main.rs:2664   Used by: UI
+  DELETE /api/missions/:id         delete_mission()            main.rs:2664   Used by: UI
+  GET  /api/eval/metrics           get_eval_metrics()          main.rs:2666   Used by: UI
+
+MITRE/TECHNIQUES
+  POST /api/techniques/search      search_mitre_techniques()   main.rs:2668   Used by: UI
+  GET  /api/techniques/:id         get_mitre_technique()       main.rs:2669   Used by: UI
+
+REPORT/NARRATIVE
+  POST /api/report/pdf             generate_pdf_report()       main.rs:2671   Used by: UI
+  GET  /api/narratives/:id/actions get_narrative_actions()     main.rs:2656   Used by: UI
+  POST /api/narratives/:id/actions create_narrative_action()   main.rs:2656   Used by: UI
+
+SESSION/DOCUMENTS
+  GET  /api/session                get_session_status()        main.rs:2634   Used by: UI
+  POST /api/session                control_session()           main.rs:2634   Used by: UI
+  POST /api/session/marker         add_marker()                main.rs:2638   Used by: UI
+  GET  /api/documents              list_documents()            main.rs:2626   Used by: UI
+  POST /api/documents              create_document()           main.rs:2626   Used by: UI
+  GET  /api/documents/:id          get_document()              main.rs:2627   Used by: UI
+  DELETE /api/documents/:id        delete_document()           main.rs:2627   Used by: UI
+  PUT  /api/documents/:id/:section update_document_section()   main.rs:2631   Used by: UI
+  POST /api/documents/:id/export   export_document()           main.rs:2632   Used by: UI
+
+VERIFICATION
+  GET  /api/app/state              get_app_state()             main.rs:2682   Used by: UI
+  POST /api/verify/load            load_verification()         main.rs:2683   Used by: UI
+  POST /api/verify/reset           reset_verification()        main.rs:2684   Used by: UI
+  POST /api/setup/complete         complete_setup()            main.rs:2691   Used by: UI
+
+INTEGRATIONS
+  GET  /api/integrations           list_integrations_bridge()  main.rs:2712   Used by: UI
+  GET  /api/integrations/:id       get_integration_bridge()    main.rs:2716   Used by: UI
+  GET  /api/integrations/:id/sample get_samples_bridge()       main.rs:2720   Used by: UI
+  GET  /api/capabilities           get_capabilities_bridge()   main.rs:2724   Used by: UI
+
+DIFF (Pro)
+  GET  /api/diff                   diff_endpoint()             main.rs:2652   Used by: UI (Pro)
+
+================================================================================
+SECTION E — STORAGE MODEL
+================================================================================
+
+DATABASE LOCATIONS:
+  Primary (server): %LOCALAPPDATA%/attack-workbench/workbench.db
+  Per-run (locald): runs/<run_id>/workbench.db OR analysis.db (legacy)
+
+SERVER DATABASE (crates/server/src/db.rs):
+  Tables:
+    - documents: id, data, created_at, updated_at
+    - sessions: id, data, created_at
+    - signals: signal_id (PK), run_id, signal_type, severity, host, ts, ts_start,
+               ts_end, proc_key, file_key, identity_key, detector_id,
+               detector_version, source_sensor, metadata, evidence_ptrs,
+               dropped_evidence_count, created_at
+    - runs: run_id (PK), profile, started_at, stopped_at, run_dir, events_total,
+            segments_count, facts_extracted, signals_fired, bytes_written, status
+    - narratives: narrative_id (PK), signal_id (FK), version, narrative_json,
+                  input_hash, generated_at
+    - mission_specs: mission_id (PK), name, objective, spec_json, is_active,
+                     created_at, updated_at
+    - narrative_actions: action_id (PK), narrative_id (FK), sentence_id,
+                         evidence_ptr_json, action_type, notes, created_at
+
+  Migrations (db.rs:227-230):
+    - run_id: ALTER TABLE signals ADD COLUMN run_id TEXT NOT NULL DEFAULT 'unknown'
+    - detector_id: ALTER TABLE signals ADD COLUMN detector_id TEXT NOT NULL DEFAULT 'unknown'
+    - detector_version: ALTER TABLE signals ADD COLUMN detector_version TEXT NOT NULL DEFAULT '0.0.0'
+    - source_sensor: ALTER TABLE signals ADD COLUMN source_sensor TEXT NOT NULL DEFAULT 'unknown'
+
+LOCALD DATABASE (crates/locald/src/main.rs:243-291):
+  Tables:
+    - signals: Same schema as server for API compatibility
+    - signal_explanations: signal_id (PK, FK), explanation_json, created_at
+    - locald_checkpoint: key (PK), value
+    - coverage_rollup: id (PK), ts_minute, host, sensor_mode, fact_type,
+                       fact_count, signal_type, signal_count, enabled_capabilities
+
+  signal_explanations stores ExplanationBundle JSON.
+
+================================================================================
+SECTION F — PLAYBOOKS: FORMATS AND LOADING
+================================================================================
+
+SOURCE DIRECTORY:
+  playbooks/windows/ (30 YAML files)
+  Found via: playbook_manager.rs:261-300 (load_default)
+
+PLAYBOOK FILES (30 total):
+  signal_bitsadmin_abuse.yaml       signal_office_child_process.yaml
+  signal_certutil_abuse.yaml        signal_persistence_windows.yaml
+  signal_credential_access.yaml     signal_powershell_download.yaml
+  signal_defense_evasion.yaml       signal_process_injection.yaml
+  signal_discovery_burst.yaml       signal_registry_persistence.yaml
+  signal_dll_side_loading.yaml      signal_regsvr32_abuse.yaml
+  signal_encoded_powershell.yaml    signal_rundll32_abuse.yaml
+  signal_file_staging.yaml          signal_schtasks_abuse.yaml
+  signal_group_membership_change.yaml signal_sc_abuse.yaml
+  signal_lateral_movement_detection.yaml signal_security_tool_disable.yaml
+  signal_logon_anomaly.yaml         signal_service_persistence.yaml
+  signal_log_tampering.yaml         signal_task_persistence.yaml
+  signal_log_tamper_detection.yaml  signal_wmic_abuse.yaml
+  signal_lolbin_abuse.yaml          signal_wscript_cscript_abuse.yaml
+  signal_mshta_abuse.yaml
+  signal_net_command_abuse.yaml
+
+LOADER: crates/locald/src/playbook_manager.rs
+  Structs: YamlPlaybook, YamlRule, YamlCondition, YamlSlots
+  Functions:
+    - load_default(): Finds playbooks/windows/, calls load_from_yaml_dir()
+    - load_from_yaml_dir(): Reads all .yaml files, parses each
+    - parse_yaml_playbook(): Converts YAML to PlaybookDef
+    - build_slots_from_yaml(): Extracts slots from input_facts, slots, rules
+
+FORMATS SUPPORTED (slot-based):
+  1. input_facts.required: ["Exec", "OutboundConnect"]
+  2. slots.required/optional with predicates
+  3. rules[].conditions[].fact_type: "Exec"
+
+FORMAT NOT SUPPORTED (tag-based):
+  rules[].conditions[].tag: "service_install" (7 playbooks skipped)
+
+CURRENT STATUS:
+  - 23 playbooks load successfully
+  - 6-7 playbooks skipped (tag-based format, no fact_type)
+  
+  Skipped playbooks:
+    - signal_lateral_movement_detection.yaml (uses tag correlation)
+    - signal_log_tampering.yaml (uses tag correlation)
+    - signal_lolbin_abuse.yaml (uses tag correlation)
+    - signal_registry_persistence.yaml (uses tag correlation)
+    - signal_service_persistence.yaml (uses tag correlation)
+    - signal_task_persistence.yaml (uses tag correlation)
+
+RUNTIME DATA STRUCTURES:
+  PlaybookDef (slot_matcher.rs:159):
+    - playbook_id, title, family, severity, entity_scope
+    - cooldown_seconds, ttl_seconds
+    - slots: Vec<PlaybookSlot>
+    - mitre_techniques: Vec<String>
+
+  PlaybookSlot (slot_matcher.rs:190):
+    - slot_id, description
+    - requirement: Required/Optional/SoftRequired
+    - predicate: SlotPredicate (fact_type, path_glob, exe_filter, etc.)
+    - ttl_seconds
+
+  PlaybookIndex (slot_matcher.rs:600):
+    - fact_type_map: BTreeMap<String, Vec<(PlaybookDef, slot_id)>>
+    - Used for O(1) candidate lookup by fact type
+
+================================================================================
+SECTION G — SENSORS/DETECTORS/SCORING
+================================================================================
+
+ACTIVE SENSORS (diagnostics.rs:316-328):
+  Expected collectors for Windows: etw_monitor, process_monitor
+
+  Streams monitored (diagnostics.rs:453-463):
+    - process_exec (CRITICAL)
+    - process_exit (CRITICAL)
+    - file_write, file_read, file_write_critical
+    - network_connect, dns_query
+    - registry_write, registry_read
+    - module_load
+
+CAPTURE BINARY: capture_windows_rotating.exe
+  Entry: agent-windows/src/bin/capture_windows_rotating.rs
+  Technology: Windows Event Tracing (ETW) via WEVT API
+  Module: agent-windows/src/wevt_reader.rs
+
+SCORING ENGINE:
+  File: crates/locald/src/scoring/engine.rs
+  Main: ScoringEngine::new(false) — scoring enabled by default
+  Output: ScoredSignal (scoring/scored_signal.rs:8)
+
+REASON CODES (core/src/explain_api.rs:213):
+  - SEVERITY_CRITICAL (0.95)
+  - SEVERITY_HIGH (0.75)
+  - SEVERITY_MEDIUM (0.50)
+  - SEVERITY_LOW (0.25)
+  - MAHALANOBIS_ANOMALY (statistical)
+  - ELLIPTIC_ENVELOPE (statistical)
+  - KRIM_ENTROPY (entropy)
+  - MISSING_SCORING
+
+ScoredSignal fields (scored_signal.rs):
+  - signal: SignalResult
+  - risk_score: f64
+  - mahalanobis_distance: Option<f64>
+  - elliptic_envelope_score: Option<f64>
+  - krim_score: Option<f64>
+  - severity_weight: f64
+
+SELFCHECK IMPLEMENTATION:
+  File: crates/server/src/diagnostics.rs
+  Engine: DiagnosticEngine::run_diagnostics()
+  Output: SelfCheckResponse (diagnostics.rs:21)
+    - Verdict: Healthy/Degraded/Blocked
+    - Stream diagnostics (last_seen, event_rate, missing_reason)
+    - Collector diagnostics (running, permissions)
+    - Storage diagnostics
+    - Recommended actions
+
+================================================================================
+SECTION H — "USED FILES" MAP
+================================================================================
+
+ENTRYPOINTS:
+  crates/server/src/main.rs             — Main server binary entry
+  crates/locald/src/main.rs             — Locald daemon entry
+  crates/agent-windows/src/bin/capture_windows_rotating.rs — Capture binary
+  crates/wi-run-all/src/main.rs         — Smoke test runner
+  src-tauri/src/main.rs                 — Desktop app supervisor (Tauri)
+
+SERVER ROUTING:
+  crates/server/src/main.rs             — Route definitions (2620-2727)
+  crates/server/src/run_control.rs      — RunController, start/stop handlers
+  crates/server/src/run_coverage.rs     — Coverage endpoint handler
+  crates/server/src/diagnostics.rs      — Selfcheck handlers
+  crates/server/src/integration_api.rs  — Integration API bridges
+  crates/server/src/license_api.rs      — License handlers
+  crates/server/src/probe.rs            — Selfcheck probe runner
+  crates/server/src/bundle_exchange.rs  — Export/import bundle logic
+  crates/server/src/support_bundle.rs   — Support bundle generation
+  crates/server/src/report.rs           — PDF report generation
+
+DB/STORAGE:
+  crates/server/src/db.rs               — Database schema, migrations, CRUD
+  crates/locald/src/main.rs             — Locald schema (signals, explanations)
+
+RUN CONTROL/CAPTURE:
+  crates/server/src/run_control.rs      — Browser-accessible run lifecycle
+  crates/server/src/capture_control.rs  — ThrottleController, profiles
+  crates/agent-windows/src/capture_windows_rotating.rs — ETW capture
+  crates/agent-windows/src/wevt_reader.rs — Windows Event Log reader
+  crates/agent-windows/src/sensors/collect.rs — Sensor collection
+
+PLAYBOOK ENGINE:
+  crates/locald/src/playbook_manager.rs — YAML playbook loading
+  crates/locald/src/slot_matcher.rs     — PlaybookDef, SlotMatcher, PlaybookIndex
+  crates/locald/src/hypothesis_controller.rs — Fact ingestion, slot matching
+  crates/locald/src/hypothesis/*.rs     — Hypothesis/Incident data structures
+  playbooks/windows/*.yaml              — 30 playbook definitions
+
+FACT EXTRACTION:
+  crates/locald/src/os/windows/mod.rs   — extract_facts, WindowsSignalEngine
+  crates/locald/src/os/windows/fact_extractor.rs — Event to Fact conversion
+  crates/locald/src/hypothesis/fact.rs  — Fact, FactType definitions
+
+SCORING/EXPLAINABILITY:
+  crates/locald/src/scoring/engine.rs   — ScoringEngine
+  crates/locald/src/scoring/scored_signal.rs — ScoredSignal
+  crates/locald/src/explanation_builder.rs — ExplanationBundle builder
+  crates/locald/src/narrative_builder.rs — Narrative generation
+  crates/core/src/explain.rs            — ExplanationBundle struct
+  crates/core/src/explain_api.rs        — ExplainResponse, reason_codes
+
+UI FILES:
+  ui/index.html                         — Main UI HTML (50KB)
+  ui/app.js                             — Main UI JavaScript (93KB)
+
+SMOKE RUNNER:
+  crates/wi-run-all/src/main.rs         — 13-step smoke test harness
+
+================================================================================
+SECTION I — "NOT USED / QUESTIONABLE / DUPLICATE"
+================================================================================
+
+DUPLICATE CODE LOCATIONS:
+  locald/ folder at repo root (48 .rs files) — DUPLICATE of crates/locald/src
+    Evidence: locald/mod.rs includes locald/edr_locald.rs
+    Used via: crates/locald/src/lib.rs:#[path = "../../../locald/hypothesis"]
+    Issue: Confusing structure, same code exists in two places
+    Recommendation: Remove root locald/ or consolidate
+
+LEGACY/DEPRECATED:
+  crates/locald/src/edr_locald.rs:1496  — #[deprecated = "Use PlaybookEngine instead"]
+  crates/locald/src/main.rs:336         — "Initialize legacy WindowsSignalEngine"
+  crates/locald/src/main.rs:452-461     — Legacy WorkflowSeed signal path
+  analysis.db                           — Legacy DB name, now workbench.db
+
+HARDCODED PLAYBOOKS (unused but present):
+  crates/locald/src/os/windows/playbooks.rs — windows_playbooks() function
+    Returns 21 hardcoded PlaybookDef structs
+    NOT called by main.rs (PlaybookManager used instead)
+    Evidence: grep shows only test usage (playbooks.rs:614, 630)
+    Recommendation: Remove or keep only for tests
+
+DEAD CODE MARKERS FOUND:
+  crates/agent-windows/src/sensors/primitives/defense_evasion.rs:#![allow(dead_code)]
+  crates/agent-windows/src/sensors/attack_surface.rs:#![allow(dead_code)]
+  crates/agent-windows/src/capture_windows_rotating.rs:#![allow(dead_code)]
+  crates/agent-windows/src/wevt_reader.rs:#![allow(dead_code)]
+  Multiple #[allow(dead_code)] in locald test harnesses
+
+TAG-BASED PLAYBOOKS (not executed):
+  7 playbooks in playbooks/windows/ use tag-based conditions
+  These load but produce no slots, so never fire signals
+  Files: signal_lateral_movement_detection.yaml, signal_log_tampering.yaml,
+         signal_lolbin_abuse.yaml, signal_registry_persistence.yaml,
+         signal_service_persistence.yaml, signal_task_persistence.yaml
+
+TAURI APP (separate entrypoint):
+  src-tauri/src/main.rs — Desktop wrapper using Tauri
+  Not the primary entrypoint (server mode is primary)
+  Has its own supervisor logic that duplicates run_control.rs
+
+UNUSED SEARCH EVIDENCE:
+  rg "windows_playbooks\(\)" shows only test file references
+  rg "analysis.db" shows fallback logic (legacy support)
+
+================================================================================
+SECTION J — GAPS TO FINISH THE PRODUCT (PRIORITIZED)
+================================================================================
+
+MUST FIX (Blocks Functionality):
+--------------------------------------------------------------------------------
+
+1. TAG-BASED PLAYBOOKS NOT FIRING
+   Impact: 7/30 playbooks (23%) are loaded but never produce signals
+   Files: playbook_manager.rs (build_slots_from_yaml)
+   Fix: Implement tag→fact_type mapping for tag-based conditions
+   Effort: Medium
+
+2. DUPLICATE locald/ FOLDER STRUCTURE
+   Impact: Confusion, potential stale code, maintenance burden
+   Files: Root locald/ folder mirrors crates/locald/src
+   Fix: Remove root locald/ or consolidate path references
+   Effort: Low
+
+SHOULD FIX (Stability/Trust):
+--------------------------------------------------------------------------------
+
+3. HARDCODED PLAYBOOKS CLEANUP
+   Impact: Dead code, confusion about which playbooks are used
+   Files: crates/locald/src/os/windows/playbooks.rs
+   Fix: Remove windows_playbooks() or mark explicitly for tests only
+   Effort: Low
+
+4. SIGNAL PERSISTENCE RUN_ID TRACKING
+   Impact: Hard to filter signals by run when locald writes directly
+   Files: locald/main.rs (signal insert), server/db.rs (migration)
+   Fix: Pass run_id to locald via env or index.json
+   Effort: Medium
+
+5. COVERAGE ENDPOINT PLAYBOOKS_FIRED_THIS_RUN
+   Impact: UI can't show which playbooks fired during run
+   Files: run_coverage.rs (PipelineDiagnostics)
+   Fix: Query signals table for distinct playbook families
+   Effort: Low
+
+6. SELFCHECK SENSOR DETECTION ACCURACY
+   Impact: May show wrong sensor status on Windows
+   Files: diagnostics.rs (diagnose_collectors)
+   Fix: Implement actual process detection for Windows
+   Effort: Medium
+
+NICE TO HAVE:
+--------------------------------------------------------------------------------
+
+7. REMOVE #[allow(dead_code)] MARKERS
+   Impact: Code hygiene
+   Files: Multiple in agent-windows, locald
+   Fix: Either use the code or remove it
+   Effort: Medium
+
+8. CONSOLIDATE SIGNAL RESULT STRUCTS
+   Impact: Multiple SignalResult definitions create confusion
+   Files: core/signal_result.rs, locald/signal_result.rs, locald/os/windows/signal_result.rs
+   Fix: Use single canonical definition
+   Effort: Medium
+
+9. TAURI APP SUPERVISOR DEDUPLICATION
+   Impact: Maintenance burden
+   Files: src-tauri/src/supervisor.rs vs crates/server/src/run_control.rs
+   Fix: Consider sharing code or documenting separation
+   Effort: High
+
+10. MISSING FACTS TABLE PERSISTENCE
+    Impact: Facts only exist in memory during run
+    Files: locald/main.rs (facts_store vector)
+    Fix: Persist facts to DB for debugging/audit
+    Effort: Medium
+
+================================================================================
+END OF ARCHITECTURE AUDIT
+================================================================================

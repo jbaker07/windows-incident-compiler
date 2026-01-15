@@ -173,17 +173,22 @@ impl WevtReader {
             },
             ChannelConfig {
                 name: "Microsoft-Windows-PowerShell/Operational".to_string(),
-                enabled: false,
+                enabled: true, // Enabled for script block logging (4104)
                 ..Default::default()
             },
             ChannelConfig {
                 name: "Microsoft-Windows-WMI-Activity/Operational".to_string(),
-                enabled: false,
+                enabled: true, // Enabled for WMI persistence detection
                 ..Default::default()
             },
             ChannelConfig {
                 name: "Microsoft-Windows-TaskScheduler/Operational".to_string(),
-                enabled: false,
+                enabled: true, // Enabled for task scheduler monitoring
+                ..Default::default()
+            },
+            ChannelConfig {
+                name: "Microsoft-Windows-WinRM/Operational".to_string(),
+                enabled: true, // Enabled for lateral movement detection
                 ..Default::default()
             },
         ])

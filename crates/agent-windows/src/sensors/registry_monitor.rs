@@ -1,6 +1,18 @@
 // windows/sensors/registry_monitor.rs
-// Registry key/value monitoring: persistence through registry modifications
-// Sources: System event log, ETW Registry events, Sysmon EventID 12-14
+//! Registry key/value monitoring: persistence through registry modifications
+//!
+//! # Architecture Note
+//! This module is intentionally a STUB. Registry events are captured via the
+//! unified WEVTAPI polling path (`wevt_reader.rs`), then normalized in
+//! `attack_surface.rs::parse_registry_mod()`.
+//!
+//! The sources handled by the main pipeline are:
+//! - Sysmon EventID 12: RegistryObject created
+//! - Sysmon EventID 13: RegistryObject value set
+//! - Sysmon EventID 14: RegistryObject renamed
+//! - Security EventID 4657: Registry value modified
+//!
+//! This module remains for reference and to document the expected event schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

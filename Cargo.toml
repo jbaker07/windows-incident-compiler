@@ -6,6 +6,7 @@ members = [
     "crates/server",
     "crates/locald",
     "crates/agent-windows",
+    "crates/wi-run-all",
 ]
 
 # Default members to build (excludes platform-specific agents)
@@ -14,6 +15,7 @@ default-members = [
     "crates/workbench",
     "crates/server",
     "crates/locald",
+    "crates/wi-run-all",
 ]
 
 [workspace.package]

@@ -1,0 +1,103 @@
+---
+# playbooks/windows/signal_file_staging.yaml
+# Detection of file staging activity
+
+id: "windows_file_staging_001"
+title: "File Staging Detection"
+name: "File Staging Detection"
+family: "collection"
+version: "2.0"
+description: |
+  Detects file staging activity for exfiltration:
+  - Archive creation (7z, zip, rar)
+  - Staging in temp directories
+  - Large file operations
+  - Compression utilities execution
+
+enabled: true
+confidence_threshold: 0.70
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+enhances_with:
+  - sysmon
+
+mitre:
+  tactics:
+    - collection
+    - exfiltration
+  techniques:
+    - T1560.001  # Archive via Utility
+    - T1074      # Data Staged
+
+input_facts:
+  required:
+    - Exec
+  optional:
+    - CreatePath
+
+rules:
+  - name: "Archive Utility Execution"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)(7z|7za|winrar|rar|winzip|zip)\\.exe"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "archive_creation"
+          - "staging"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "PowerShell Compress-Archive"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)powershell"
+      - field: cmdline
+        matches: "(?i)compress-archive"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "powershell_archive"
+          - "staging"
+
+  - name: "Archive Creation in Temp"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)(7z|rar|zip).*\\\\temp\\\\"
+    actions:
+      - severity: HIGH
+        tags:
+          - "temp_staging"
+          - "exfiltration_prep"
+
+  - name: "Archive with Password"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)(7z|rar).*-p"
+    actions:
+      - severity: HIGH
+        tags:
+          - "encrypted_archive"
+          - "data_protection"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "File Staging Detected"
+    priority: "medium"
+
+false_positives:
+  - "IT backup operations"
+  - "Developer build processes"

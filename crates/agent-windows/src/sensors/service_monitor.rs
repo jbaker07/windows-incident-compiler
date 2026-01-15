@@ -1,6 +1,16 @@
 // windows/sensors/service_monitor.rs
-// Service lifecycle monitoring: install, start, configuration changes
-// Sources: System event log (7045=service installed), Security (4697=service registry modified)
+//! Service lifecycle monitoring: install, start, configuration changes
+//!
+//! # Architecture Note
+//! This module is intentionally a STUB. Service events are captured via the
+//! unified WEVTAPI polling path (`wevt_reader.rs`), then normalized in
+//! `attack_surface.rs::parse_persistence_service()`.
+//!
+//! The sources handled by the main pipeline are:
+//! - System EventID 7045: Service installed (ServiceName, ImagePath, StartType)
+//! - Security EventID 4697: Service registry modified
+//!
+//! This module remains for reference and to document the expected event schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

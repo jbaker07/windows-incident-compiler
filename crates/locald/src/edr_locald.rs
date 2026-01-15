@@ -2077,6 +2077,47 @@ fn ingest_segment(
                             now_ms,
                         );
 
+                        // Also create a signal entry for API exposure
+                        // This ensures playbook-generated signals appear in /api/signals
+                        let signal_id = format!("sig_pb_{}", hash_for_id(&incident_id, ts));
+                        let created_at = chrono::Utc::now().to_rfc3339();
+                        
+                        // Build metadata with playbook info
+                        // Note: Additional MITRE fields can be added if playbook YAML includes them
+                        let signal_metadata = serde_json::json!({
+                            "playbook": playbook_id,
+                            "playbook_hash": playbook_hash,
+                            "playbook_source_relpath": playbook_source_relpath,
+                            "detector": playbook_id,
+                            "detector_version": build_id,
+                            "entity_key": entity_key,
+                            "source_sensor": "playbook_engine",
+                        });
+                        
+                        let _ = db_conn.execute(
+                            "INSERT OR REPLACE INTO signals 
+                             (signal_id, signal_type, severity, host, ts, ts_start, ts_end, 
+                              proc_key, file_key, identity_key, metadata, evidence_ptrs, 
+                              dropped_evidence_count, created_at)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                            params![
+                                signal_id,
+                                format!("Playbook:{}", playbook_id),
+                                "medium",  // Default severity
+                                host,
+                                ts,
+                                ts,
+                                ts,
+                                exe,  // proc_key from exe
+                                Option::<String>::None,  // file_key
+                                user,  // identity_key
+                                signal_metadata.to_string(),
+                                evidence_json,
+                                0i64,  // dropped_evidence_count
+                                created_at
+                            ],
+                        );
+                        
                         metrics.record_incident();
                     }
                 }

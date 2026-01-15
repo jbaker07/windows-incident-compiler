@@ -90,7 +90,14 @@ impl CaptureProfile {
         match self {
             CaptureProfile::Minimal => vec!["Security"],
             CaptureProfile::Standard => vec!["Security", "Sysmon", "PowerShell"],
-            CaptureProfile::Full => vec!["Security", "Sysmon", "PowerShell", "WMI", "TaskScheduler", "Defender"],
+            CaptureProfile::Full => vec![
+                "Security",
+                "Sysmon",
+                "PowerShell",
+                "WMI",
+                "TaskScheduler",
+                "Defender",
+            ],
         }
     }
 }
@@ -455,7 +462,7 @@ pub struct MissionScoreboard {
     pub profile_name: String,
     pub duration_seconds: u32,
     pub overall_verdict: String, // "pass", "warn", "fail"
-    pub score: u32, // 0-100
+    pub score: u32,              // 0-100
     pub gates: Vec<GateResult>,
     pub key_metrics: HashMap<String, MetricValue>,
     pub recommendations: Vec<String>,
@@ -487,17 +494,26 @@ mod tests {
     fn test_builtin_profiles() {
         let profiles = get_builtin_profiles();
         assert!(!profiles.is_empty());
-        
+
         // Check we have at least one of each type
-        assert!(profiles.iter().any(|p| p.mission_type == MissionType::Discovery));
-        assert!(profiles.iter().any(|p| p.mission_type == MissionType::AdversarySimulation));
-        assert!(profiles.iter().any(|p| p.mission_type == MissionType::ForensicImport));
+        assert!(profiles
+            .iter()
+            .any(|p| p.mission_type == MissionType::Discovery));
+        assert!(profiles
+            .iter()
+            .any(|p| p.mission_type == MissionType::AdversarySimulation));
+        assert!(profiles
+            .iter()
+            .any(|p| p.mission_type == MissionType::ForensicImport));
     }
 
     #[test]
     fn test_get_profile_by_id() {
         let profile = get_profile_by_id("adversary_lolbin_tier_a");
         assert!(profile.is_some());
-        assert_eq!(profile.unwrap().mission_type, MissionType::AdversarySimulation);
+        assert_eq!(
+            profile.unwrap().mission_type,
+            MissionType::AdversarySimulation
+        );
     }
 }

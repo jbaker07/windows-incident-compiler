@@ -1,0 +1,335 @@
+ENDPOINT CONTRACTS
+Last Updated: 2026-01-11
+Purpose: Complete API contract documentation
+
+================================================================================
+BASE CONFIGURATION
+================================================================================
+
+Server: locint.exe (GUI) / edr-server.exe (CLI)
+Port: 3000 (default)
+Base URL: http://127.0.0.1:3000
+
+Content-Type: application/json (all endpoints)
+
+================================================================================
+RUN MANAGEMENT ENDPOINTS
+================================================================================
+
+--------------------------------------------------------------------------------
+POST /api/run/start
+--------------------------------------------------------------------------------
+
+Purpose: Start a new capture run
+
+Request Body:
+  {
+    "label": "optional run label",
+    "config": {
+      "sysmon_only": false,
+      "etw_providers": ["Microsoft-Windows-Kernel-Process"]
+    }
+  }
+
+Response (success):
+  {
+    "success": true,
+    "data": {
+      "run_id": "run_20260111_120000",
+      "started_at": "2026-01-11T12:00:00Z"
+    }
+  }
+
+Response (error):
+  {
+    "success": false,
+    "error": "Run already in progress",
+    "code": "RUN_ALREADY_ACTIVE"
+  }
+
+UI Caller: startRun() in app.js line 580
+
+--------------------------------------------------------------------------------
+POST /api/run/stop
+--------------------------------------------------------------------------------
+
+Purpose: Stop the current capture run
+
+Request Body: {} (empty)
+
+Response (success):
+  {
+    "success": true,
+    "data": {
+      "stopped": true
+    }
+  }
+
+Response (error):
+  {
+    "success": false,
+    "error": "No run in progress",
+    "code": "NO_ACTIVE_RUN"
+  }
+
+UI Caller: stopRun() in app.js line 620
+
+--------------------------------------------------------------------------------
+GET /api/run/status
+--------------------------------------------------------------------------------
+
+Purpose: Get current run status (polled every 1-5s)
+
+Response (running):
+  {
+    "success": true,
+    "data": {
+      "running": true,
+      "paused": false,
+      "run_id": "run_20260111_120000",
+      "started_at": "2026-01-11T12:00:00Z",
+      "duration_secs": 125
+    }
+  }
+
+Response (stopped):
+  {
+    "success": true,
+    "data": {
+      "running": false,
+      "paused": false,
+      "run_id": null
+    }
+  }
+
+UI Caller: fetchRunStatus() in app.js line 680
+
+--------------------------------------------------------------------------------
+GET /api/run/metrics
+--------------------------------------------------------------------------------
+
+Purpose: Get live metrics for current run (polled every 1s)
+
+Response:
+  {
+    "success": true,
+    "data": {
+      "events_total": 15234,
+      "facts_extracted": 892,
+      "signals_fired": 3,
+      "segments_count": 12,
+      "bytes_written": 7617000,
+      "locald_status": "running"
+    }
+  }
+
+Known Issues:
+  - events_total is bytes_written / 500 (estimate)
+  - facts_extracted parsed from log file, may be 0
+
+UI Caller: fetchMetrics() in app.js line 707
+
+================================================================================
+RUNS LIST ENDPOINTS
+================================================================================
+
+--------------------------------------------------------------------------------
+GET /api/runs
+--------------------------------------------------------------------------------
+
+Purpose: List all past runs
+
+Response:
+  {
+    "success": true,
+    "data": {
+      "runs": [
+        {
+          "run_id": "run_20260111_120000",
+          "started_at": "2026-01-11T12:00:00Z",
+          "stopped_at": "2026-01-11T12:05:00Z",
+          "status": "stopped",
+          "events_total": 45000,
+          "signals_fired": 5,
+          "label": "Test run 1"
+        }
+      ]
+    }
+  }
+
+UI Caller: fetchRuns() in app.js line 740
+
+--------------------------------------------------------------------------------
+GET /api/runs/:id
+--------------------------------------------------------------------------------
+
+Purpose: Get details for a specific run
+
+Response:
+  {
+    "success": true,
+    "data": {
+      "run_id": "run_20260111_120000",
+      "started_at": "2026-01-11T12:00:00Z",
+      "stopped_at": "2026-01-11T12:05:00Z",
+      "status": "stopped",
+      "events_total": 45000,
+      "facts_extracted": 2500,
+      "signals_fired": 5,
+      "segments_count": 45,
+      "label": "Test run 1"
+    }
+  }
+
+UI Caller: fetchRunDetails() in app.js line 790
+
+================================================================================
+COVERAGE & SIGNALS ENDPOINTS
+================================================================================
+
+--------------------------------------------------------------------------------
+GET /api/runs/:id/coverage
+--------------------------------------------------------------------------------
+
+Purpose: Get fact/signal coverage statistics
+
+Response:
+  {
+    "success": true,
+    "data": {
+      "run_id": "run_20260111_120000",
+      "coverage": {
+        "Exec": {"fact_count": 1500, "signal_count": 2},
+        "FileWrite": {"fact_count": 800, "signal_count": 1},
+        "NetConnect": {"fact_count": 200, "signal_count": 0}
+      },
+      "playbooks_total_yaml": 45,
+      "playbooks_loaded": 12,
+      "playbooks_skipped": 33,
+      "skipped_by_reason": {
+        "TAG_BASED_UNSUPPORTED": 25,
+        "INVALID_YAML": 3,
+        "NO_SLOTS": 5
+      }
+    }
+  }
+
+UI Caller: fetchCoverage() in app.js line 850
+
+--------------------------------------------------------------------------------
+GET /api/runs/:id/signals
+--------------------------------------------------------------------------------
+
+Purpose: Get all signals for a run
+
+Response:
+  {
+    "success": true,
+    "data": {
+      "signals": [
+        {
+          "id": 1,
+          "signal_type": "LSASSAccessSuspicious",
+          "severity": "high",
+          "ts": "2026-01-11T12:02:30Z",
+          "proc_key": "mimikatz.exe|1234",
+          "explanation": "Process accessed LSASS memory",
+          "evidence": {"accessor_pid": 1234, "target_pid": 456}
+        }
+      ]
+    }
+  }
+
+UI Caller: fetchSignals() in app.js line 1560
+
+--------------------------------------------------------------------------------
+GET /api/runs/:id/playbooks
+--------------------------------------------------------------------------------
+
+Purpose: Get playbook evaluation results
+
+Response (playbooks found):
+  {
+    "available": true,
+    "run_id": "run_20260111_120000",
+    "playbooks_enabled": true,
+    "playbooks": [
+      {
+        "name": "credential_access_lsass",
+        "status": "fired",
+        "matched_slots": 2,
+        "total_slots": 3
+      }
+    ],
+    "loaded_count": 12,
+    "skipped_count": 33,
+    "skipped_by_reason": {"TAG_BASED_UNSUPPORTED": 25}
+  }
+
+Response (playbooks not found):
+  {
+    "available": true,
+    "run_id": "run_20260111_120000",
+    "playbooks_enabled": false,
+    "not_found_reason": "Playbook directory not found",
+    "searched_paths": [
+      "./playbooks/windows/",
+      "../playbooks/windows/"
+    ]
+  }
+
+Known Issue: Returns available:true even when playbooks_enabled:false
+  - Should return available:false when playbooks not found
+
+UI Caller: renderPlaybooksTab() in app.js line 2097
+
+================================================================================
+EXPORT ENDPOINT
+================================================================================
+
+--------------------------------------------------------------------------------
+GET /api/runs/:id/export
+--------------------------------------------------------------------------------
+
+Purpose: Download run as ZIP bundle
+
+Response: Binary ZIP file
+  Content-Type: application/zip
+  Content-Disposition: attachment; filename="run_20260111_120000.zip"
+
+Bundle Contents:
+  - run_meta.json
+  - workbench.db
+  - segments/*.jsonl (compressed)
+  - logs/locald.log
+
+Known Issue: Export may trigger signals if capture still running
+
+UI Caller: exportRun() in app.js line 1820
+
+================================================================================
+ERROR CODES
+================================================================================
+
+Code                    Description
+----                    -----------
+RUN_ALREADY_ACTIVE      Tried to start when run in progress
+NO_ACTIVE_RUN           Tried to stop when no run active
+RUN_NOT_FOUND           Requested run_id does not exist
+DB_ERROR                Database access failed
+PLAYBOOKS_NOT_FOUND     Playbooks directory not found
+EXPORT_FAILED           Failed to create ZIP bundle
+HTML_RESPONSE           Server returned HTML (wrong port/proxy)
+
+================================================================================
+UI POLLING SUMMARY
+================================================================================
+
+Endpoint                Frequency (running)   Frequency (stopped)
+--------                -------------------   -------------------
+/api/run/status         1s                    5s
+/api/run/metrics        1s                    never
+/api/runs               on tab switch         on tab switch
+/api/runs/:id/signals   on selection          on selection
+/api/runs/:id/coverage  on selection          on selection
+/api/runs/:id/playbooks on tab switch         on tab switch

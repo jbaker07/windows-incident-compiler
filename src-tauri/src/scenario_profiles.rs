@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 /// Scenario tier indicating risk level
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScenarioTier {
-    A,  // Safe: whoami, hostname, basic enumeration
-    B,  // Moderate: registry query, scheduled task query, wmic
-    C,  // Advanced: net user, sc query, credential enum simulation
+    A, // Safe: whoami, hostname, basic enumeration
+    B, // Moderate: registry query, scheduled task query, wmic
+    C, // Advanced: net user, sc query, credential enum simulation
 }
 
 impl ScenarioTier {
@@ -29,7 +29,7 @@ impl ScenarioTier {
             ScenarioTier::C => "C",
         }
     }
-    
+
     pub fn description(&self) -> &'static str {
         match self {
             ScenarioTier::A => "Safe: Basic system enumeration",
@@ -125,28 +125,28 @@ pub struct ScenarioReport {
     pub started_at: String,
     pub completed_at: String,
     pub duration_ms: u64,
-    
+
     /// Step execution results
     pub step_results: Vec<StepResult>,
-    
+
     /// Observed telemetry summary
     pub observed: ObservedTelemetry,
-    
+
     /// Signals created during this scenario
     pub signals_created: Vec<String>,
-    
+
     /// Expectation validation results
     pub expectation_results: Vec<ExpectationResult>,
-    
+
     /// Explainability validation for created signals
     pub explain_validation: Vec<ExplainValidation>,
-    
+
     /// Overall verdict
     pub verdict: ScenarioVerdict,
-    
+
     /// Diagnosis if failed
     pub diagnosis: Option<String>,
-    
+
     /// Capabilities that were missing
     pub missing_capabilities: Vec<String>,
 }
@@ -163,12 +163,12 @@ pub struct ExplainValidation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScenarioVerdict {
-    Pass,           // All expectations met
-    PartialPass,    // Some expectations met
-    CapabilityGap,  // Failed due to missing capabilities
-    ExtractionGap,  // Telemetry OK but facts not extracted
-    DetectionGap,   // Facts OK but playbooks didn't match
-    Fail,           // Complete failure
+    Pass,          // All expectations met
+    PartialPass,   // Some expectations met
+    CapabilityGap, // Failed due to missing capabilities
+    ExtractionGap, // Telemetry OK but facts not extracted
+    DetectionGap,  // Facts OK but playbooks didn't match
+    Fail,          // Complete failure
 }
 
 impl ScenarioVerdict {
@@ -182,7 +182,7 @@ impl ScenarioVerdict {
             ScenarioVerdict::Fail => "FAIL",
         }
     }
-    
+
     pub fn emoji(&self) -> &'static str {
         match self {
             ScenarioVerdict::Pass => "✅",
@@ -219,43 +219,45 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 },
             ],
             expectations: ScenarioExpectations {
-                event_ids: vec![4688],  // Process creation
+                event_ids: vec![4688], // Process creation
                 channels: vec!["Security".to_string()],
                 fact_types: vec!["Exec".to_string()],
-                playbooks: vec![],  // No playbook expected for benign activity
+                playbooks: vec![], // No playbook expected for benign activity
                 signal_severity: None,
-                mitre_techniques: vec!["T1033".to_string()],  // System Owner/User Discovery
+                mitre_techniques: vec!["T1033".to_string()], // System Owner/User Discovery
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_a_system_info".to_string(),
             name: "System Information Query".to_string(),
             tier: ScenarioTier::A,
             description: "Query system information via PowerShell".to_string(),
-            steps: vec![
-                ScenarioStep {
-                    name: "ps_sysinfo".to_string(),
-                    exe: "powershell.exe".to_string(),
-                    args: vec!["-Command".to_string(), "Get-ComputerInfo | Select-Object CsName,OsName,WindowsVersion".to_string()],
-                    description: "Get system info via PowerShell".to_string(),
-                },
-            ],
+            steps: vec![ScenarioStep {
+                name: "ps_sysinfo".to_string(),
+                exe: "powershell.exe".to_string(),
+                args: vec![
+                    "-Command".to_string(),
+                    "Get-ComputerInfo | Select-Object CsName,OsName,WindowsVersion".to_string(),
+                ],
+                description: "Get system info via PowerShell".to_string(),
+            }],
             expectations: ScenarioExpectations {
                 event_ids: vec![4688, 4103, 4104],
-                channels: vec!["Security".to_string(), "Microsoft-Windows-PowerShell/Operational".to_string()],
+                channels: vec![
+                    "Security".to_string(),
+                    "Microsoft-Windows-PowerShell/Operational".to_string(),
+                ],
                 fact_types: vec!["Exec".to_string(), "ScriptBlock".to_string()],
                 playbooks: vec!["signal_lolbin_abuse".to_string()],
                 signal_severity: Some("medium".to_string()),
-                mitre_techniques: vec!["T1082".to_string()],  // System Information Discovery
+                mitre_techniques: vec!["T1082".to_string()], // System Information Discovery
             },
             capabilities: ScenarioCapabilities {
                 requires_powershell_logging: true,
                 ..Default::default()
             },
         },
-        
         // === TIER B: Moderate scenarios ===
         ScenarioProfile {
             id: "tier_b_registry_enum".to_string(),
@@ -266,13 +268,19 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 ScenarioStep {
                     name: "reg_query_software".to_string(),
                     exe: "reg.exe".to_string(),
-                    args: vec!["query".to_string(), "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion".to_string()],
+                    args: vec![
+                        "query".to_string(),
+                        "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion".to_string(),
+                    ],
                     description: "Query software registry key".to_string(),
                 },
                 ScenarioStep {
                     name: "reg_query_run".to_string(),
                     exe: "reg.exe".to_string(),
-                    args: vec!["query".to_string(), "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run".to_string()],
+                    args: vec![
+                        "query".to_string(),
+                        "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run".to_string(),
+                    ],
                     description: "Query Run key for persistence".to_string(),
                 },
             ],
@@ -286,20 +294,17 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_b_task_enum".to_string(),
             name: "Scheduled Task Enumeration".to_string(),
             tier: ScenarioTier::B,
             description: "List scheduled tasks for persistence detection".to_string(),
-            steps: vec![
-                ScenarioStep {
-                    name: "schtasks_query".to_string(),
-                    exe: "schtasks.exe".to_string(),
-                    args: vec!["/Query".to_string(), "/FO".to_string(), "LIST".to_string()],
-                    description: "List scheduled tasks".to_string(),
-                },
-            ],
+            steps: vec![ScenarioStep {
+                name: "schtasks_query".to_string(),
+                exe: "schtasks.exe".to_string(),
+                args: vec!["/Query".to_string(), "/FO".to_string(), "LIST".to_string()],
+                description: "List scheduled tasks".to_string(),
+            }],
             expectations: ScenarioExpectations {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
@@ -310,20 +315,21 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_b_wmic_process".to_string(),
             name: "WMI Process Enumeration".to_string(),
             tier: ScenarioTier::B,
             description: "Enumerate processes via WMIC (LOLBin activity)".to_string(),
-            steps: vec![
-                ScenarioStep {
-                    name: "wmic_process".to_string(),
-                    exe: "wmic.exe".to_string(),
-                    args: vec!["process".to_string(), "list".to_string(), "brief".to_string()],
-                    description: "List processes via WMIC".to_string(),
-                },
-            ],
+            steps: vec![ScenarioStep {
+                name: "wmic_process".to_string(),
+                exe: "wmic.exe".to_string(),
+                args: vec![
+                    "process".to_string(),
+                    "list".to_string(),
+                    "brief".to_string(),
+                ],
+                description: "List processes via WMIC".to_string(),
+            }],
             expectations: ScenarioExpectations {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
@@ -334,7 +340,6 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         // === TIER C: Advanced scenarios ===
         ScenarioProfile {
             id: "tier_c_user_account_enum".to_string(),
@@ -359,26 +364,26 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
                 fact_types: vec!["Exec".to_string()],
-                playbooks: vec!["signal_lolbin_abuse".to_string(), "signal_lateral_movement_detection".to_string()],
+                playbooks: vec![
+                    "signal_lolbin_abuse".to_string(),
+                    "signal_lateral_movement_detection".to_string(),
+                ],
                 signal_severity: Some("high".to_string()),
                 mitre_techniques: vec!["T1087.001".to_string(), "T1069.001".to_string()],
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_c_service_enum".to_string(),
             name: "Service Enumeration".to_string(),
             tier: ScenarioTier::C,
             description: "Enumerate Windows services".to_string(),
-            steps: vec![
-                ScenarioStep {
-                    name: "sc_query".to_string(),
-                    exe: "sc.exe".to_string(),
-                    args: vec!["query".to_string()],
-                    description: "Query all services".to_string(),
-                },
-            ],
+            steps: vec![ScenarioStep {
+                name: "sc_query".to_string(),
+                exe: "sc.exe".to_string(),
+                args: vec!["query".to_string()],
+                description: "Query all services".to_string(),
+            }],
             expectations: ScenarioExpectations {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
@@ -389,62 +394,61 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_c_certutil_decode".to_string(),
             name: "CertUtil Decode (LOLBin)".to_string(),
             tier: ScenarioTier::C,
             description: "Use certutil for base64 decode (classic LOLBin technique)".to_string(),
-            steps: vec![
-                ScenarioStep {
-                    name: "certutil_help".to_string(),
-                    exe: "certutil.exe".to_string(),
-                    args: vec!["-?".to_string()],
-                    description: "Display certutil help (safe trigger)".to_string(),
-                },
-            ],
+            steps: vec![ScenarioStep {
+                name: "certutil_help".to_string(),
+                exe: "certutil.exe".to_string(),
+                args: vec!["-?".to_string()],
+                description: "Display certutil help (safe trigger)".to_string(),
+            }],
             expectations: ScenarioExpectations {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
                 fact_types: vec!["Exec".to_string()],
-                playbooks: vec!["signal_lolbin_abuse".to_string(), "signal_certutil_abuse".to_string()],
+                playbooks: vec![
+                    "signal_lolbin_abuse".to_string(),
+                    "signal_certutil_abuse".to_string(),
+                ],
                 signal_severity: Some("high".to_string()),
                 mitre_techniques: vec!["T1140".to_string()],
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_c_nltest_domain".to_string(),
             name: "Domain Trust Enumeration".to_string(),
             tier: ScenarioTier::C,
             description: "Query domain trusts with nltest".to_string(),
-            steps: vec![
-                ScenarioStep {
-                    name: "nltest_trusts".to_string(),
-                    exe: "nltest.exe".to_string(),
-                    args: vec!["/domain_trusts".to_string()],
-                    description: "Query domain trusts".to_string(),
-                },
-            ],
+            steps: vec![ScenarioStep {
+                name: "nltest_trusts".to_string(),
+                exe: "nltest.exe".to_string(),
+                args: vec!["/domain_trusts".to_string()],
+                description: "Query domain trusts".to_string(),
+            }],
             expectations: ScenarioExpectations {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
                 fact_types: vec!["Exec".to_string()],
-                playbooks: vec!["signal_lolbin_abuse".to_string(), "signal_lateral_movement_detection".to_string()],
+                playbooks: vec![
+                    "signal_lolbin_abuse".to_string(),
+                    "signal_lateral_movement_detection".to_string(),
+                ],
                 signal_severity: Some("high".to_string()),
                 mitre_techniques: vec!["T1482".to_string()],
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         // === TIER B: RELIABLE DETECTION SCENARIOS (Limited mode compatible) ===
-        
         ScenarioProfile {
             id: "tier_b_discovery_burst".to_string(),
             name: "Discovery Command Burst".to_string(),
             tier: ScenarioTier::B,
-            description: "Execute multiple discovery commands to trigger burst detection".to_string(),
+            description: "Execute multiple discovery commands to trigger burst detection"
+                .to_string(),
             steps: vec![
                 ScenarioStep {
                     name: "whoami".to_string(),
@@ -483,11 +487,14 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 fact_types: vec!["Exec".to_string(), "ShellCommand".to_string()],
                 playbooks: vec!["signal_discovery_burst".to_string()],
                 signal_severity: Some("high".to_string()),
-                mitre_techniques: vec!["T1082".to_string(), "T1016".to_string(), "T1033".to_string()],
+                mitre_techniques: vec![
+                    "T1082".to_string(),
+                    "T1016".to_string(),
+                    "T1033".to_string(),
+                ],
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_b_net_enum".to_string(),
             name: "Net Command Enumeration".to_string(),
@@ -517,13 +524,15 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
                 fact_types: vec!["Exec".to_string(), "ShellCommand".to_string()],
-                playbooks: vec!["signal_net_command_abuse".to_string(), "signal_discovery_burst".to_string()],
+                playbooks: vec![
+                    "signal_net_command_abuse".to_string(),
+                    "signal_discovery_burst".to_string(),
+                ],
                 signal_severity: Some("medium".to_string()),
                 mitre_techniques: vec!["T1087.001".to_string(), "T1135".to_string()],
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_b_powershell_sysinfo".to_string(),
             name: "PowerShell System Discovery".to_string(),
@@ -533,13 +542,21 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 ScenarioStep {
                     name: "ps_env".to_string(),
                     exe: "powershell.exe".to_string(),
-                    args: vec!["-NoProfile".to_string(), "-Command".to_string(), "$env:COMPUTERNAME".to_string()],
+                    args: vec![
+                        "-NoProfile".to_string(),
+                        "-Command".to_string(),
+                        "$env:COMPUTERNAME".to_string(),
+                    ],
                     description: "Get computer name via PowerShell".to_string(),
                 },
                 ScenarioStep {
                     name: "ps_user".to_string(),
                     exe: "powershell.exe".to_string(),
-                    args: vec!["-NoProfile".to_string(), "-Command".to_string(), "$env:USERNAME".to_string()],
+                    args: vec![
+                        "-NoProfile".to_string(),
+                        "-Command".to_string(),
+                        "$env:USERNAME".to_string(),
+                    ],
                     description: "Get username via PowerShell".to_string(),
                 },
             ],
@@ -553,33 +570,31 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_b_task_enum".to_string(),
             name: "Scheduled Task Query".to_string(),
             tier: ScenarioTier::B,
             description: "Query scheduled tasks (persistence detection)".to_string(),
-            steps: vec![
-                ScenarioStep {
-                    name: "schtasks_query".to_string(),
-                    exe: "schtasks.exe".to_string(),
-                    args: vec!["/Query".to_string(), "/FO".to_string(), "CSV".to_string()],
-                    description: "List scheduled tasks".to_string(),
-                },
-            ],
+            steps: vec![ScenarioStep {
+                name: "schtasks_query".to_string(),
+                exe: "schtasks.exe".to_string(),
+                args: vec!["/Query".to_string(), "/FO".to_string(), "CSV".to_string()],
+                description: "List scheduled tasks".to_string(),
+            }],
             expectations: ScenarioExpectations {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
                 fact_types: vec!["Exec".to_string()],
-                playbooks: vec!["signal_schtasks_abuse".to_string(), "signal_lolbin_abuse".to_string()],
+                playbooks: vec![
+                    "signal_schtasks_abuse".to_string(),
+                    "signal_lolbin_abuse".to_string(),
+                ],
                 signal_severity: Some("medium".to_string()),
                 mitre_techniques: vec!["T1053.005".to_string()],
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         // === TIER C: ADVANCED SCENARIOS (Some require admin) ===
-        
         ScenarioProfile {
             id: "tier_c_wmic_process".to_string(),
             name: "WMIC Process Query".to_string(),
@@ -589,7 +604,11 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 ScenarioStep {
                     name: "wmic_process".to_string(),
                     exe: "wmic.exe".to_string(),
-                    args: vec!["process".to_string(), "list".to_string(), "brief".to_string()],
+                    args: vec![
+                        "process".to_string(),
+                        "list".to_string(),
+                        "brief".to_string(),
+                    ],
                     description: "List processes via WMIC".to_string(),
                 },
                 ScenarioStep {
@@ -603,13 +622,15 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
                 fact_types: vec!["Exec".to_string(), "ShellCommand".to_string()],
-                playbooks: vec!["signal_wmic_abuse".to_string(), "signal_lolbin_abuse".to_string()],
+                playbooks: vec![
+                    "signal_wmic_abuse".to_string(),
+                    "signal_lolbin_abuse".to_string(),
+                ],
                 signal_severity: Some("high".to_string()),
                 mitre_techniques: vec!["T1047".to_string()],
             },
             capabilities: ScenarioCapabilities::default(),
         },
-        
         ScenarioProfile {
             id: "tier_c_reg_persistence_check".to_string(),
             name: "Registry Persistence Query".to_string(),
@@ -619,13 +640,19 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 ScenarioStep {
                     name: "reg_run_hklm".to_string(),
                     exe: "reg.exe".to_string(),
-                    args: vec!["query".to_string(), "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run".to_string()],
+                    args: vec![
+                        "query".to_string(),
+                        "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run".to_string(),
+                    ],
                     description: "Query HKLM Run key".to_string(),
                 },
                 ScenarioStep {
                     name: "reg_run_hkcu".to_string(),
                     exe: "reg.exe".to_string(),
-                    args: vec!["query".to_string(), "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run".to_string()],
+                    args: vec![
+                        "query".to_string(),
+                        "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run".to_string(),
+                    ],
                     description: "Query HKCU Run key".to_string(),
                 },
             ],
@@ -633,7 +660,10 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
                 event_ids: vec![4688],
                 channels: vec!["Security".to_string()],
                 fact_types: vec!["Exec".to_string()],
-                playbooks: vec!["signal_registry_persistence".to_string(), "signal_lolbin_abuse".to_string()],
+                playbooks: vec![
+                    "signal_registry_persistence".to_string(),
+                    "signal_lolbin_abuse".to_string(),
+                ],
                 signal_severity: Some("medium".to_string()),
                 mitre_techniques: vec!["T1547.001".to_string(), "T1012".to_string()],
             },
@@ -644,7 +674,10 @@ pub fn get_all_scenarios() -> Vec<ScenarioProfile> {
 
 /// Get scenarios by tier
 pub fn get_scenarios_by_tier(tier: ScenarioTier) -> Vec<ScenarioProfile> {
-    get_all_scenarios().into_iter().filter(|s| s.tier == tier).collect()
+    get_all_scenarios()
+        .into_iter()
+        .filter(|s| s.tier == tier)
+        .collect()
 }
 
 /// Get scenario by ID
@@ -661,7 +694,7 @@ pub fn check_scenario_capabilities(
     powershell_logging: bool,
 ) -> Vec<String> {
     let mut missing = Vec::new();
-    
+
     if scenario.capabilities.requires_admin && !is_admin {
         missing.push("Administrator privileges".to_string());
     }
@@ -674,7 +707,7 @@ pub fn check_scenario_capabilities(
     if scenario.capabilities.requires_powershell_logging && !powershell_logging {
         missing.push("PowerShell script block logging".to_string());
     }
-    
+
     missing
 }
 
@@ -692,7 +725,7 @@ pub fn compute_verdict(
             Some(format!("Missing: {}", missing_capabilities.join(", "))),
         );
     }
-    
+
     // Check telemetry health (Gate A)
     if observed.events_count == 0 {
         return (
@@ -700,7 +733,7 @@ pub fn compute_verdict(
             Some("No events captured - telemetry not working".to_string()),
         );
     }
-    
+
     // Check extraction health (Gate B)
     if observed.facts_count == 0 && !expectations.fact_types.is_empty() {
         return (
@@ -712,7 +745,7 @@ pub fn compute_verdict(
             )),
         );
     }
-    
+
     // Check detection health (Gate C)
     if signals_count == 0 && !expectations.playbooks.is_empty() {
         return (
@@ -724,17 +757,17 @@ pub fn compute_verdict(
             )),
         );
     }
-    
+
     // If signals expected and generated
     if signals_count > 0 && !expectations.playbooks.is_empty() {
         return (ScenarioVerdict::Pass, None);
     }
-    
+
     // If no signals expected and none generated (benign scenario)
     if signals_count == 0 && expectations.playbooks.is_empty() {
         return (ScenarioVerdict::Pass, None);
     }
-    
+
     // Partial pass if some but not all expectations met
     (
         ScenarioVerdict::PartialPass,

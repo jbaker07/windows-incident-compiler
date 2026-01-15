@@ -349,6 +349,79 @@ pub fn require_entitlement(
     ))
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Feature Flags API (for UI capability gating)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Response for /api/features - what the UI can do
+#[derive(Debug, Serialize)]
+pub struct FeatureFlagsResponse {
+    /// License tier: "free", "pro", "enterprise"
+    pub tier: String,
+    /// Individual feature flags
+    pub features: FeatureFlags,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FeatureFlags {
+    // Free features (always enabled)
+    pub start_stop_capture: bool,
+    pub core_profile: bool,
+    pub runs_analysis: bool,
+    pub explain_deref: bool,
+    pub import_export_bundle: bool,
+    pub readiness_check: bool,
+    pub basic_noise_controls: bool,
+    
+    // Pro features (gated)
+    pub playbook_editing: bool,
+    pub advanced_thresholds: bool,
+    pub suppression_rule_builder: bool,
+    pub long_range_analytics: bool,
+    pub integrations_connect: bool,
+    pub compare_analytics: bool,
+    pub diff_mode: bool,
+}
+
+/// GET /api/features - Returns feature flags based on license
+pub async fn get_feature_flags() -> impl IntoResponse {
+    let manager = global_license_manager();
+    let status = manager.get_status();
+    
+    // Determine tier
+    let (tier, is_pro) = match &status {
+        LicenseStatus::Valid { edition, entitlements, .. } => {
+            let tier = if edition.is_empty() { "pro".to_string() } else { edition.clone() };
+            let has_diff = entitlements.contains(&entitlements::DIFF_MODE.to_string());
+            (tier, has_diff)
+        }
+        _ => ("free".to_string(), false),
+    };
+    
+    Json(FeatureFlagsResponse {
+        tier: tier.clone(),
+        features: FeatureFlags {
+            // Free features - always enabled
+            start_stop_capture: true,
+            core_profile: true,
+            runs_analysis: true,
+            explain_deref: true,
+            import_export_bundle: true,
+            readiness_check: true,
+            basic_noise_controls: true,
+            
+            // Pro features - gated by license
+            playbook_editing: is_pro,
+            advanced_thresholds: is_pro,
+            suppression_rule_builder: is_pro,
+            long_range_analytics: is_pro,
+            integrations_connect: is_pro,
+            compare_analytics: is_pro,
+            diff_mode: is_pro,
+        },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

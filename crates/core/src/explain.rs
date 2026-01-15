@@ -53,6 +53,44 @@ pub struct ExplanationBundle {
 
     /// Generated timestamp
     pub generated_at_ms: i64,
+
+    // ========================================================================
+    // Phase 2: Enhanced "why fired" explanation (template-based)
+    // ========================================================================
+
+    /// Stable detection reason codes (why the detector fired)
+    /// Array of {code, label, detail, backed_by_slot}
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<DetectionReasonEntry>,
+
+    /// Key fields extracted from matched facts (playbook-specific)
+    /// e.g., {"cmdline": "powershell -enc ...", "proc_key": "..."}
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub key_fields: std::collections::HashMap<String, String>,
+
+    /// Template-based "why fired" narrative (deterministic, 2-4 sentences)
+    /// Derived from matched slots + key_fields, never invented
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub why_fired: Option<String>,
+
+    /// Detector version (for tracking changes to detection logic)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detector_version: Option<String>,
+}
+
+/// A detection reason entry (stable code + human label + optional detail)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectionReasonEntry {
+    /// Stable reason code (e.g., "POWERSHELL_ENCODED_COMMAND")
+    pub code: String,
+    /// Human-readable label
+    pub label: String,
+    /// Additional detail from matched evidence (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// Slot ID that backs this reason (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backed_by_slot: Option<String>,
 }
 
 // ============================================================================
@@ -237,6 +275,10 @@ impl ExplanationBundle {
             evidence: Vec::new(),
             counters: ExplanationCounters::default(),
             limitations: Vec::new(),
+            reasons: Vec::new(),
+            key_fields: std::collections::HashMap::new(),
+            why_fired: None,
+            detector_version: None,
         }
     }
 }
@@ -254,6 +296,10 @@ pub struct ExplanationBundleBuilder {
     evidence: Vec<EvidenceExcerpt>,
     counters: ExplanationCounters,
     limitations: Vec<String>,
+    reasons: Vec<DetectionReasonEntry>,
+    key_fields: std::collections::HashMap<String, String>,
+    why_fired: Option<String>,
+    detector_version: Option<String>,
 }
 
 impl ExplanationBundleBuilder {
@@ -317,6 +363,36 @@ impl ExplanationBundleBuilder {
         self
     }
 
+    pub fn reasons(mut self, reasons: Vec<DetectionReasonEntry>) -> Self {
+        self.reasons = reasons;
+        self
+    }
+
+    pub fn add_reason(mut self, reason: DetectionReasonEntry) -> Self {
+        self.reasons.push(reason);
+        self
+    }
+
+    pub fn key_fields(mut self, key_fields: std::collections::HashMap<String, String>) -> Self {
+        self.key_fields = key_fields;
+        self
+    }
+
+    pub fn add_key_field(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.key_fields.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn why_fired(mut self, narrative: impl Into<String>) -> Self {
+        self.why_fired = Some(narrative.into());
+        self
+    }
+
+    pub fn detector_version(mut self, version: impl Into<String>) -> Self {
+        self.detector_version = Some(version.into());
+        self
+    }
+
     pub fn build(self) -> ExplanationBundle {
         let now = chrono::Utc::now().timestamp_millis();
         ExplanationBundle {
@@ -332,6 +408,10 @@ impl ExplanationBundleBuilder {
             counters: self.counters,
             limitations: self.limitations,
             generated_at_ms: now,
+            reasons: self.reasons,
+            key_fields: self.key_fields,
+            why_fired: self.why_fired,
+            detector_version: self.detector_version,
         }
     }
 }

@@ -1,0 +1,54 @@
+---
+# playbooks/windows/signal_persistence_windows.yaml
+# Detect Windows persistence mechanisms
+
+name: "Persistence Detection (Windows)"
+description: "Detect service, task, and registry persistence attempts"
+version: "1.0"
+
+detection:
+  signals:
+    - type: "windows_service_persistence"
+      suspicious_paths:
+        - "\\Temp\\"
+        - "\\AppData\\Local\\Temp"
+        - "\\Downloads\\"
+        - "Users\\Public\\"
+      binary_not_signed: true
+      path_writable: true
+
+    - type: "windows_scheduled_task_persistence"
+      suspicious_actions:
+        - "cmd.exe"
+        - "powershell.exe"
+        - "python.exe"
+        - "bash.exe"
+      hidden_task: true
+
+    - type: "windows_registry_runkey"
+      registry_paths:
+        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
+      suspicious_targets:
+        - ".ps1"
+        - ".bat"
+        - ".vbs"
+        - ":\\Windows\\Temp"
+
+response:
+  severity: "high"
+  actions:
+    - alert: true
+    - isolate: false
+    - remediate: true
+  
+  correlation_boost:
+    - parent_is_system_process: 1.2
+    - followed_by_lateral_movement: 1.5
+
+tags:
+  - "T1543.003"
+  - "T1053.005"
+  - "T1547.001"
+  - "persistence"

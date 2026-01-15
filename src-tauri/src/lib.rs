@@ -1,5 +1,5 @@
 //! EDR Desktop Library
-//! 
+//!
 //! Re-exports for testing and potential library use
 //!
 //! Modules:
@@ -18,12 +18,19 @@
 //! - `mission_commands`: Tauri commands for mission workflow
 //! - `baseline`: Baseline run management and regression comparison
 //! - `pipeline_counters`: Real-time counters from capture/locald/server
+//! - `capability_exhaust`: Windows capability readiness verification
+//! - `delta_report`: Delta reporting between runs
+
+// Allow dead_code for planned/future-use APIs in library modules
+#![allow(dead_code)]
 
 pub mod baseline;
+pub mod capability_exhaust;
+pub mod delta_report;
 pub mod grounded_gates;
 pub mod health_gates;
-pub mod importer;
 pub mod import_types;
+pub mod importer;
 pub mod logging;
 pub mod mission_commands;
 pub mod missions;
@@ -36,14 +43,20 @@ pub mod scenario_profiles;
 pub mod supervisor;
 
 // Re-export commonly used types for bin crates
-pub use importer::SafeImporter;
 pub use import_types::ImportLimits;
+pub use importer::SafeImporter;
 
 // Re-export mission workflow types
-pub use missions::{MissionConfig, MissionProfile, MissionType, CaptureProfile};
-pub use run_metrics::{MetricsCollector, RunSummary};
-pub use quality_gates::{QualityGatesEngine, QualityReport, GateResult, GateStatus};
-pub use scenario_packs::{ScenarioPack, ScenarioCategory, PackExecutionResult};
+pub use baseline::{BaselineComparison, BaselineManager, BaselineMetadata};
 pub use mission_commands::MissionStateHandle;
-pub use baseline::{BaselineManager, BaselineMetadata, BaselineComparison};
-pub use pipeline_counters::{PipelineCounters, PipelineCounterFetcher};
+pub use missions::{CaptureProfile, MissionConfig, MissionProfile, MissionType};
+pub use pipeline_counters::{PipelineCounterFetcher, PipelineCounters};
+pub use quality_gates::{GateResult, GateStatus, QualityGatesEngine, QualityReport};
+pub use run_metrics::{MetricsCollector, RunSummary};
+pub use scenario_packs::{PackExecutionResult, ScenarioCategory, ScenarioPack};
+
+// Re-export capability exhaust and delta report types
+pub use capability_exhaust::{
+    CapabilityExhaustReport, ProbeResult, ReadinessLevel, ReadinessSummary,
+};
+pub use delta_report::{ChangeSignificance, DeltaReport, DeltaSummary, FindingsDelta};

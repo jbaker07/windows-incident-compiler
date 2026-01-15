@@ -71,30 +71,78 @@ pub struct DiffMeta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunInfo {
     pub run_id: String,
+    pub name: Option<String>,  // User-assigned name
     pub signal_count: usize,
     pub earliest_ts: i64,
     pub latest_ts: i64,
     pub hosts: Vec<String>,
+    // Extended fields from RunRecord
+    pub profile: Option<String>,
+    pub started_at: Option<String>,
+    pub stopped_at: Option<String>,
+    pub events_total: u64,
+    pub segments_count: u32,
+    pub facts_extracted: u64,
+    pub status: String,
 }
 
-/// Load signals from database for a given "run"
-/// For v1, we load all signals (runs would be filtered by time or tag in future)
-fn load_snapshot_signals(db: &Database, _run_id: &str) -> Result<Vec<StoredSignal>, String> {
-    db.list_signals(None, None, None, 10000)
+/// Load signals from database for a given run_id
+fn load_snapshot_signals(db: &Database, run_id: &str) -> Result<Vec<StoredSignal>, String> {
+    db.list_signals(Some(run_id), None, None, None, 10000, 0)
         .map_err(|e| format!("Database error: {}", e))
 }
 
 /// List available runs from the database
+/// First checks the runs table for persisted run records,
+/// then falls back to signal-based discovery for backwards compatibility
 pub fn list_runs_from_db(db: &Database) -> Result<Vec<RunInfo>, String> {
+    // First, try to get runs from the runs table
+    let persisted_runs = db.list_runs(100)
+        .map_err(|e| format!("Database error: {}", e))?;
+    
+    if !persisted_runs.is_empty() {
+        // Convert RunRecords to RunInfo
+        let mut result: Vec<RunInfo> = persisted_runs.into_iter().map(|run| {
+            // Parse started_at to get a timestamp in milliseconds (to match signal ts)
+            let earliest_ts = chrono::DateTime::parse_from_rfc3339(&run.started_at)
+                .map(|dt| dt.timestamp_millis())
+                .unwrap_or(0);
+            let latest_ts = run.stopped_at.as_ref()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.timestamp_millis())
+                .unwrap_or(earliest_ts);
+            
+            RunInfo {
+                run_id: run.run_id,
+                name: run.name,
+                signal_count: run.signals_fired as usize,
+                earliest_ts,
+                latest_ts,
+                hosts: vec![], // Could be populated from signals if needed
+                profile: run.profile,
+                started_at: Some(run.started_at),
+                stopped_at: run.stopped_at,
+                events_total: run.events_total,
+                segments_count: run.segments_count,
+                facts_extracted: run.facts_extracted,
+                status: run.status,
+            }
+        }).collect();
+        
+        result.sort_by(|a, b| b.earliest_ts.cmp(&a.earliest_ts));
+        return Ok(result);
+    }
+    
+    // Fallback: Load all signals to discover unique run_ids (backwards compatibility)
     let signals = db
-        .list_signals(None, None, None, 10000)
+        .list_signals(None, None, None, None, 10000, 0)
         .map_err(|e| format!("Database error: {}", e))?;
 
     if signals.is_empty() {
         return Ok(vec![]);
     }
 
-    // Group signals by hour buckets as "runs"
+    // Group signals by their actual run_id field
     struct RunAccumulator<'a> {
         signals: Vec<&'a StoredSignal>,
         earliest: i64,
@@ -105,9 +153,8 @@ pub fn list_runs_from_db(db: &Database) -> Result<Vec<RunInfo>, String> {
     let mut runs: HashMap<String, RunAccumulator> = HashMap::new();
 
     for signal in &signals {
-        // Bucket by hour
-        let bucket = signal.ts / 3600000 * 3600000;
-        let run_id = format!("run_{}", bucket);
+        // Use the actual run_id from the signal
+        let run_id = signal.run_id.clone();
 
         let entry = runs.entry(run_id).or_insert_with(|| RunAccumulator {
             signals: Vec::new(),
@@ -126,10 +173,19 @@ pub fn list_runs_from_db(db: &Database) -> Result<Vec<RunInfo>, String> {
         .into_iter()
         .map(|(run_id, acc)| RunInfo {
             run_id,
+            name: None,
             signal_count: acc.signals.len(),
             earliest_ts: acc.earliest,
             latest_ts: acc.latest,
             hosts: acc.hosts.into_iter().collect(),
+            // Backwards compat - signals-only discovery doesn't have these
+            profile: None,
+            started_at: None,
+            stopped_at: None,
+            events_total: 0,
+            segments_count: 0,
+            facts_extracted: 0,
+            status: "unknown".to_string(),
         })
         .collect();
 
@@ -286,16 +342,26 @@ mod tests {
             earliest_ts: 1704500000000,
             latest_ts: 1704503600000,
             hosts: vec!["HOST1".to_string()],
+            profile: Some("extended".to_string()),
+            started_at: Some("2024-01-06T00:00:00Z".to_string()),
+            stopped_at: Some("2024-01-06T01:00:00Z".to_string()),
+            events_total: 1000,
+            segments_count: 50,
+            facts_extracted: 100,
+            status: "completed".to_string(),
         };
 
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("run_123"));
+        assert!(json.contains("extended"));
+        assert!(json.contains("completed"));
     }
 
     #[test]
     fn test_signals_to_snapshot() {
         let signals = vec![StoredSignal {
             signal_id: "sig1".to_string(),
+            run_id: "test_run".to_string(),
             signal_type: "encoded_powershell".to_string(),
             severity: "high".to_string(),
             host: "HOST1".to_string(),
@@ -305,6 +371,9 @@ mod tests {
             proc_key: Some("proc_123".to_string()),
             file_key: None,
             identity_key: None,
+            detector_id: "playbook:test".to_string(),
+            detector_version: "1.0.0".to_string(),
+            source_sensor: "test".to_string(),
             metadata: serde_json::json!({"test": true}),
             evidence_ptrs: vec![serde_json::json!({"stream": "test"})],
             dropped_evidence_count: 0,

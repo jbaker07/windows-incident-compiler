@@ -1,0 +1,105 @@
+---
+# playbooks/windows/signal_regsvr32_abuse.yaml
+# Detection of regsvr32.exe abuse (Squiblydoo)
+
+id: "windows_regsvr32_abuse_001"
+title: "Regsvr32 LOLBin Abuse"
+name: "Regsvr32 Abuse Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects abuse of regsvr32.exe for:
+  - Squiblydoo attacks (/s /n /u /i:URL scrobj.dll)
+  - Remote scriptlet execution
+  - AppLocker bypass
+  - COM object execution from remote sources
+
+enabled: true
+confidence_threshold: 0.85
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+mitre:
+  tactics:
+    - defense_evasion
+    - execution
+  techniques:
+    - T1218.010  # Regsvr32
+
+input_facts:
+  required:
+    - Exec
+
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)regsvr32\\.exe"
+  optional:
+    - name: scrobj_pattern
+      type: string
+      pattern: "(?i)scrobj\\.dll"
+    - name: remote_url
+      type: string
+      pattern: "(?i)/i:https?://"
+
+rules:
+  - name: "Regsvr32 Squiblydoo"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)regsvr32"
+      - field: cmdline
+        matches: "(?i)/s.*/n.*/u.*/i:.*scrobj"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "squiblydoo"
+          - "applocker_bypass"
+          - "scriptlet"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "Regsvr32 Remote Scriptlet"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)regsvr32"
+      - field: cmdline
+        matches: "(?i)/i:https?://"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "remote_execution"
+          - "dropper"
+
+  - name: "Regsvr32 Silent Execute"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)regsvr32"
+      - field: cmdline
+        matches: "(?i)/s.*\\.dll"
+      - field: cmdline
+        matches: "(?i)(\\\\temp\\\\|\\\\appdata\\\\|%temp%)"
+    actions:
+      - severity: HIGH
+        tags:
+          - "dll_execution"
+          - "suspicious_location"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "Regsvr32 Abuse Detected"
+    priority: "critical"
+
+false_positives:
+  - "Legitimate COM/DLL registration during software installation"
+  - "System maintenance operations"

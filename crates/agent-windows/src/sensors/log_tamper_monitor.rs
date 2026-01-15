@@ -1,6 +1,16 @@
 // windows/sensors/log_tamper_monitor.rs
-// Event log tampering detection: clearing, modification, truncation attempts
-// Sources: Security log (4688=process created with suspicious names), System log
+//! Event log tampering detection: clearing, modification, truncation attempts
+//!
+//! # Architecture Note
+//! This module is intentionally a STUB. Log tamper events are captured via the
+//! unified WEVTAPI polling path (`wevt_reader.rs`), then normalized in
+//! `attack_surface.rs::parse_log_clear()`.
+//!
+//! The sources handled by the main pipeline are:
+//! - Security EventID 1102: Audit log cleared
+//! - System EventID 104: Log cleared (with channel name)
+//!
+//! This module remains for reference and to document the expected event schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

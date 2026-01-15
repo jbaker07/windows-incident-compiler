@@ -1,0 +1,117 @@
+---
+# playbooks/windows/signal_rundll32_abuse.yaml
+# Detection of rundll32.exe abuse
+
+id: "windows_rundll32_abuse_001"
+title: "Rundll32 LOLBin Abuse"
+name: "Rundll32 Abuse Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects abuse of rundll32.exe for:
+  - DLL proxy execution
+  - JavaScript execution via url.dll
+  - Shell32 abuse patterns
+  - Comsvcs MiniDump (credential theft)
+
+enabled: true
+confidence_threshold: 0.80
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+mitre:
+  tactics:
+    - defense_evasion
+    - execution
+  techniques:
+    - T1218.011  # Rundll32
+
+input_facts:
+  required:
+    - Exec
+
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)rundll32\\.exe"
+  optional:
+    - name: script_execution
+      type: string
+      pattern: "(?i)javascript:|shell32\\.dll.*shellexec_rundll|url\\.dll.*fileprotocolhandler"
+    - name: credential_dump
+      type: string
+      pattern: "(?i)comsvcs\\.dll.*minidump|comsvcs\\.dll.*#24"
+
+rules:
+  - name: "Rundll32 JavaScript Execution"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)rundll32"
+      - field: cmdline
+        matches: "(?i)javascript:"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "script_execution"
+          - "lolbin"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "Rundll32 URL Protocol Handler"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)rundll32"
+      - field: cmdline
+        matches: "(?i)url\\.dll.*fileprotocolhandler"
+    actions:
+      - severity: HIGH
+        tags:
+          - "url_execution"
+          - "download"
+
+  - name: "Rundll32 Comsvcs MiniDump"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)rundll32"
+      - field: cmdline
+        matches: "(?i)comsvcs.*minidump|comsvcs.*#24"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "credential_theft"
+          - "memory_dump"
+          - "lsass_dump"
+
+  - name: "Rundll32 DLL from Temp"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)rundll32"
+      - field: cmdline
+        matches: "(?i)(\\\\temp\\\\|\\\\appdata\\\\|%temp%|%appdata%).*\\.dll"
+    actions:
+      - severity: HIGH
+        tags:
+          - "suspicious_location"
+          - "dropper"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "Rundll32 Abuse Detected"
+    priority: "high"
+
+false_positives:
+  - "Some legitimate software uses rundll32 for DLL execution"
+  - "Windows shell operations via Shell32.dll"

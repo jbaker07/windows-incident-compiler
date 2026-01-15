@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "EDR local detection daemon - signal orchestration and persistence"
 
+[features]
+default = ["core"]
+core = ["edr-core/core"]     # Core loop only
+dev_utils = []               # Enable dev utility binaries
+integrations = []            # SIEM/vendor integrations
+narrative = ["edr-core/narrative"]  # Natural language narratives
+
 [lib]
 name = "edr_locald"
 path = "src/lib.rs"
@@ -15,14 +22,17 @@ path = "src/main.rs"
 [[bin]]
 name = "proof_run"
 path = "src/bin/proof_run.rs"
+required-features = ["dev_utils"]
 
 [[bin]]
 name = "metrics_run"
 path = "src/bin/metrics_run.rs"
+required-features = ["dev_utils"]
 
 [[bin]]
 name = "explain_harness"
 path = "src/bin/explain_harness.rs"
+required-features = ["dev_utils"]
 
 [dependencies]
 edr-core = { path = "../core" }
@@ -46,6 +56,7 @@ hostname = "0.4"  # Proof Run: get system hostname
 regex = "1"  # Slot matcher: regex-based predicate matching
 ctrlc = "3.4"  # Graceful shutdown handling
 clap = { version = "4", features = ["derive"] }  # Explain harness: CLI args
+lazy_static = "1.4"  # Phase 2: playbook explanation templates
 
 [dev-dependencies]
 tempfile = "3"

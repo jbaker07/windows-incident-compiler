@@ -14,7 +14,9 @@ use crate::hypothesis::{
     IncidentStore, LateArrivalAction, LateArrivalPolicy, QueryContext, ScopeKey, SessionMode, Slot,
     SlotRequirement, StreamWatermark,
 };
+#[cfg(feature = "integrations")]
 use crate::integrations::config::ExportSinkConfig;
+#[cfg(feature = "integrations")]
 use crate::integrations::export::IncidentExporter;
 use crate::slot_matcher::{
     CapabilityRegistry, FillStrength, HypothesisKey, PlaybookDef, PlaybookIndex, SlotMatcher,
@@ -39,7 +41,8 @@ pub struct HypothesisController {
     late_arrival_policy: LateArrivalPolicy,
     /// Global watermark tracking per-stream watermarks
     global_watermark: GlobalWatermark,
-    /// Optional incident exporter for SIEM integration
+    /// Optional incident exporter for SIEM integration (requires integrations feature)
+    #[cfg(feature = "integrations")]
     exporter: Option<IncidentExporter>,
     /// Export namespace for multi-tenant support
     export_namespace: Option<String>,
@@ -64,6 +67,7 @@ impl HypothesisController {
             host_id: host_id.into(),
             late_arrival_policy: LateArrivalPolicy::default(),
             global_watermark: GlobalWatermark::new(),
+            #[cfg(feature = "integrations")]
             exporter: None,
             export_namespace: None,
             playbook_index: PlaybookIndex::new(),
@@ -83,6 +87,7 @@ impl HypothesisController {
             host_id: host_id.into(),
             late_arrival_policy: policy,
             global_watermark: GlobalWatermark::new(),
+            #[cfg(feature = "integrations")]
             exporter: None,
             export_namespace: None,
             playbook_index: PlaybookIndex::new(),
@@ -92,7 +97,8 @@ impl HypothesisController {
         }
     }
 
-    /// Create with export configuration
+    /// Create with export configuration (requires integrations feature)
+    #[cfg(feature = "integrations")]
     pub fn with_exporter(
         host_id: impl Into<String>,
         export_config: ExportSinkConfig,
@@ -504,6 +510,7 @@ impl HypothesisController {
             FactType::SecurityToolDisable { .. } => "SecurityToolDisable",
             FactType::ShellCommand { .. } => "ShellCommand",
             FactType::ScriptExec { .. } => "ScriptExec",
+            FactType::ProcessAccess { .. } => "ProcessAccess",
             FactType::Unknown { .. } => "Unknown",
         }
     }
@@ -714,7 +721,8 @@ impl HypothesisController {
                 .map_err(|e| e.to_string())?;
         }
 
-        // Export incident if exporter is configured
+        // Export incident if exporter is configured (requires integrations feature)
+        #[cfg(feature = "integrations")]
         if let Some(exporter) = &mut self.exporter {
             exporter
                 .export_batch(&[&incident], self.export_namespace.as_deref())

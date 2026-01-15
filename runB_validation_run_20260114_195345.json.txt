@@ -1,0 +1,2109 @@
+RUN_ID=run_20260114_195345
+==== RUN META ====
+{
+  "data": {
+    "earliest_ts": 0,
+    "events_total": 441,
+    "facts_extracted": 902,
+    "hosts": [],
+    "latest_ts": 0,
+    "name": null,
+    "profile": "extended",
+    "run_id": "run_20260114_195345",
+    "segments_count": 1,
+    "signal_count": 0,
+    "started_at": "2026-01-15T03:53:45.791664400+00:00",
+    "status": "completed",
+    "stopped_at": "2026-01-15T03:54:23.270437200+00:00"
+  },
+  "success": true
+}
+==== DISCOVERY SUMMARY ====
+{
+  "data": {
+    "available": true,
+    "capability": {
+      "is_admin": false,
+      "powershell_accessible": false,
+      "security_log_accessible": false,
+      "sysmon_installed": false
+    },
+    "drift_summary": {
+      "banner_message": "Telemetry observed despite configuration mismatch — verify sensor setup for reliable future coverage.",
+      "has_drift": true,
+      "items": [
+        {
+          "capability": false,
+          "capability_field": "powershell_accessible",
+          "note": "PowerShell telemetry observed during this run; configuration reports ScriptBlock logging disabled.",
+          "observed": true,
+          "surface": "PowerShell"
+        }
+      ]
+    },
+    "facts_sample_unavailable_reason": null,
+    "milestones": {
+      "items": [
+        {
+          "blocked_reason": null,
+          "count": 0,
+          "description": "New service registered on the system",
+          "evidence": null,
+          "id": "service_installed",
+          "name": "Service Installed",
+          "source": "System 7045",
+          "status": "not_observed"
+        },
+        {
+          "blocked_reason": null,
+          "count": 0,
+          "description": "Event log was cleared (evasion indicator)",
+          "evidence": null,
+          "id": "log_cleared",
+          "name": "Log Cleared",
+          "source": "System 104 / Security 1102",
+          "status": "not_observed"
+        },
+        {
+          "blocked_reason": null,
+          "count": 0,
+          "description": "Task scheduler persistence",
+          "evidence": null,
+          "id": "task_created",
+          "name": "Scheduled Task Created/Modified",
+          "source": "TaskScheduler 106 / Security 4698",
+          "status": "not_observed"
+        },
+        {
+          "blocked_reason": "Install Sysmon or run as Admin",
+          "count": 0,
+          "description": "Run key or other autorun registry persistence",
+          "evidence": null,
+          "id": "registry_autorun",
+          "name": "Registry Autorun Modified",
+          "observed_in_run": false,
+          "source": "Sysmon 12-14 / Security 4657",
+          "status": "not_observable"
+        },
+        {
+          "blocked_reason": "Run as Admin or install Sysmon",
+          "count": 0,
+          "description": "New process creation observed",
+          "evidence": null,
+          "id": "process_execution",
+          "name": "Process Execution",
+          "observed_in_run": false,
+          "source": "Sysmon 1 / Security 4688",
+          "status": "not_observable"
+        },
+        {
+          "blocked_reason": null,
+          "count": 50,
+          "description": "PowerShell script execution logged",
+          "evidence": "fact_1767490491629_e0d6606d",
+          "id": "powershell_scriptblock",
+          "name": "PowerShell ScriptBlock",
+          "observed_in_run": true,
+          "source": "PowerShell 4104",
+          "status": "observed"
+        },
+        {
+          "blocked_reason": "Install Sysmon",
+          "count": 0,
+          "description": "Network egress observed",
+          "evidence": null,
+          "id": "network_connection",
+          "name": "Outbound Network Connection",
+          "observed_in_run": false,
+          "source": "Sysmon 3",
+          "status": "not_observable"
+        }
+      ],
+      "not_observable": 3,
+      "not_observed": 3,
+      "observed": 1
+    },
+    "observed_telemetry": {
+      "network": false,
+      "powershell": true,
+      "process_execution": false,
+      "registry": false
+    },
+    "run_id": "run_20260114_195345",
+    "stats": {
+      "logs_cleared_count": 0,
+      "network_count": 0,
+      "powershell_count": 50,
+      "process_exec_count": 0,
+      "registry_count": 0,
+      "services_count": 0,
+      "tasks_count": 0,
+      "total_changes": 50
+    },
+    "visibility_limits": [
+      {
+        "affected_milestones": [
+          "process_execution",
+          "registry_autorun"
+        ],
+        "has_drift": false,
+        "id": "security_log",
+        "impact": "Process execution (4688), logon events (4624), and privilege use (4672) not observable",
+        "title": "Security Log Not Accessible",
+        "unlock_action": "run_as_admin",
+        "unlock_icon": "🔐",
+        "unlock_label": "Run as Administrator",
+        "unlock_subtext": "Security log access requires administrator privileges."
+      },
+      {
+        "affected_milestones": [
+          "network_connection",
+          "registry_autorun",
+          "process_execution"
+        ],
+        "has_drift": false,
+        "id": "sysmon",
+        "impact": "Network connections, registry changes, process injection, and file creation not observable",
+        "title": "Sysmon Not Installed",
+        "unlock_action": "install_sysmon",
+        "unlock_icon": "🔍",
+        "unlock_label": "Install Sysmon",
+        "unlock_subtext": "Sysmon provides detailed process, network, and registry telemetry."
+      },
+      {
+        "affected_milestones": [
+          "powershell_scriptblock"
+        ],
+        "has_drift": true,
+        "id": "powershell_logging",
+        "impact": "PowerShell script execution not observable - fileless attacks may be missed",
+        "title": "PowerShell Logging Disabled",
+        "unlock_action": "enable_ps_logging",
+        "unlock_icon": "⚡",
+        "unlock_label": "Make this reliable: Enable Logging",
+        "unlock_subtext": "PowerShell execution telemetry was observed this run, but configuration reports logging disabled."
+      }
+    ],
+    "what_changed": {
+      "logs_cleared": {
+        "count": 0,
+        "items": [],
+        "observable": true,
+        "source": "System 104 / Security 1102"
+      },
+      "network_connections": {
+        "blocked_reason": "Requires Sysmon",
+        "count": 0,
+        "items": [],
+        "observable": false,
+        "observation_note": null,
+        "observed_in_run": false,
+        "source": "Not available"
+      },
+      "powershell": {
+        "blocked_reason": null,
+        "count": 50,
+        "items": [
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_e0d6606d",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_e0d6606d",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_fd05eb46",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_fd05eb46",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_aa0ae91c",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_aa0ae91c",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_1acb4d64",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_1acb4d64",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_f7cfed53",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_f7cfed53",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_e4c371a2",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_e4c371a2",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_a1d85f94",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_a1d85f94",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_63b70129",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_63b70129",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_fcf07b00",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_fcf07b00",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_69d15228",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_69d15228",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_61da873e",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_61da873e",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491629_b9a083fc",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491629_b9a083fc",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491629
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491215_a669330c",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491215_a669330c",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491215
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491215_c6aa379b",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491215_c6aa379b",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491215
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491215_6c64eda1",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491215_6c64eda1",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491215
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491215_eb0a3077",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491215_eb0a3077",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491215
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_1c8c8bf4",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_1c8c8bf4",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_60e0aac7",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_60e0aac7",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_9a305ac1",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_9a305ac1",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_7ef287c2",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_7ef287c2",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_80c11b42",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_80c11b42",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_00dbd9aa",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_00dbd9aa",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_30b7d7e8",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_30b7d7e8",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_d44dc34f",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_d44dc34f",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_8907206a",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_8907206a",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_4309c975",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_4309c975",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_2eb336d7",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_2eb336d7",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_74ac4ff1",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_74ac4ff1",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_8f34c220",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_8f34c220",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_94ff6d5f",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_94ff6d5f",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_82279189",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_82279189",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490491141_40e84f2f",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490491141_40e84f2f",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490491141
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490461226_077be164",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490461226_077be164",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490461226
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490461226_0884f43d",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490461226_0884f43d",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490461226
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490461226_49d6037e",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490461226_49d6037e",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490461226
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490461226_6c2edf9d",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490461226_6c2edf9d",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490461226
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490461226_da1e92cf",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490461226_da1e92cf",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490461226
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490461226_87055bce",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490461226_87055bce",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490461226
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490461226_185c9701",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490461226_185c9701",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490461226
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490461226_d6ee9ac2",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490461226_d6ee9ac2",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490461226
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460839_5ecc9bd0",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460839_5ecc9bd0",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460839
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460839_50806f63",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460839_50806f63",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460839
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460839_cf8efe0b",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460839_cf8efe0b",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460839
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460839_5b83a566",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460839_5b83a566",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460839
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460765_a0b2a9df",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460765_a0b2a9df",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460765
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460765_b571d43b",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460765_b571d43b",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460765
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460765_0b82b129",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460765_0b82b129",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460765
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460765_76f38737",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460765_76f38737",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460765
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460765_de52fd30",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460765_de52fd30",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460765
+          },
+          {
+            "entity": "PowerShell",
+            "evidence_id": "fact_1767490460765_3b55c472",
+            "host": "WINDOWS-HVUVRLB",
+            "id": "fact_1767490460765_3b55c472",
+            "pivot_filter": "fact_type=ScriptExec",
+            "script_preview": "",
+            "ts": 1767490460765
+          }
+        ],
+        "observable": true,
+        "observation_note": "PowerShell execution telemetry observed in this run",
+        "observed_in_run": true,
+        "source": "Observed in run"
+      },
+      "process_execution": {
+        "blocked_reason": "Requires Admin or Sysmon",
+        "count": 0,
+        "items": [],
+        "observable": false,
+        "observation_note": null,
+        "observed_in_run": false,
+        "source": "Not available"
+      },
+      "registry": {
+        "blocked_reason": "Requires Sysmon or Security log access",
+        "count": 0,
+        "items": [],
+        "observable": false,
+        "observation_note": null,
+        "observed_in_run": false,
+        "source": "Not available"
+      },
+      "scheduled_tasks": {
+        "count": 0,
+        "items": [],
+        "observable": true,
+        "source": "TaskScheduler 106"
+      },
+      "services": {
+        "count": 0,
+        "items": [],
+        "observable": true,
+        "source": "System 7045"
+      }
+    }
+  },
+  "success": true
+}
+==== NEXT STEPS ====
+{
+  "data": {
+    "actions": [
+      {
+        "action_id": "run_as_admin",
+        "how": [
+          "Close the LocInt application",
+          "Right-click locint.exe and select 'Run as administrator'",
+          "Re-run your detection mission"
+        ],
+        "priority": "high",
+        "rationale": "Security log access requires Administrator privileges. This unlocks 21+ playbooks.",
+        "requires": {
+          "admin": true
+        },
+        "title": "🔓 Run as Administrator",
+        "verify": [
+          "System Readiness shows 'Security log: Accessible'",
+          "Playbooks blocked count should decrease significantly"
+        ],
+        "why": "Process execution, logon events, and privilege changes are logged in the Security log."
+      },
+      {
+        "action_id": "install_sysmon",
+        "how": [
+          "Download Sysmon from Microsoft Sysinternals",
+          "Run as Administrator: sysmon64.exe -accepteula -i sysmonconfig.xml",
+          "Restart LocInt after Sysmon is running"
+        ],
+        "priority": "medium",
+        "rationale": "Sysmon provides deep process and network telemetry for 3+ additional playbooks.",
+        "requires": {
+          "admin": true,
+          "sysmon": true
+        },
+        "title": "⬇️ Install Sysmon",
+        "verify": [
+          "System Readiness shows 'Sysmon: Installed'",
+          "Process Access (Sysmon 10) events appear"
+        ],
+        "why": "Process injection, DLL side-loading, and credential access detection require Sysmon."
+      },
+      {
+        "action_id": "enable_powershell_logging",
+        "how": [
+          "Open Group Policy Editor (gpedit.msc) as Administrator",
+          "Navigate to: Computer Configuration → Admin Templates → Windows PowerShell",
+          "Enable 'Turn on PowerShell Script Block Logging'",
+          "Alternatively set registry: HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging\\EnableScriptBlockLogging = 1"
+        ],
+        "priority": "low",
+        "rationale": "PowerShell Script Block Logging captures encoded command execution.",
+        "title": "⚙️ Enable PowerShell Logging",
+        "verify": [
+          "PowerShell/Operational log shows events",
+          "Script block text appears in events"
+        ],
+        "why": "Many attacks use PowerShell with encoded commands (-EncodedCommand) for evasion."
+      },
+      {
+        "action_id": "enable_sysmon",
+        "deep_link": {
+          "run_id": "run_20260114_195345",
+          "tab": "facts"
+        },
+        "how": [
+          "Download Sysmon from Microsoft Sysinternals",
+          "Run 'sysmon -accepteula -i' as Administrator",
+          "Re-run your capture after Sysmon is active"
+        ],
+        "rationale": "No process execution facts detected. Sysmon provides detailed process telemetry.",
+        "requires": {
+          "admin": true,
+          "sysmon": true
+        },
+        "title": "Install Sysmon for process visibility",
+        "verify": [
+          "Exec or ProcessCreate fact types should appear",
+          "Top Process should show in System State Summary"
+        ],
+        "why": "Process creation events are essential for detecting malicious execution patterns."
+      },
+      {
+        "action_id": "check_playbooks",
+        "how": [
+          "Verify playbooks directory exists in LocInt installation",
+          "Check for YAML parse errors in playbook files",
+          "Restart LocInt to reload playbooks"
+        ],
+        "rationale": "No detection playbooks are loaded. Verify playbooks directory exists.",
+        "title": "Check playbook configuration",
+        "verify": [
+          "Playbook count should be > 0 in Facts tab Playbook Summary"
+        ],
+        "why": "Detection playbooks define the patterns that generate signals."
+      },
+      {
+        "action_id": "discovery_pivot",
+        "deep_link": {
+          "filter": "fact_type=ScriptExec&category=process",
+          "run_id": "run_20260114_195345",
+          "tab": "facts"
+        },
+        "how": [
+          "Click to open Fact Inspector with filter applied",
+          "Review the fact details and entity information",
+          "Correlate with other facts from the same timeframe"
+        ],
+        "priority": "medium",
+        "rationale": "Discovered powershell during this run. Review to assess legitimacy.",
+        "title": "🔍 Review PowerShell activity: 200 PowerShell execution(s)",
+        "verify": [],
+        "why": "New services, tasks, and log clears are common persistence and evasion techniques."
+      }
+    ],
+    "available": true,
+    "capability": {
+      "is_admin": false,
+      "powershell_accessible": false,
+      "security_log_accessible": false,
+      "sysmon_installed": false
+    },
+    "coverage": {
+      "coverage_minutes": 2,
+      "fact_types_count": 1,
+      "has_file_facts": false,
+      "has_network_facts": false,
+      "has_process_facts": false,
+      "playbooks_loaded": 0
+    },
+    "coverage_checklist": [
+      {
+        "reason": "Security log requires Administrator",
+        "status": "blocked",
+        "surface": "Process Execution",
+        "unlock": "Run as Admin"
+      },
+      {
+        "reason": "Sysmon not installed",
+        "status": "blocked",
+        "surface": "Process Injection",
+        "unlock": "Install Sysmon"
+      },
+      {
+        "reason": "Sysmon Event 3 not available",
+        "status": "blocked",
+        "surface": "Network Connections",
+        "unlock": "Install Sysmon"
+      },
+      {
+        "reason": "Script Block Logging not enabled",
+        "status": "partial",
+        "surface": "PowerShell Execution",
+        "unlock": "Enable via Group Policy"
+      },
+      {
+        "reason": "System Event 7045 always available",
+        "status": "ok",
+        "surface": "Service Persistence"
+      },
+      {
+        "reason": "System Event 104 always available",
+        "status": "ok",
+        "surface": "Log Tampering"
+      }
+    ],
+    "discovery_pivots": [
+      {
+        "category": "powershell",
+        "entity": "200 PowerShell execution(s)",
+        "pivot_filter": "fact_type=ScriptExec&category=process"
+      }
+    ],
+    "events_count": 441,
+    "facts_count": 902,
+    "gaps": [
+      "security_log_blocked",
+      "sysmon_not_installed",
+      "powershell_logging_disabled",
+      "missing_process_telemetry",
+      "no_playbooks_loaded"
+    ],
+    "pivots_unavailable_reason": null,
+    "run_id": "run_20260114_195345",
+    "scenario": "coverage_gaps",
+    "signals_count": 0,
+    "summary": {
+      "severity": "medium",
+      "text": "5 coverage/capability gap(s) detected. Address these for better detection."
+    }
+  },
+  "success": true
+}
+==== FACTS (limit=25) ====
+{
+  "data": {
+    "_debug_tables": [
+      "signals",
+      "signal_explanations",
+      "locald_checkpoint",
+      "coverage_rollup",
+      "sqlite_sequence",
+      "segments",
+      "entity_rollup",
+      "playbook_eval_rollup",
+      "facts_sample"
+    ],
+    "available": true,
+    "available_filters": {
+      "categories": [
+        "process"
+      ],
+      "fact_types": [
+        "ScriptExec"
+      ],
+      "hosts": [
+        "WINDOWS-HVUVRLB"
+      ]
+    },
+    "facts": [
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 242,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 242,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_e0d6606d",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 243,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 243,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_fd05eb46",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 244,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 244,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_aa0ae91c",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 245,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 245,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_1acb4d64",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 246,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 246,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_f7cfed53",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 247,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 247,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_e4c371a2",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 242,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 242,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_a1d85f94",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 243,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 243,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_63b70129",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 244,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 244,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_fcf07b00",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 245,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 245,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_69d15228",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 246,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 246,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_61da873e",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 247,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.629Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 247,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.629Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.629Z"
+        },
+        "fact_id": "fact_1767490491629_b9a083fc",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491629
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 240,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.215Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 240,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.215Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.215Z"
+        },
+        "fact_id": "fact_1767490491215_a669330c",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491215
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 241,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.215Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 241,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.215Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.215Z"
+        },
+        "fact_id": "fact_1767490491215_c6aa379b",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491215
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 240,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.215Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 240,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.215Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.215Z"
+        },
+        "fact_id": "fact_1767490491215_6c64eda1",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491215
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 241,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.215Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 241,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.215Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.215Z"
+        },
+        "fact_id": "fact_1767490491215_eb0a3077",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491215
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 232,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 232,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_1c8c8bf4",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 233,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 233,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_60e0aac7",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 234,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 234,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_9a305ac1",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 235,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 235,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_7ef287c2",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 236,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 236,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_80c11b42",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 237,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 237,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_00dbd9aa",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 238,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 238,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_30b7d7e8",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 239,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 239,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_d44dc34f",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      },
+      {
+        "category": "process",
+        "details": {
+          "fact_type": "script_exec",
+          "interpreter": "powershell",
+          "script_content_hash": null,
+          "script_path": null
+        },
+        "entity_key": "script:powershell",
+        "evidence": [
+          {
+            "record_index": 232,
+            "segment_id": "0",
+            "stream_id": "Microsoft-Windows-PowerShell/Operational",
+            "ts": "2026-01-04T01:34:51.141Z"
+          }
+        ],
+        "fact_full": {
+          "confidence": 1.0,
+          "evidence_ptrs": [
+            {
+              "record_index": 232,
+              "segment_id": "0",
+              "stream_id": "Microsoft-Windows-PowerShell/Operational",
+              "ts": "2026-01-04T01:34:51.141Z"
+            }
+          ],
+          "fact_id": "883e32af61a59d823b94c4571f27f36c",
+          "fact_type": {
+            "fact_type": "script_exec",
+            "interpreter": "powershell",
+            "script_content_hash": null,
+            "script_path": null
+          },
+          "has_visibility_gap": false,
+          "host_id": "WINDOWS-HVUVRLB",
+          "scope_key": {
+            "key": "host:WINDOWS-HVUVRLB",
+            "scope_type": "process"
+          },
+          "ts": "2026-01-04T01:34:51.141Z"
+        },
+        "fact_id": "fact_1767490491141_8907206a",
+        "fact_type": "ScriptExec",
+        "host": "WINDOWS-HVUVRLB",
+        "ts": 1767490491141
+      }
+    ],
+    "filters": {
+      "category": null,
+      "fact_type": null,
+      "host": null,
+      "search": null
+    },
+    "pagination": {
+      "has_more": true,
+      "limit": 25,
+      "offset": 0,
+      "total": 200
+    },
+    "run_id": "run_20260114_195345"
+  },
+  "success": true
+}

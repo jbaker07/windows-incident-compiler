@@ -6,6 +6,7 @@
 name: "Windows Registry Persistence"
 id: "windows_registry_persistence_001"
 version: "1.0"
+requires: ["sysmon"]
 description: |
   Detects registry-based persistence techniques.
   Monitors:

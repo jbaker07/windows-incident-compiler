@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>EDR Desktop - Loading</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .container {
+      text-align: center;
+      padding: 2rem;
+    }
+    .logo {
+      width: 80px;
+      height: 80px;
+      margin-bottom: 1.5rem;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.8; transform: scale(0.95); }
+    }
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    .status {
+      font-size: 0.875rem;
+      color: #94a3b8;
+      margin-bottom: 2rem;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #334155;
+      border-top-color: #38bdf8;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .info {
+      margin-top: 2rem;
+      font-size: 0.75rem;
+      color: #64748b;
+    }
+    .info-row {
+      margin: 0.25rem 0;
+    }
+    .error {
+      background: #7f1d1d;
+      border: 1px solid #dc2626;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-top: 1rem;
+      display: none;
+      max-width: 400px;
+    }
+    .error.visible {
+      display: block;
+    }
+    .error h3 {
+      color: #fca5a5;
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+    }
+    .error p {
+      color: #fecaca;
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <svg class="logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="45" stroke="#38bdf8" stroke-width="4" fill="none"/>
+      <circle cx="50" cy="50" r="30" stroke="#0ea5e9" stroke-width="2" fill="none"/>
+      <circle cx="50" cy="50" r="15" fill="#0ea5e9"/>
+      <path d="M50 5 L50 20" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+      <path d="M50 80 L50 95" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+      <path d="M5 50 L20 50" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+      <path d="M80 50 L95 50" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+    
+    <h1>EDR Desktop</h1>
+    <p class="status" id="status">Starting backend server...</p>
+    
+    <div class="spinner" id="spinner"></div>
+    
+    <div class="error" id="error">
+      <h3>Startup Error</h3>
+      <p id="errorText"></p>
+    </div>
+    
+    <div class="info">
+      <div class="info-row" id="portInfo">Port: detecting...</div>
+      <div class="info-row" id="telemetryInfo">Telemetry: detecting...</div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // Only run in Tauri
+      if (!window.__TAURI__) {
+        document.getElementById('status').textContent = 'Running in browser mode';
+        document.getElementById('spinner').style.display = 'none';
+        return;
+      }
+
+      const { invoke } = window.__TAURI__.core;
+
+      async function checkStatus() {
+        try {
+          const status = await invoke('get_status');
+          
+          document.getElementById('portInfo').textContent = 'Port: ' + status.port;
+          document.getElementById('telemetryInfo').textContent = 'Telemetry: ' + status.telemetry_root;
+          
+          if (status.running) {
+            document.getElementById('status').textContent = 'Backend ready! Loading workbench...';
+            // Navigation is handled by Tauri main.rs
+          }
+        } catch (e) {
+          // Still initializing, keep polling
+          setTimeout(checkStatus, 500);
+        }
+      }
+
+      checkStatus();
+    })();
+  </script>
+</body>
+</html>

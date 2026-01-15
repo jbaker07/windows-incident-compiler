@@ -134,8 +134,10 @@ pub async fn execute_pack(pack: &ScenarioPack) -> Result<PackExecutionResult, St
 
         // Delay after step
         if step.delay_after_ms > 0 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(step.delay_after_ms as u64))
-                .await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(
+                step.delay_after_ms as u64,
+            ))
+            .await;
         }
     }
 
@@ -346,8 +348,8 @@ fn get_adversary_lolbin_tier_a_pack() -> ScenarioPack {
     ScenarioPack {
         id: "adversary_lolbin_tier_a".to_string(),
         name: "LOLBin Tier A (Safe Discovery)".to_string(),
-        description:
-            "Safe reconnaissance commands that should trigger discovery playbooks.".to_string(),
+        description: "Safe reconnaissance commands that should trigger discovery playbooks."
+            .to_string(),
         category: ScenarioCategory::AdversarySimulation,
         risk_level: RiskLevel::Safe,
         expected_duration_sec: 60,
@@ -508,8 +510,8 @@ fn get_adversary_credential_access_pack() -> ScenarioPack {
     ScenarioPack {
         id: "adversary_credential_access".to_string(),
         name: "Credential Access (Safe)".to_string(),
-        description:
-            "Safe credential enumeration patterns without actual credential theft.".to_string(),
+        description: "Safe credential enumeration patterns without actual credential theft."
+            .to_string(),
         category: ScenarioCategory::AdversarySimulation,
         risk_level: RiskLevel::Low,
         expected_duration_sec: 45,

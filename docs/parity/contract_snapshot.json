@@ -1,0 +1,48 @@
+{
+  "contract_version": "1.0.0",
+  "contract_hash": "v1-core-202601",
+  "wrapper": {
+    "success_field": "success",
+    "data_field": "data",
+    "error_field": "error",
+    "code_field": "code"
+  },
+  "list_convention": "named_array",
+  "content_type_required": "application/json",
+  "core_endpoints": {
+    "GET /api/runs": {
+      "array_field": "runs",
+      "required_keys": ["run_id", "signal_count", "status"]
+    },
+    "GET /api/signals": {
+      "array_field": "signals",
+      "required_keys": ["signal_id", "signal_type", "severity", "ts"]
+    },
+    "GET /api/signals/:id/explain": {
+      "required_keys": ["available", "signal", "source", "evidence_ptrs", "evidence_ptrs_count"],
+      "conditional": {
+        "available=false": ["reason_code", "message"],
+        "available=true": ["explanation"]
+      }
+    },
+    "GET /api/runs/:id/coverage": {
+      "required_keys": ["available", "run_id"]
+    },
+    "GET /api/runs/:id/playbooks": {
+      "required_keys": ["available", "run_id"]
+    }
+  },
+  "error_codes": {
+    "BINARY_NOT_FOUND": "Helper binary missing (HTTP 412)",
+    "RUN_ALREADY_ACTIVE": "Run already in progress (HTTP 409)",
+    "NO_ACTIVE_RUN": "No run to stop (HTTP 409)",
+    "SPAWN_FAILED": "Process spawn failed (HTTP 500)",
+    "HTML_RESPONSE": "Got HTML instead of JSON (check same-origin)",
+    "EXPLANATION_NOT_FOUND": "Signal exists but no explanation in DB",
+    "SIGNAL_NOT_FOUND": "Signal not found in database",
+    "PLAYBOOKS_NOT_FOUND": "Playbooks directory not found",
+    "PLAYBOOKS_DISABLED": "Playbooks disabled by config",
+    "FEATURE_LOCKED": "Feature requires higher tier (see required_tier)"
+  },
+  "notes": "All API endpoints return JSON with {success, data} or {success:false, error, code}. Binary endpoints (export/bundle) return application/zip. See docs/API_CONTRACT_CORE.md for full spec."
+}

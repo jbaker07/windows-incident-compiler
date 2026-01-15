@@ -1,0 +1,50 @@
+---
+# playbooks/windows/signal_lolbin_abuse.yaml
+# Detect LOLBin abuse (rundll32, regsvr32, mshta, powershell, etc.)
+
+name: "LOLBin Abuse Detection"
+description: "Detect suspicious use of Windows Living-off-the-land binaries"
+version: "1.0"
+
+detection:
+  signal:
+    type: "windows_lolbin_abuse"
+    lolbins:
+      - "rundll32.exe"
+      - "regsvr32.exe"
+      - "mshta.exe"
+      - "powershell.exe"
+      - "wscript.exe"
+      - "cscript.exe"
+      - "certutil.exe"
+      - "bitsadmin.exe"
+      - "schtasks.exe"
+      - "wmic.exe"
+      - "sc.exe"
+      - "net.exe"
+      - "nltest.exe"
+    suspicious_args:
+      - "-nop"
+      - "-enc"
+      - "-ep bypass"
+      - "System.Reflection"
+      - "IEX"
+      - "DownloadString"
+
+response:
+  severity: "high"
+  actions:
+    - alert: true
+    - isolate: true
+    - block_network: false
+  
+  correlations:
+    - type: "same_parent_exe"
+      window: 300
+    - type: "parent_is_explorer_or_office"
+      multiplier: 1.5
+
+tags:
+  - "T1218"
+  - "defense_evasion"
+  - "execution"

@@ -1,12 +1,90 @@
-# git-glue
+# EDR Incident Compiler
 
 EDR (Endpoint Detection and Response) incident compiler pipeline with cross-platform telemetry capture.
 
 ---
 
-## 🖥️ Desktop App (Recommended)
+## 🚀 Run the Product (One Command)
 
-The easiest way to use EDR is via the **Tauri Desktop App** — no scripts required.
+After building, start the app with a **single command**:
+
+```powershell
+# GUI mode (opens browser automatically)
+.\target\release\locint.exe
+
+# CLI/headless mode (no browser)
+.\target\release\edr-server.exe
+```
+
+**That's it.** The UI opens at `http://127.0.0.1:3000/ui/`
+
+> ⚠️ **Never run the helper binaries directly.** The supervisor automatically spawns
+> `capture_windows_rotating.exe` and `edr-locald.exe` when you click "Start Run".
+
+### What You Can Do in the UI
+
+1. **Click "Start Run"** → Supervisor spawns capture + locald automatically
+2. **View live metrics** → Watch events, segments, and signals accumulate (real DB counts, no estimates)
+3. **Click "Stop Run"** → Supervisor stops processes and finalizes the run
+4. **View Detections** → Signals appear with Explain/Narrative buttons
+5. **Generate Activity** → Click 🧪 to trigger test commands for playbook matches
+6. **Export/Import** → Share incident bundles
+
+### If "Start Run" Shows Missing Binaries (HTTP 412)
+
+The UI will display the exact build commands needed. Run them once:
+
+```powershell
+cargo build --release -p agent-windows --bin capture_windows_rotating
+cargo build --release -p edr-locald --bin edr-locald
+```
+
+Then click "Start Run" again. The supervisor searches for binaries in:
+1. Same directory as the main executable
+2. `./bin/` subdirectory (packaged deployment)
+3. `target/release/` (dev builds)
+
+### To Stop the Server
+
+Press `Ctrl+C` in the terminal where locint/edr-server is running. The supervisor automatically terminates any running capture and locald processes.
+
+---
+
+## 📋 Prerequisites
+
+1. **Rust toolchain**: `rustup` with stable toolchain
+2. **Visual Studio Build Tools**: For Windows compilation
+3. (Optional) **Administrator rights**: For full telemetry access
+
+### Build Everything
+
+```powershell
+cargo build --release --bins
+```
+
+This builds all required binaries:
+- `locint.exe` — GUI server (recommended entry point)
+- `edr-server.exe` — CLI/headless server  
+- `capture_windows_rotating.exe` — Telemetry capture (auto-spawned)
+- `edr-locald.exe` — Incident compiler (auto-spawned)
+
+---
+
+## ✅ Verify the Build (Optional)
+
+Run the smoke test harness to verify all APIs work:
+
+```powershell
+cargo run --bin wi_run_all --release --
+```
+
+⚠️ **Note:** This is a verification tool, not how you run the product. It starts a temporary server, runs automated tests, and exits. For normal use, run `edr-server.exe` directly as shown above.
+
+---
+
+## 🖥️ Desktop App (Alternative)
+
+The Tauri Desktop App is an alternative way to use EDR.
 
 ### Prerequisites
 
@@ -70,6 +148,31 @@ cargo run
 - **Default**: `%LOCALAPPDATA%\windows-incident-compiler\telemetry\`
 - **Override**: Set `EDR_TELEMETRY_ROOT` environment variable
 
+### Playbooks (Detection Rules)
+
+Playbooks are **enabled by default**. The built-in starter pack ships with the binary and is automatically discovered.
+
+**Discovery Order** (first found wins):
+1. `<binary_dir>/playbooks/` — Next to the executable
+2. `%LOCALAPPDATA%/LocInt/playbooks/` — User data folder
+3. `EDR_PLAYBOOKS_DIR` environment variable — Custom location
+
+**Configuration:**
+| Variable | Values | Default | Description |
+|----------|--------|---------|-------------|
+| `LOCINT_PLAYBOOKS` | `on`, `off` | `on` | Enable/disable playbook evaluation |
+
+To disable playbooks entirely:
+```powershell
+$env:LOCINT_PLAYBOOKS = "off"
+.\target\release\locint.exe
+```
+
+When playbooks are enabled and loaded, they produce real signals from matched telemetry events. Each signal includes:
+- Evidence pointers to source events
+- MITRE ATT&CK technique mapping
+- Explainability metadata (slots, narrative)
+
 ---
 
 ## 📜 CLI / Scripts (Dev/CI Only)
@@ -98,6 +201,62 @@ cargo build --release --bins
 # Auto-fix missing channels (requires admin)
 .\scripts\enable_advanced_telemetry.ps1 -AutoFix
 ```
+
+---
+
+## 🦀 Smoke Test Harness (CI/Dev Only)
+
+⚠️ **This is NOT how you run the product.** See "Run the Product" section above.
+
+The smoke test is a verification tool for CI and development:
+
+```bash
+cargo run --bin wi_run_all --release --
+```
+
+What it does:
+1. Starts a **temporary** server instance
+2. Runs automated API tests (12 steps)
+3. **Shuts down** when complete
+
+This is useful for:
+   - Health endpoint (`/api/health`)
+   - Selfcheck endpoint (`/api/selfcheck`)
+   - Start run (`POST /api/run/start`)
+   - Poll status (`/api/run/status`)
+   - Metrics (`/api/run/metrics`)
+   - Stop run (`POST /api/run/stop`)
+   - List runs (`/api/runs`)
+   - Signals API with run_id filter (`/api/signals?run_id=<id>`)
+   - Pagination bounds (default=200, max=1000)
+   - Explain endpoint (`/api/signals/<id>/explain`)
+   - Export/Import round-trip (`/api/export_bundle`, `/api/import_bundle`)
+5. **Shutdown**: Clean server termination
+6. **Report**: JSON artifact saved to `./artifacts/smoke_report.json`
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0`  | All smoke tests passed |
+| `1`  | One or more tests failed |
+
+### Artifacts
+
+```
+./artifacts/
+├── smoke_report.json    # Step-by-step results
+├── bundle.zip           # Exported bundle (if export succeeded)
+└── server.log           # Server stdout/stderr (if available)
+```
+
+### Why Rust Instead of PowerShell?
+
+- **Cross-platform**: Same binary runs on Linux CI
+- **No shell escaping issues**: No quoting, no `-ExecutionPolicy` headaches
+- **Atomic**: Single `cargo run` invocation
+- **Timeout-aware**: Built-in deadlines for each step
+- **Clean shutdown**: Server killed even on Ctrl+C or panic
 
 ---
 
@@ -402,22 +561,59 @@ Features:
 ## Architecture
 
 ```
-capture_windows_rotating → segments/*.jsonl → edr-locald → signals → edr-server (API + UI)
-                                    ↓
-                              workbench.db
-                                    ↓
-                           metrics/*.json
+┌─────────────────────────────────────────────────────────────────┐
+│  locint.exe / edr-server.exe                                    │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  SUPERVISOR                                               │  │
+│  │  - Spawns/stops capture + locald on Start/Stop Run        │  │
+│  │  - Tracks PIDs, polls liveness                            │  │
+│  │  - Finalizes run_meta.json on stop                        │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│         ↓ spawn                        ↓ spawn                  │
+│  capture_windows_rotating.exe    edr-locald.exe                 │
+│         ↓ writes                       ↓ reads                  │
+│     segments/*.jsonl  ──────────→  workbench.db                 │
+│                                        ↓                        │
+│                                   signals + facts               │
+│                                        ↓                        │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  HTTP API + UI (port 3000)                                │  │
+│  │  /api/run/start, /stop, /status, /metrics                 │  │
+│  │  /api/signals, /api/signals/<id>/explain                  │  │
+│  │  /ui/ → static UI files                                   │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 | Component | Description |
 |-----------|-------------|
-| `capture_windows_rotating` | Windows ETW telemetry capture |
-| `edr-locald` | Incident compiler (fact extraction, playbook matching) |
-| `edr-server` | HTTP API + UI server (port 3000) |
-| `eval_windows.ps1` | E2E evaluation harness |
+| `locint.exe` | **Entry point (GUI)** — HTTP API + UI + Supervisor |
+| `edr-server.exe` | **Entry point (CLI)** — Same as locint, no auto-browser |
+| `Supervisor` | Process manager — spawns/stops capture + locald automatically |
+| `capture_windows_rotating` | Windows ETW telemetry capture (auto-spawned) |
+| `edr-locald` | Incident compiler: fact extraction, playbook matching (auto-spawned) |
+
+### Supervisor Behavior
+
+| API Call | Supervisor Action |
+|----------|-------------------|
+| `POST /api/run/start` | Spawn capture + locald, track PIDs, return `run_id` |
+| `GET /api/run/status` | Return phase (idle/running/finalizing), PIDs, liveness |
+| `GET /api/run/metrics` | Query DB for real segment/signal counts |
+| `POST /api/run/stop` | Stop capture → drain locald → finalize run_meta.json |
+
+### Error Codes
+
+| HTTP | Code | Meaning |
+|------|------|---------|
+| 412 | `BINARY_NOT_FOUND` | Helper binary missing — build it first |
+| 409 | `RUN_ALREADY_ACTIVE` | A run is already in progress |
+| 409 | `NO_ACTIVE_RUN` | No run to stop (already idle) |
+| 500 | `SPAWN_FAILED` | Process failed to start (check permissions) |
 
 ## Documentation
 
+- [docs/VALIDATION_RUN.md](docs/VALIDATION_RUN.md) - **End-to-end validation workflow** (known-fire test)
 - [docs/playbooks_windows_coverage.md](docs/playbooks_windows_coverage.md) - Playbook → MITRE mapping
 - [docs/facts_windows.md](docs/facts_windows.md) - Event ID → Fact type mapping
 - [docs/ui_workflow.md](docs/ui_workflow.md) - UI usage guide

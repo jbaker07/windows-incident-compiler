@@ -1,6 +1,17 @@
 // windows/sensors/task_scheduler_monitor.rs
-// Scheduled task lifecycle monitoring: create, update, run
-// Sources: TaskScheduler/Operational (Event IDs 106=create, 140=update, 200=execute)
+//! Scheduled task lifecycle monitoring: create, update, run
+//!
+//! # Architecture Note
+//! This module is intentionally a STUB. Task scheduler events are captured via the
+//! unified WEVTAPI polling path (`wevt_reader.rs`), then normalized in
+//! `attack_surface.rs::parse_persistence_task()` and `parse_persistence_task_operational()`.
+//!
+//! The sources handled by the main pipeline are:
+//! - Security EventID 4698: Task created (with full TaskContent XML)
+//! - Security EventID 4702: Task updated
+//! - TaskScheduler/Operational EventID 106: Task registered
+//!
+//! This module remains for reference and to document the expected event schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

@@ -8,19 +8,16 @@
 //! - Counters come from real artifacts (index.json, workbench.db, API)
 //! - Baseline mechanism for regression detection
 
-use crate::baseline::{
-    BaselineManager, BaselineMetadata, BaselineComparison, ComparisonVerdict,
-};
-use crate::missions::{MissionProfile, MissionType, MissionExpectations, get_builtin_profiles};
+use crate::baseline::{BaselineComparison, BaselineManager, BaselineMetadata};
+use crate::missions::{get_builtin_profiles, MissionExpectations, MissionProfile, MissionType};
 use crate::pipeline_counters::{
-    PipelineCounterFetcher, PipelineCounters, SignalProvenanceProof,
-    prove_signal_provenance,
+    prove_signal_provenance, PipelineCounterFetcher, PipelineCounters, SignalProvenanceProof,
 };
-use crate::quality_gates::{QualityGatesEngine, QualityReport, GateResult, GateStatus};
+use crate::quality_gates::{GateResult, GateStatus, QualityGatesEngine, QualityReport};
 use crate::run_metrics::RunSummary;
 use crate::scenario_packs::{
-    self, ScenarioPack, ScenarioCategory, PackExecutionResult, 
-    get_all_packs, get_pack_by_id, get_packs_by_category,
+    self, get_all_packs, get_pack_by_id, get_packs_by_category, PackExecutionResult,
+    ScenarioCategory, ScenarioPack,
 };
 use crate::supervisor::SupervisorState;
 
@@ -44,6 +41,12 @@ pub struct MissionStateHandle {
     pub inner: RwLock<MissionState>,
 }
 
+impl Default for MissionStateHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MissionStateHandle {
     pub fn new() -> Self {
         Self {
@@ -64,7 +67,9 @@ pub async fn get_mission_profiles() -> Result<Vec<MissionProfile>, String> {
 
 /// Get mission profiles by type
 #[tauri::command]
-pub async fn get_mission_profiles_by_type(mission_type: String) -> Result<Vec<MissionProfile>, String> {
+pub async fn get_mission_profiles_by_type(
+    mission_type: String,
+) -> Result<Vec<MissionProfile>, String> {
     let mt = parse_mission_type(&mission_type)?;
     let profiles = get_builtin_profiles()
         .into_iter()
@@ -97,8 +102,15 @@ pub async fn get_scenario_packs() -> Result<Vec<ScenarioPack>, String> {
 pub async fn get_scenario_packs_by_category(category: String) -> Result<Vec<ScenarioPack>, String> {
     let cat = match category.to_lowercase().as_str() {
         "discovery" => ScenarioCategory::Discovery,
-        "adversary" | "adversarysimulation" | "adversary_simulation" => ScenarioCategory::AdversarySimulation,
-        _ => return Err(format!("Unknown category: {}. Use 'discovery' or 'adversary'.", category)),
+        "adversary" | "adversarysimulation" | "adversary_simulation" => {
+            ScenarioCategory::AdversarySimulation
+        }
+        _ => {
+            return Err(format!(
+                "Unknown category: {}. Use 'discovery' or 'adversary'.",
+                category
+            ))
+        }
     };
     Ok(get_packs_by_category(cat))
 }
@@ -106,18 +118,15 @@ pub async fn get_scenario_packs_by_category(category: String) -> Result<Vec<Scen
 /// Get a specific scenario pack
 #[tauri::command]
 pub async fn get_scenario_pack(pack_id: String) -> Result<ScenarioPack, String> {
-    get_pack_by_id(&pack_id)
-        .ok_or_else(|| format!("Scenario pack not found: {}", pack_id))
+    get_pack_by_id(&pack_id).ok_or_else(|| format!("Scenario pack not found: {}", pack_id))
 }
 
 /// Execute a scenario pack
 #[tauri::command]
-pub async fn execute_scenario_pack(
-    pack_id: String,
-) -> Result<PackExecutionResult, String> {
-    let pack = get_pack_by_id(&pack_id)
-        .ok_or_else(|| format!("Scenario pack not found: {}", pack_id))?;
-    
+pub async fn execute_scenario_pack(pack_id: String) -> Result<PackExecutionResult, String> {
+    let pack =
+        get_pack_by_id(&pack_id).ok_or_else(|| format!("Scenario pack not found: {}", pack_id))?;
+
     scenario_packs::execute_pack(&pack).await
 }
 
@@ -138,7 +147,7 @@ pub async fn start_mission(
         .into_iter()
         .find(|p| p.id == profile_id)
         .ok_or_else(|| format!("Mission profile not found: {}", profile_id))?;
-    
+
     // Apply duration override (convert minutes to seconds)
     let duration_minutes = if let Some(duration) = duration_override_minutes {
         profile.config.duration_seconds = duration * 60;
@@ -146,30 +155,30 @@ pub async fn start_mission(
     } else {
         profile.config.duration_seconds / 60
     };
-    
+
     // Check readiness
     let readiness = {
         let supervisor = supervisor_state.inner.read().await;
         supervisor.get_readiness()
     };
-    
+
     // Store mission state
     {
         let mut state = mission_state.inner.write().await;
         state.active_profile = Some(profile.clone());
     }
-    
+
     // Start the supervisor run
     let run_config = crate::supervisor::RunConfig {
         duration_minutes,
         selected_playbooks: profile.config.playbooks.clone(),
     };
-    
+
     {
         let mut supervisor = supervisor_state.inner.write().await;
         supervisor.start_run(run_config).await?;
     }
-    
+
     Ok(MissionStartResult {
         profile_id: profile.id.clone(),
         profile_name: profile.name.clone(),
@@ -190,20 +199,30 @@ pub async fn get_mission_readiness(
         let supervisor = supervisor_state.inner.read().await;
         supervisor.get_readiness()
     };
-    
+
     let has_active_mission = {
         let state = mission_state.inner.read().await;
         state.active_profile.is_some()
     };
-    
+
     // Calculate overall readiness score (0-100)
     let mut score = 0;
-    if readiness.is_admin { score += 25; }
-    if readiness.can_read_security_log { score += 25; }
-    if readiness.sysmon_installed { score += 25; }
-    if readiness.audit_policy_state.process_creation { score += 15; }
-    if readiness.powershell_logging_enabled { score += 10; }
-    
+    if readiness.is_admin {
+        score += 25;
+    }
+    if readiness.can_read_security_log {
+        score += 25;
+    }
+    if readiness.sysmon_installed {
+        score += 25;
+    }
+    if readiness.audit_policy_state.process_creation {
+        score += 15;
+    }
+    if readiness.powershell_logging_enabled {
+        score += 10;
+    }
+
     // Determine readiness level
     let level = if score >= 90 {
         "excellent"
@@ -214,7 +233,7 @@ pub async fn get_mission_readiness(
     } else {
         "minimal"
     };
-    
+
     // Build recommendations
     let mut recommendations = vec![];
     if !readiness.is_admin {
@@ -232,7 +251,7 @@ pub async fn get_mission_readiness(
     if !readiness.powershell_logging_enabled {
         recommendations.push("Enable PowerShell Script Block Logging".to_string());
     }
-    
+
     Ok(MissionReadiness {
         score,
         level: level.to_string(),
@@ -247,7 +266,7 @@ pub async fn get_mission_readiness(
 }
 
 /// Get live metrics during a mission - REAL PIPELINE COUNTERS
-/// 
+///
 /// Fetches actual counters from:
 /// - index.json (events captured, segments written)
 /// - workbench.db (facts, signals)
@@ -258,11 +277,11 @@ pub async fn get_mission_metrics(
     mission_state: State<'_, MissionStateHandle>,
 ) -> Result<Option<LiveMissionMetrics>, String> {
     let state = mission_state.inner.read().await;
-    
+
     let Some(ref profile) = state.active_profile else {
         return Ok(None);
     };
-    
+
     // Get status from supervisor
     let (run_dir, api_base_url, run_started) = {
         let mut supervisor = supervisor_state.inner.write().await;
@@ -273,7 +292,7 @@ pub async fn get_mission_metrics(
             status.run_started,
         )
     };
-    
+
     // Calculate elapsed time
     let elapsed_seconds = run_started
         .as_ref()
@@ -285,9 +304,9 @@ pub async fn get_mission_metrics(
             duration.num_seconds().max(0) as u64
         })
         .unwrap_or(0);
-    
+
     // Fetch REAL counters from the pipeline
-    let (events_captured, facts_generated, signals_fired, incidents_formed) = 
+    let (events_captured, facts_generated, signals_fired, incidents_formed) =
         if let Some(ref run_dir) = run_dir {
             let fetcher = PipelineCounterFetcher::new(run_dir.clone(), api_base_url);
             let counters = fetcher.fetch_all().await;
@@ -300,7 +319,7 @@ pub async fn get_mission_metrics(
         } else {
             (0, 0, 0, 0)
         };
-    
+
     Ok(Some(LiveMissionMetrics {
         profile_id: profile.id.clone(),
         profile_name: profile.name.clone(),
@@ -326,13 +345,13 @@ pub async fn stop_mission(
         let mut supervisor = supervisor_state.inner.write().await;
         supervisor.stop_all().await?;
     }
-    
+
     // Clear mission state
     let profile = {
         let mut state = mission_state.inner.write().await;
         state.active_profile.take()
     };
-    
+
     match profile {
         Some(profile) => {
             Ok(MissionStopResult {
@@ -345,7 +364,7 @@ pub async fn stop_mission(
             profile_id: "unknown".to_string(),
             profile_name: "Unknown".to_string(),
             run_summary: None,
-        })
+        }),
     }
 }
 
@@ -364,7 +383,7 @@ pub async fn evaluate_quality_gates(
         let supervisor = supervisor_state.inner.read().await;
         supervisor.get_grounded_health_gates().await?
     };
-    
+
     // Get mission profile if available
     let (mission_type, expectations) = {
         let state = mission_state.inner.read().await;
@@ -373,40 +392,47 @@ pub async fn evaluate_quality_gates(
             None => (MissionType::Discovery, MissionExpectations::default()),
         }
     };
-    
+
     // Create quality gates engine
     let engine = QualityGatesEngine::new(mission_type, expectations);
-    
+
     // Build RunSummary from GROUNDED gates
     let summary = grounded_gates_to_run_summary(&grounded_gates);
-    
+
     // Evaluate all gates
     let report = engine.evaluate(&summary);
-    
+
     Ok(report)
 }
 
 /// Convert GROUNDED gates to RunSummary for quality evaluation
 fn grounded_gates_to_run_summary(gates: &crate::grounded_gates::GroundedHealthGates) -> RunSummary {
     use crate::run_metrics::*;
-    
-    let mut summary = RunSummary::default();
-    summary.run_id = "current".to_string();
-    
+
+    let mut summary = RunSummary {
+        run_id: "current".to_string(),
+        ..Default::default()
+    };
+
     // Map GROUNDED metrics to RunSummary
     summary.capture.events_read = gates.telemetry.events_count as u64;
     summary.capture.segments_written = gates.telemetry.segments_count;
-    
+
     // Compiler metrics from extraction gate
     summary.compiler.facts_extracted = gates.extraction.facts_count as u64;
-    
+
     // Signals from detection gate
     summary.compiler.signals_emitted = gates.detection.signals_count as u64;
-    summary.compiler.playbooks_matched = gates.detection.signals_by_playbook.keys().cloned().collect();
-    
+    summary.compiler.playbooks_matched = gates
+        .detection
+        .signals_by_playbook
+        .keys()
+        .cloned()
+        .collect();
+
     // Environment info - set from readiness (we don't have direct access here)
     summary.environment.is_admin = true; // Default assumption
-    
+
     summary
 }
 
@@ -417,7 +443,7 @@ pub async fn get_quality_scoreboard(
     mission_state: State<'_, MissionStateHandle>,
 ) -> Result<QualityScoreboard, String> {
     let report = evaluate_quality_gates(supervisor_state, mission_state).await?;
-    
+
     // Convert GatesResult to scoreboard format
     let gates = vec![
         gate_to_scoreboard(&report.gates.readiness),
@@ -427,17 +453,17 @@ pub async fn get_quality_scoreboard(
         gate_to_scoreboard(&report.gates.explainability),
         gate_to_scoreboard(&report.gates.performance),
     ];
-    
+
     let overall_emoji = match report.overall_verdict.as_str() {
         "pass" => "🎉",
         "warn" => "⚠️",
         "fail" => "❌",
         _ => "❓",
     };
-    
+
     // Calculate total score
     let total_score = gates.iter().map(|g| g.score).sum::<u32>() / gates.len().max(1) as u32;
-    
+
     Ok(QualityScoreboard {
         gates,
         overall_verdict: report.overall_verdict,
@@ -469,16 +495,15 @@ pub async fn compare_runs(
     // Load run summaries
     let current_path = PathBuf::from(&current_run_path).join("run_summary.json");
     let baseline_path = PathBuf::from(&baseline_run_path).join("run_summary.json");
-    
+
     let current_json: serde_json::Value = if current_path.exists() {
         let content = std::fs::read_to_string(&current_path)
             .map_err(|e| format!("Failed to read current run: {}", e))?;
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse current run: {}", e))?
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse current run: {}", e))?
     } else {
         return Err("Current run summary not found".to_string());
     };
-    
+
     let baseline_json: serde_json::Value = if baseline_path.exists() {
         let content = std::fs::read_to_string(&baseline_path)
             .map_err(|e| format!("Failed to read baseline run: {}", e))?;
@@ -487,32 +512,48 @@ pub async fn compare_runs(
     } else {
         return Err("Baseline run summary not found".to_string());
     };
-    
+
     // Extract metrics for comparison
-    let current_events = current_json["capture"]["events_captured"].as_u64().unwrap_or(0);
-    let baseline_events = baseline_json["capture"]["events_captured"].as_u64().unwrap_or(0);
-    
-    let current_facts = current_json["compiler"]["facts_generated"].as_u64().unwrap_or(0);
-    let baseline_facts = baseline_json["compiler"]["facts_generated"].as_u64().unwrap_or(0);
-    
-    let current_signals = current_json["compiler"]["signals_fired"].as_u64().unwrap_or(0);
-    let baseline_signals = baseline_json["compiler"]["signals_fired"].as_u64().unwrap_or(0);
-    
-    let current_incidents = current_json["compiler"]["incidents_formed"].as_u64().unwrap_or(0);
-    let baseline_incidents = baseline_json["compiler"]["incidents_formed"].as_u64().unwrap_or(0);
-    
+    let current_events = current_json["capture"]["events_captured"]
+        .as_u64()
+        .unwrap_or(0);
+    let baseline_events = baseline_json["capture"]["events_captured"]
+        .as_u64()
+        .unwrap_or(0);
+
+    let current_facts = current_json["compiler"]["facts_generated"]
+        .as_u64()
+        .unwrap_or(0);
+    let baseline_facts = baseline_json["compiler"]["facts_generated"]
+        .as_u64()
+        .unwrap_or(0);
+
+    let current_signals = current_json["compiler"]["signals_fired"]
+        .as_u64()
+        .unwrap_or(0);
+    let baseline_signals = baseline_json["compiler"]["signals_fired"]
+        .as_u64()
+        .unwrap_or(0);
+
+    let current_incidents = current_json["compiler"]["incidents_formed"]
+        .as_u64()
+        .unwrap_or(0);
+    let baseline_incidents = baseline_json["compiler"]["incidents_formed"]
+        .as_u64()
+        .unwrap_or(0);
+
     // Calculate deltas
     let events_delta = current_events as i64 - baseline_events as i64;
     let facts_delta = current_facts as i64 - baseline_facts as i64;
     let signals_delta = current_signals as i64 - baseline_signals as i64;
     let incidents_delta = current_incidents as i64 - baseline_incidents as i64;
-    
+
     // Determine regression status
     let has_regression = events_delta < -(baseline_events as i64 / 10) as i64 // >10% drop
         || facts_delta < -(baseline_facts as i64 / 10) as i64
         || signals_delta < 0  // Any signal loss is concerning
         || incidents_delta < 0;
-    
+
     Ok(RegressionComparison {
         current_run: current_run_path,
         baseline_run: baseline_run_path,
@@ -521,7 +562,12 @@ pub async fn compare_runs(
         signals_delta,
         incidents_delta,
         has_regression,
-        verdict: if has_regression { "regression" } else { "stable" }.to_string(),
+        verdict: if has_regression {
+            "regression"
+        } else {
+            "stable"
+        }
+        .to_string(),
     })
 }
 
@@ -534,7 +580,7 @@ pub async fn list_baseline_runs(
         let supervisor = supervisor_state.inner.read().await;
         supervisor.list_runs()?
     };
-    
+
     // Convert runs to baseline info
     let baselines: Vec<BaselineRunInfo> = runs
         .into_iter()
@@ -547,7 +593,7 @@ pub async fn list_baseline_runs(
             }
         })
         .collect();
-    
+
     Ok(baselines)
 }
 
@@ -558,9 +604,14 @@ pub async fn list_baseline_runs(
 fn parse_mission_type(s: &str) -> Result<MissionType, String> {
     match s.to_lowercase().as_str() {
         "discovery" => Ok(MissionType::Discovery),
-        "adversary" | "adversarysimulation" | "adversary_simulation" => Ok(MissionType::AdversarySimulation),
+        "adversary" | "adversarysimulation" | "adversary_simulation" => {
+            Ok(MissionType::AdversarySimulation)
+        }
         "forensic" | "forensicimport" | "forensic_import" => Ok(MissionType::ForensicImport),
-        _ => Err(format!("Unknown mission type: {}. Use 'discovery', 'adversary', or 'forensic'.", s)),
+        _ => Err(format!(
+            "Unknown mission type: {}. Use 'discovery', 'adversary', or 'forensic'.",
+            s
+        )),
     }
 }
 
@@ -660,7 +711,7 @@ pub async fn mark_run_as_baseline(
         let supervisor = supervisor_state.inner.read().await;
         PathBuf::from(supervisor.get_telemetry_root())
     };
-    
+
     let manager = BaselineManager::new(telemetry_root);
     manager.mark_as_baseline(&run_id, &description, mission_profile)
 }
@@ -675,7 +726,7 @@ pub async fn set_default_baseline(
         let supervisor = supervisor_state.inner.read().await;
         PathBuf::from(supervisor.get_telemetry_root())
     };
-    
+
     let manager = BaselineManager::new(telemetry_root);
     manager.set_default_baseline(&run_id)
 }
@@ -689,7 +740,7 @@ pub async fn get_baselines(
         let supervisor = supervisor_state.inner.read().await;
         PathBuf::from(supervisor.get_telemetry_root())
     };
-    
+
     let manager = BaselineManager::new(telemetry_root);
     manager.list_baselines()
 }
@@ -705,7 +756,7 @@ pub async fn compare_against_baseline(
         let supervisor = supervisor_state.inner.read().await;
         PathBuf::from(supervisor.get_telemetry_root())
     };
-    
+
     let manager = BaselineManager::new(telemetry_root);
     manager.compare_against_baseline(&current_run_id, baseline_run_id.as_deref())
 }
@@ -722,12 +773,9 @@ pub async fn get_pipeline_counters(
     let (run_dir, api_base_url) = {
         let mut supervisor = supervisor_state.inner.write().await;
         let status = supervisor.status().await;
-        (
-            status.run_dir.map(PathBuf::from),
-            status.api_base_url,
-        )
+        (status.run_dir.map(PathBuf::from), status.api_base_url)
     };
-    
+
     match run_dir {
         Some(run_dir) => {
             let fetcher = PipelineCounterFetcher::new(run_dir, api_base_url);
@@ -745,16 +793,11 @@ pub async fn prove_signal_origins(
     let (run_dir, api_base_url) = {
         let mut supervisor = supervisor_state.inner.write().await;
         let status = supervisor.status().await;
-        (
-            status.run_dir.map(PathBuf::from),
-            status.api_base_url,
-        )
+        (status.run_dir.map(PathBuf::from), status.api_base_url)
     };
-    
+
     match run_dir {
-        Some(run_dir) => {
-            prove_signal_provenance(&run_dir, &api_base_url).await
-        }
+        Some(run_dir) => prove_signal_provenance(&run_dir, &api_base_url).await,
         None => Err("No active run".to_string()),
     }
 }

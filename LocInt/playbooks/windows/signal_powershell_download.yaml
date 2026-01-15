@@ -1,0 +1,135 @@
+---
+# playbooks/windows/signal_powershell_download.yaml
+# Detection of PowerShell download patterns
+
+id: "windows_powershell_download_001"
+title: "PowerShell Download Activity"
+name: "PowerShell Download Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects PowerShell download patterns including:
+  - WebClient download methods
+  - Invoke-WebRequest
+  - BITS transfers via PowerShell
+  - Net.WebClient object creation
+
+enabled: true
+confidence_threshold: 0.80
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+enhances_with:
+  - powershell_logging
+
+mitre:
+  tactics:
+    - command_and_control
+    - execution
+  techniques:
+    - T1059.001  # PowerShell
+    - T1105      # Ingress Tool Transfer
+
+input_facts:
+  required:
+    - Exec
+  optional:
+    - ScriptExec
+
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)powershell\\.exe|pwsh\\.exe"
+  optional:
+    - name: download_method
+      type: string
+      pattern: "(?i)downloadstring|downloadfile|webclient|invoke-webrequest|iwr|curl|wget"
+
+rules:
+  - name: "PowerShell DownloadString"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)powershell|pwsh"
+      - field: cmdline
+        matches: "(?i)downloadstring.*https?://"
+    actions:
+      - severity: HIGH
+        tags:
+          - "download"
+          - "powershell"
+          - "dropper"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "PowerShell DownloadFile"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)powershell|pwsh"
+      - field: cmdline
+        matches: "(?i)downloadfile.*https?://"
+    actions:
+      - severity: HIGH
+        tags:
+          - "file_download"
+          - "staging"
+
+  - name: "PowerShell Invoke-WebRequest"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)powershell|pwsh"
+      - field: cmdline
+        matches: "(?i)(invoke-webrequest|iwr|curl|wget).*https?://"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "web_request"
+          - "download"
+
+  - name: "PowerShell IEX Download Cradle"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)powershell|pwsh"
+      - field: cmdline
+        matches: "(?i)iex.*(downloadstring|webclient|webrequest)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "download_cradle"
+          - "fileless"
+          - "immediate_exec"
+
+  - name: "PowerShell Start-BitsTransfer"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)powershell|pwsh"
+      - field: cmdline
+        matches: "(?i)start-bitstransfer.*https?://"
+    actions:
+      - severity: HIGH
+        tags:
+          - "bits_download"
+          - "evasion"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "PowerShell Download Detected"
+    priority: "high"
+
+false_positives:
+  - "IT automation scripts"
+  - "Package managers (chocolatey, nuget)"

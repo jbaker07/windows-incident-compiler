@@ -224,7 +224,7 @@ impl QualityGatesEngine {
         }
 
         let threshold = 60;
-        
+
         // If critical capabilities missing, Skip instead of Fail
         // This allows the mission to proceed with reduced expectations
         let status = if score >= 80 {
@@ -253,9 +253,18 @@ impl QualityGatesEngine {
             message,
             details: HashMap::from([
                 ("is_admin".to_string(), serde_json::json!(env.is_admin)),
-                ("sysmon_installed".to_string(), serde_json::json!(env.sysmon_installed)),
-                ("readiness_level".to_string(), serde_json::json!(env.readiness_level)),
-                ("capabilities_missing".to_string(), serde_json::json!(capabilities_missing)),
+                (
+                    "sysmon_installed".to_string(),
+                    serde_json::json!(env.sysmon_installed),
+                ),
+                (
+                    "readiness_level".to_string(),
+                    serde_json::json!(env.readiness_level),
+                ),
+                (
+                    "capabilities_missing".to_string(),
+                    serde_json::json!(capabilities_missing),
+                ),
             ]),
         }
     }
@@ -288,7 +297,7 @@ impl QualityGatesEngine {
         }
 
         let mut score = 100u32;
-        
+
         // Check minimum events
         if events < min_events as u64 {
             let ratio = events as f64 / min_events.max(1) as f64;
@@ -313,7 +322,10 @@ impl QualityGatesEngine {
 
         let message = format!(
             "{} events captured, {} dropped ({:.1}%), {} segments",
-            events, capture.events_dropped, drop_rate * 100.0, capture.segments_written
+            events,
+            capture.events_dropped,
+            drop_rate * 100.0,
+            capture.segments_written
         );
 
         GateResult {
@@ -324,16 +336,22 @@ impl QualityGatesEngine {
             message,
             details: HashMap::from([
                 ("events_read".to_string(), serde_json::json!(events)),
-                ("events_dropped".to_string(), serde_json::json!(capture.events_dropped)),
+                (
+                    "events_dropped".to_string(),
+                    serde_json::json!(capture.events_dropped),
+                ),
                 ("drop_rate".to_string(), serde_json::json!(drop_rate)),
-                ("segments".to_string(), serde_json::json!(capture.segments_written)),
+                (
+                    "segments".to_string(),
+                    serde_json::json!(capture.segments_written),
+                ),
             ]),
         }
     }
 
     fn evaluate_extraction_gate(&self, summary: &RunSummary) -> GateResult {
         let compiler = &summary.compiler;
-        
+
         // Skip if no events ingested (nothing to extract from)
         if compiler.events_ingested == 0 {
             return GateResult {
@@ -342,13 +360,12 @@ impl QualityGatesEngine {
                 score: 0,
                 threshold: 70,
                 message: "No events ingested for extraction".to_string(),
-                details: HashMap::from([
-                    ("reason".to_string(), serde_json::json!("no_events")),
-                ]),
+                details: HashMap::from([("reason".to_string(), serde_json::json!("no_events"))]),
             };
         }
-        
-        let parse_error_rate = compiler.events_parse_errors as f64 / compiler.events_ingested as f64;
+
+        let parse_error_rate =
+            compiler.events_parse_errors as f64 / compiler.events_ingested as f64;
         let extraction_rate = compiler.facts_extracted as f64 / compiler.events_ingested as f64;
 
         let mut score = 100u32;
@@ -374,7 +391,10 @@ impl QualityGatesEngine {
                 threshold: 70,
                 message: "No facts extracted (locald may not be running)".to_string(),
                 details: HashMap::from([
-                    ("events_ingested".to_string(), serde_json::json!(compiler.events_ingested)),
+                    (
+                        "events_ingested".to_string(),
+                        serde_json::json!(compiler.events_ingested),
+                    ),
                     ("reason".to_string(), serde_json::json!("no_facts")),
                 ]),
             };
@@ -404,16 +424,25 @@ impl QualityGatesEngine {
             threshold,
             message,
             details: HashMap::from([
-                ("facts_extracted".to_string(), serde_json::json!(compiler.facts_extracted)),
-                ("events_ingested".to_string(), serde_json::json!(compiler.events_ingested)),
-                ("parse_error_rate".to_string(), serde_json::json!(parse_error_rate)),
+                (
+                    "facts_extracted".to_string(),
+                    serde_json::json!(compiler.facts_extracted),
+                ),
+                (
+                    "events_ingested".to_string(),
+                    serde_json::json!(compiler.events_ingested),
+                ),
+                (
+                    "parse_error_rate".to_string(),
+                    serde_json::json!(parse_error_rate),
+                ),
             ]),
         }
     }
 
     fn evaluate_detection_gate(&self, summary: &RunSummary) -> GateResult {
         let compiler = &summary.compiler;
-        
+
         let playbooks_loaded = compiler.playbooks_loaded;
         let signals = compiler.signals_emitted;
         let playbooks_matched = &compiler.playbooks_matched;
@@ -441,11 +470,14 @@ impl QualityGatesEngine {
         }
 
         // Check required playbooks
-        let required_matched = self.expectations.required_playbooks.iter()
+        let required_matched = self
+            .expectations
+            .required_playbooks
+            .iter()
             .filter(|p| playbooks_matched.contains(p))
             .count();
         let required_total = self.expectations.required_playbooks.len();
-        
+
         if required_total > 0 {
             let match_rate = required_matched as f64 / required_total as f64;
             if match_rate < 1.0 {
@@ -464,7 +496,9 @@ impl QualityGatesEngine {
 
         let message = format!(
             "{} signals from {} playbooks ({} loaded)",
-            signals, playbooks_matched.len(), playbooks_loaded
+            signals,
+            playbooks_matched.len(),
+            playbooks_loaded
         );
 
         GateResult {
@@ -475,15 +509,21 @@ impl QualityGatesEngine {
             message,
             details: HashMap::from([
                 ("signals_emitted".to_string(), serde_json::json!(signals)),
-                ("playbooks_loaded".to_string(), serde_json::json!(playbooks_loaded)),
-                ("playbooks_matched".to_string(), serde_json::json!(playbooks_matched)),
+                (
+                    "playbooks_loaded".to_string(),
+                    serde_json::json!(playbooks_loaded),
+                ),
+                (
+                    "playbooks_matched".to_string(),
+                    serde_json::json!(playbooks_matched),
+                ),
             ]),
         }
     }
 
     fn evaluate_explainability_gate(&self, summary: &RunSummary) -> GateResult {
         let explain = &summary.explain;
-        
+
         let deref_rate = explain.deref_success_rate();
         let slot_fill_rate = explain.slot_fill_rate();
         let entity_coverage = explain.entity_coverage();
@@ -509,7 +549,7 @@ impl QualityGatesEngine {
 
         // Excerpt failures
         if explain.excerpt_failures > 0 {
-            score = score.saturating_sub(std::cmp::min(explain.excerpt_failures, 10) as u32);
+            score = score.saturating_sub(std::cmp::min(explain.excerpt_failures, 10));
         }
 
         // Skip if no signals
@@ -535,7 +575,9 @@ impl QualityGatesEngine {
 
         let message = format!(
             "Deref: {:.0}%, Slots: {:.0}%, Entities: {:.0}%",
-            deref_rate * 100.0, slot_fill_rate * 100.0, entity_coverage * 100.0
+            deref_rate * 100.0,
+            slot_fill_rate * 100.0,
+            entity_coverage * 100.0
         );
 
         GateResult {
@@ -545,17 +587,29 @@ impl QualityGatesEngine {
             threshold,
             message,
             details: HashMap::from([
-                ("deref_success_rate".to_string(), serde_json::json!(deref_rate)),
-                ("slot_fill_rate".to_string(), serde_json::json!(slot_fill_rate)),
-                ("entity_coverage".to_string(), serde_json::json!(entity_coverage)),
-                ("excerpt_failures".to_string(), serde_json::json!(explain.excerpt_failures)),
+                (
+                    "deref_success_rate".to_string(),
+                    serde_json::json!(deref_rate),
+                ),
+                (
+                    "slot_fill_rate".to_string(),
+                    serde_json::json!(slot_fill_rate),
+                ),
+                (
+                    "entity_coverage".to_string(),
+                    serde_json::json!(entity_coverage),
+                ),
+                (
+                    "excerpt_failures".to_string(),
+                    serde_json::json!(explain.excerpt_failures),
+                ),
             ]),
         }
     }
 
     fn evaluate_performance_gate(&self, summary: &RunSummary) -> GateResult {
         let perf = &summary.perf;
-        
+
         let mut score = 100u32;
         let mut issues = vec![];
 
@@ -564,7 +618,10 @@ impl QualityGatesEngine {
             if perf.peak_rss_mb > max_rss {
                 let excess = (perf.peak_rss_mb - max_rss) / max_rss;
                 score = score.saturating_sub((excess * 30.0) as u32);
-                issues.push(format!("Peak RSS {:.0}MB exceeds {:.0}MB limit", perf.peak_rss_mb, max_rss));
+                issues.push(format!(
+                    "Peak RSS {:.0}MB exceeds {:.0}MB limit",
+                    perf.peak_rss_mb, max_rss
+                ));
             }
         }
 
@@ -599,9 +656,15 @@ impl QualityGatesEngine {
             threshold,
             message,
             details: HashMap::from([
-                ("peak_rss_mb".to_string(), serde_json::json!(perf.peak_rss_mb)),
+                (
+                    "peak_rss_mb".to_string(),
+                    serde_json::json!(perf.peak_rss_mb),
+                ),
                 ("avg_rss_mb".to_string(), serde_json::json!(perf.avg_rss_mb)),
-                ("events_per_second".to_string(), serde_json::json!(perf.events_per_second)),
+                (
+                    "events_per_second".to_string(),
+                    serde_json::json!(perf.events_per_second),
+                ),
             ]),
         }
     }
@@ -609,7 +672,9 @@ impl QualityGatesEngine {
     fn evaluate_mission_specific_gate(&self, summary: &RunSummary) -> Option<GateResult> {
         match self.mission_type {
             MissionType::Discovery => Some(self.evaluate_noise_gate(summary)),
-            MissionType::AdversarySimulation => Some(self.evaluate_required_detections_gate(summary)),
+            MissionType::AdversarySimulation => {
+                Some(self.evaluate_required_detections_gate(summary))
+            }
             MissionType::ForensicImport => Some(self.evaluate_determinism_gate(summary)),
         }
     }
@@ -634,10 +699,7 @@ impl QualityGatesEngine {
             GateStatus::Fail
         };
 
-        let message = format!(
-            "{} signals emitted (max allowed: {})",
-            signals, max_noise
-        );
+        let message = format!("{} signals emitted (max allowed: {})", signals, max_noise);
 
         GateResult {
             name: "Benign Noise".to_string(),
@@ -658,9 +720,14 @@ impl QualityGatesEngine {
 
         let playbooks_matched = &summary.compiler.playbooks_matched;
         let required = &self.expectations.required_playbooks;
-        let matched_required = required.iter().filter(|p| playbooks_matched.contains(p)).count();
+        let matched_required = required
+            .iter()
+            .filter(|p| playbooks_matched.contains(p))
+            .count();
 
-        let detection_score = if signals >= min_detections as u64 { 50 } else {
+        let detection_score = if signals >= min_detections as u64 {
+            50
+        } else {
             ((signals as f64 / min_detections as f64) * 50.0) as u32
         };
 
@@ -683,7 +750,10 @@ impl QualityGatesEngine {
 
         let message = format!(
             "{} signals (min: {}), {}/{} required playbooks matched",
-            signals, min_detections, matched_required, required.len()
+            signals,
+            min_detections,
+            matched_required,
+            required.len()
         );
 
         GateResult {
@@ -694,9 +764,18 @@ impl QualityGatesEngine {
             message,
             details: HashMap::from([
                 ("signals".to_string(), serde_json::json!(signals)),
-                ("min_required".to_string(), serde_json::json!(min_detections)),
-                ("required_playbooks".to_string(), serde_json::json!(required)),
-                ("matched_playbooks".to_string(), serde_json::json!(playbooks_matched)),
+                (
+                    "min_required".to_string(),
+                    serde_json::json!(min_detections),
+                ),
+                (
+                    "required_playbooks".to_string(),
+                    serde_json::json!(required),
+                ),
+                (
+                    "matched_playbooks".to_string(),
+                    serde_json::json!(playbooks_matched),
+                ),
             ]),
         }
     }
@@ -704,7 +783,7 @@ impl QualityGatesEngine {
     fn evaluate_determinism_gate(&self, summary: &RunSummary) -> GateResult {
         // For forensic import, results should be deterministic
         // This requires comparing against a golden baseline
-        
+
         let parse_errors = summary.compiler.events_parse_errors;
         let deref_rate = summary.explain.deref_success_rate();
 
@@ -731,7 +810,8 @@ impl QualityGatesEngine {
 
         let message = format!(
             "Parse errors: {}, Deref rate: {:.0}%",
-            parse_errors, deref_rate * 100.0
+            parse_errors,
+            deref_rate * 100.0
         );
 
         GateResult {
@@ -742,15 +822,21 @@ impl QualityGatesEngine {
             message,
             details: HashMap::from([
                 ("parse_errors".to_string(), serde_json::json!(parse_errors)),
-                ("deref_success_rate".to_string(), serde_json::json!(deref_rate)),
+                (
+                    "deref_success_rate".to_string(),
+                    serde_json::json!(deref_rate),
+                ),
             ]),
         }
     }
 
     fn evaluate_mission_expectations(&self, summary: &RunSummary) -> ExpectationResult {
         let playbooks_matched = &summary.compiler.playbooks_matched;
-        
-        let required_playbooks = self.expectations.required_playbooks.iter()
+
+        let required_playbooks = self
+            .expectations
+            .required_playbooks
+            .iter()
             .map(|p| PlaybookExpectation {
                 playbook_id: p.clone(),
                 expected: true,
@@ -834,7 +920,11 @@ impl QualityGatesEngine {
         }
     }
 
-    fn generate_recommendations(&self, gates: &GatesResult, summary: &RunSummary) -> Vec<Recommendation> {
+    fn generate_recommendations(
+        &self,
+        gates: &GatesResult,
+        summary: &RunSummary,
+    ) -> Vec<Recommendation> {
         let mut recommendations = vec![];
 
         // Readiness recommendations
@@ -853,7 +943,8 @@ impl QualityGatesEngine {
                     id: "install_sysmon".to_string(),
                     priority: "medium".to_string(),
                     title: "Install Sysmon".to_string(),
-                    description: "Sysmon provides rich process, network, and file telemetry".to_string(),
+                    description: "Sysmon provides rich process, network, and file telemetry"
+                        .to_string(),
                     action: "Download and install Sysmon from Microsoft Sysinternals".to_string(),
                 });
             }
@@ -866,21 +957,23 @@ impl QualityGatesEngine {
                 priority: "high".to_string(),
                 title: "Verify Playbooks".to_string(),
                 description: "No signals detected - check playbook configuration".to_string(),
-                action: "Ensure playbooks are loaded and match expected activity patterns".to_string(),
+                action: "Ensure playbooks are loaded and match expected activity patterns"
+                    .to_string(),
             });
         }
 
         // Explainability recommendations
-        if gates.explainability.status != GateStatus::Pass && gates.explainability.status != GateStatus::Skip {
-            if summary.explain.deref_success_rate() < 0.9 {
-                recommendations.push(Recommendation {
-                    id: "fix_evidence_deref".to_string(),
-                    priority: "medium".to_string(),
-                    title: "Fix Evidence Dereferencing".to_string(),
-                    description: "Some evidence pointers could not be resolved".to_string(),
-                    action: "Check segment integrity and evidence pointer formats".to_string(),
-                });
-            }
+        if gates.explainability.status != GateStatus::Pass
+            && gates.explainability.status != GateStatus::Skip
+            && summary.explain.deref_success_rate() < 0.9
+        {
+            recommendations.push(Recommendation {
+                id: "fix_evidence_deref".to_string(),
+                priority: "medium".to_string(),
+                title: "Fix Evidence Dereferencing".to_string(),
+                description: "Some evidence pointers could not be resolved".to_string(),
+                action: "Check segment integrity and evidence pointer formats".to_string(),
+            });
         }
 
         recommendations
@@ -895,13 +988,48 @@ impl QualityGatesEngine {
 
         // Compare key metrics
         let metric_pairs = [
-            ("events_read", current.capture.events_read as f64, baseline.capture.events_read as f64, true),
-            ("facts_extracted", current.compiler.facts_extracted as f64, baseline.compiler.facts_extracted as f64, true),
-            ("signals_emitted", current.compiler.signals_emitted as f64, baseline.compiler.signals_emitted as f64, true),
-            ("deref_success_rate", current.explain.deref_success_rate(), baseline.explain.deref_success_rate(), true),
-            ("slot_fill_rate", current.explain.slot_fill_rate(), baseline.explain.slot_fill_rate(), true),
-            ("peak_rss_mb", current.perf.peak_rss_mb, baseline.perf.peak_rss_mb, false), // Lower is better
-            ("events_per_second", current.perf.events_per_second, baseline.perf.events_per_second, true),
+            (
+                "events_read",
+                current.capture.events_read as f64,
+                baseline.capture.events_read as f64,
+                true,
+            ),
+            (
+                "facts_extracted",
+                current.compiler.facts_extracted as f64,
+                baseline.compiler.facts_extracted as f64,
+                true,
+            ),
+            (
+                "signals_emitted",
+                current.compiler.signals_emitted as f64,
+                baseline.compiler.signals_emitted as f64,
+                true,
+            ),
+            (
+                "deref_success_rate",
+                current.explain.deref_success_rate(),
+                baseline.explain.deref_success_rate(),
+                true,
+            ),
+            (
+                "slot_fill_rate",
+                current.explain.slot_fill_rate(),
+                baseline.explain.slot_fill_rate(),
+                true,
+            ),
+            (
+                "peak_rss_mb",
+                current.perf.peak_rss_mb,
+                baseline.perf.peak_rss_mb,
+                false,
+            ), // Lower is better
+            (
+                "events_per_second",
+                current.perf.events_per_second,
+                baseline.perf.events_per_second,
+                true,
+            ),
         ];
 
         for (metric, current_val, baseline_val, higher_is_better) in metric_pairs {
@@ -963,8 +1091,7 @@ pub fn write_quality_report(report: &QualityReport, run_dir: &Path) -> Result<Pa
     let path = run_dir.join("quality_report.json");
     let json = serde_json::to_string_pretty(report)
         .map_err(|e| format!("Failed to serialize quality report: {}", e))?;
-    std::fs::write(&path, json)
-        .map_err(|e| format!("Failed to write quality report: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("Failed to write quality report: {}", e))?;
     Ok(path)
 }
 
@@ -1005,7 +1132,7 @@ mod tests {
             min_slot_fill_rate: 0.80,
             ..Default::default()
         };
-        
+
         let engine = QualityGatesEngine::new(MissionType::AdversarySimulation, expectations);
         let report = engine.evaluate(&summary);
 
@@ -1016,12 +1143,13 @@ mod tests {
     fn test_regression_comparison() {
         let mut current = make_test_summary();
         let mut baseline = make_test_summary();
-        
+
         // Simulate improvement
         current.capture.events_read = 1200;
         current.compiler.signals_emitted = 7;
-        
-        let engine = QualityGatesEngine::new(MissionType::Discovery, MissionExpectations::default());
+
+        let engine =
+            QualityGatesEngine::new(MissionType::Discovery, MissionExpectations::default());
         let regression = engine.compare_runs(&current, &baseline);
 
         assert!(!regression.improved.is_empty());

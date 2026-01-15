@@ -1,0 +1,48 @@
+---
+# playbooks/windows/signal_defense_evasion.yaml
+# Detect defense evasion attempts (log clearing, Defender disable, etc.)
+
+name: "Defense Evasion Detection (Windows)"
+description: "Detect attempts to disable or evade security controls"
+version: "1.0"
+
+detection:
+  signals:
+    - type: "windows_log_clear"
+      event_ids:
+        - 1102  # Security log cleared
+      sources:
+        - "cmd.exe"
+        - "powershell.exe"
+        - "wevtutil.exe"
+
+    - type: "windows_defender_disable"
+      commands:
+        - "Set-MpPreference -DisableRealtimeMonitoring"
+        - "Disable-WindowsOptionalFeature"
+        - "sc stop WinDefend"
+        - "sc delete WinDefend"
+
+    - type: "windows_security_tamper"
+      registry_changes:
+        - "HKLM\\System\\CurrentControlSet\\Services\\EventLog\\Security\\Retention"
+      file_deletions:
+        - "*.evtx"
+
+response:
+  severity: "critical"
+  actions:
+    - alert: true
+    - isolate: true
+    - block_network: true
+    - escalate_incident: true
+
+correlation_boost:
+  - followed_by_malware_execution: 2.0
+  - combined_with_lateral_movement: 1.8
+
+tags:
+  - "T1562"
+  - "T1089"
+  - "T1070.001"
+  - "defense_evasion"

@@ -19,6 +19,7 @@
 // Used by Tauri commands, not CLI binaries
 #![allow(dead_code)]
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -28,9 +29,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
-use crate::grounded_gates::{GroundedHealthGates, E2EVerificationResult};
+use crate::grounded_gates::{E2EVerificationResult, GroundedHealthGates};
 
 /// Process identity in the stack
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -104,10 +104,10 @@ pub struct ReadinessCheck {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ReadinessLevel {
-    Full,      // Admin + Security + Sysmon + Audit OK
-    Good,      // Admin + Security, missing some enhancements
-    Limited,   // Non-admin, basic telemetry only
-    Blocked,   // Cannot capture meaningful telemetry
+    Full,    // Admin + Security + Sysmon + Audit OK
+    Good,    // Admin + Security, missing some enhancements
+    Limited, // Non-admin, basic telemetry only
+    Blocked, // Cannot capture meaningful telemetry
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -250,7 +250,7 @@ impl Supervisor {
     /// Initialize per-run directory structure
     fn init_run_directories(&self, run_id: &str) -> Result<PathBuf, String> {
         let run_dir = self.telemetry_root.join("runs").join(run_id);
-        
+
         let dirs = [
             run_dir.join("segments"),
             run_dir.join("logs"),
@@ -311,12 +311,9 @@ impl Supervisor {
         self.init_directories()?;
 
         // Generate run ID and create per-run directory structure
-        let run_id = format!(
-            "run_{}",
-            chrono::Local::now().format("%Y%m%d_%H%M%S")
-        );
+        let run_id = format!("run_{}", chrono::Local::now().format("%Y%m%d_%H%M%S"));
         let run_dir = self.init_run_directories(&run_id)?;
-        
+
         self.run_id = Some(run_id.clone());
         self.run_dir = Some(run_dir.clone());
         self.run_config = Some(config.clone());
@@ -349,14 +346,18 @@ impl Supervisor {
     }
 
     /// Start the capture process
-    async fn start_capture(&mut self, _config: &RunConfig, run_dir: &PathBuf) -> Result<(), String> {
+    async fn start_capture(
+        &mut self,
+        _config: &RunConfig,
+        run_dir: &PathBuf,
+    ) -> Result<(), String> {
         let binary_path = find_binary(ProcessKind::Capture)?;
 
         let log_path = run_dir.join("logs").join("capture.log");
         let err_log_path = run_dir.join("logs").join("capture_err.log");
 
-        let stdout_file = File::create(&log_path)
-            .map_err(|e| format!("Failed to create capture log: {}", e))?;
+        let stdout_file =
+            File::create(&log_path).map_err(|e| format!("Failed to create capture log: {}", e))?;
         let stderr_file = File::create(&err_log_path)
             .map_err(|e| format!("Failed to create capture error log: {}", e))?;
 
@@ -403,14 +404,17 @@ impl Supervisor {
         let log_path = run_dir.join("logs").join("locald.log");
         let err_log_path = run_dir.join("logs").join("locald_err.log");
 
-        let stdout_file = File::create(&log_path)
-            .map_err(|e| format!("Failed to create locald log: {}", e))?;
+        let stdout_file =
+            File::create(&log_path).map_err(|e| format!("Failed to create locald log: {}", e))?;
         let stderr_file = File::create(&err_log_path)
             .map_err(|e| format!("Failed to create locald error log: {}", e))?;
 
         let mut cmd = Command::new(&binary_path);
         cmd.env("EDR_TELEMETRY_ROOT", run_dir)
-            .env("EDR_PLAYBOOKS_DIR", self.telemetry_root.join("playbooks").join("windows"))
+            .env(
+                "EDR_PLAYBOOKS_DIR",
+                self.telemetry_root.join("playbooks").join("windows"),
+            )
             .stdout(Stdio::from(stdout_file))
             .stderr(Stdio::from(stderr_file));
 
@@ -447,8 +451,8 @@ impl Supervisor {
         let log_path = run_dir.join("logs").join("server.log");
         let err_log_path = run_dir.join("logs").join("server_err.log");
 
-        let stdout_file = File::create(&log_path)
-            .map_err(|e| format!("Failed to create server log: {}", e))?;
+        let stdout_file =
+            File::create(&log_path).map_err(|e| format!("Failed to create server log: {}", e))?;
         let stderr_file = File::create(&err_log_path)
             .map_err(|e| format!("Failed to create server error log: {}", e))?;
 
@@ -524,7 +528,11 @@ impl Supervisor {
         }
 
         // Stop in reverse order: server -> locald -> capture
-        for kind in [ProcessKind::Server, ProcessKind::Locald, ProcessKind::Capture] {
+        for kind in [
+            ProcessKind::Server,
+            ProcessKind::Locald,
+            ProcessKind::Capture,
+        ] {
             if let Some(mut proc) = self.processes.remove(&kind) {
                 tracing::info!("Stopping {} (PID {})", kind.as_str(), proc.pid());
                 proc.kill();
@@ -544,7 +552,11 @@ impl Supervisor {
     pub async fn status(&mut self) -> StackStatus {
         let mut process_statuses = Vec::new();
 
-        for kind in [ProcessKind::Capture, ProcessKind::Locald, ProcessKind::Server] {
+        for kind in [
+            ProcessKind::Capture,
+            ProcessKind::Locald,
+            ProcessKind::Server,
+        ] {
             let status = if let Some(proc) = self.processes.get_mut(&kind) {
                 ProcessStatus {
                     kind,
@@ -572,13 +584,18 @@ impl Supervisor {
             let elapsed = started.elapsed();
             let total_duration = Duration::from_secs(config.duration_minutes as u64 * 60);
             let remaining = total_duration.saturating_sub(elapsed);
-            (Some(remaining.as_secs() as u32), Some(config.duration_minutes))
+            (
+                Some(remaining.as_secs() as u32),
+                Some(config.duration_minutes),
+            )
         } else {
             (None, None)
         };
 
         // Count segments - use run_dir if available, otherwise telemetry_root
-        let segments_dir = self.run_dir.as_ref()
+        let segments_dir = self
+            .run_dir
+            .as_ref()
             .map(|d| d.join("segments"))
             .unwrap_or_else(|| self.telemetry_root.join("segments"));
         let segments_count = count_segments_in_dir(&segments_dir);
@@ -606,11 +623,9 @@ impl Supervisor {
             last_segment_time,
             signals_count,
             run_id: self.run_id.clone(),
-            run_started: self.run_started.map(|_| {
-                chrono::Local::now()
-                    .format("%Y-%m-%dT%H:%M:%S")
-                    .to_string()
-            }),
+            run_started: self
+                .run_started
+                .map(|_| chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()),
             run_duration_minutes: run_duration,
             run_remaining_seconds: remaining_seconds,
             last_error,
@@ -621,11 +636,17 @@ impl Supervisor {
 
     /// Check for crashed processes and get last error from stderr logs
     fn check_for_crashes(&mut self) -> (Option<String>, Option<String>) {
-        let logs_dir = self.run_dir.as_ref()
+        let logs_dir = self
+            .run_dir
+            .as_ref()
             .map(|d| d.join("logs"))
             .unwrap_or_else(|| self.telemetry_root.join("logs"));
-            
-        for kind in [ProcessKind::Capture, ProcessKind::Locald, ProcessKind::Server] {
+
+        for kind in [
+            ProcessKind::Capture,
+            ProcessKind::Locald,
+            ProcessKind::Server,
+        ] {
             if let Some(proc) = self.processes.get_mut(&kind) {
                 if !proc.is_running() {
                     // Process crashed - read last lines of stderr
@@ -633,13 +654,17 @@ impl Supervisor {
                     if err_log.exists() {
                         if let Ok(contents) = fs::read_to_string(&err_log) {
                             let last_lines: Vec<&str> = contents.lines().rev().take(5).collect();
-                            let error_msg = last_lines.into_iter().rev().collect::<Vec<_>>().join("\n");
+                            let error_msg =
+                                last_lines.into_iter().rev().collect::<Vec<_>>().join("\n");
                             if !error_msg.trim().is_empty() {
                                 return (Some(kind.as_str().to_string()), Some(error_msg));
                             }
                         }
                     }
-                    return (Some(kind.as_str().to_string()), Some(format!("{} process exited unexpectedly", kind.as_str())));
+                    return (
+                        Some(kind.as_str().to_string()),
+                        Some(format!("{} process exited unexpectedly", kind.as_str())),
+                    );
                 }
             }
         }
@@ -668,21 +693,23 @@ impl Supervisor {
     }
 
     /// Write metrics artifact to disk (Metrics v3 schema) - GROUNDED VERSION
-    /// 
+    ///
     /// This version uses GroundedHealthGates which read ONLY from real artifacts:
     /// - run_dir/index.json + segments/*.jsonl
     /// - workbench.db / analysis.db
     /// - Live API
-    /// 
+    ///
     /// NO in-memory counters as source of truth.
     pub async fn write_metrics(&self) -> Result<PathBuf, String> {
         let run_id = self.run_id.as_ref().ok_or("No active run")?;
         let run_dir = self.run_dir.as_ref().ok_or("No run directory")?;
 
         let elapsed_seconds = self.run_started.map(|s| s.elapsed().as_secs()).unwrap_or(0);
-        
+
         // Count loaded playbooks
-        let playbooks_loaded = self.run_config.as_ref()
+        let playbooks_loaded = self
+            .run_config
+            .as_ref()
             .and_then(|c| c.selected_playbooks.as_ref())
             .map(|p| p.len() as u32)
             .unwrap_or(9); // Default to ~9 playbooks
@@ -695,7 +722,8 @@ impl Supervisor {
             &self.api_base_url(),
             elapsed_seconds,
             playbooks_loaded,
-        ).await;
+        )
+        .await;
 
         // Metrics v3.1 schema with GROUNDED health gates
         let metrics = serde_json::json!({
@@ -706,7 +734,7 @@ impl Supervisor {
             "os": "Windows",
             "os_version": get_windows_version(),
             "arch": std::env::consts::ARCH,
-            
+
             "environment": {
                 "is_admin": self.is_admin,
                 "limited_mode": !self.is_admin,
@@ -714,12 +742,12 @@ impl Supervisor {
                 "telemetry_root": self.telemetry_root.display().to_string(),
                 "run_dir": run_dir.display().to_string(),
             },
-            
+
             "config": {
                 "duration_minutes": self.run_config.as_ref().map(|c| c.duration_minutes),
                 "selected_playbooks": self.run_config.as_ref().and_then(|c| c.selected_playbooks.clone()),
             },
-            
+
             // GROUNDED Health Gates (the core of Metrics v3.1)
             "gates": {
                 "telemetry": {
@@ -768,7 +796,7 @@ impl Supervisor {
                 "overall_status": grounded_gates.overall_status.as_str(),
                 "overall_diagnosis": grounded_gates.overall_diagnosis,
             },
-            
+
             // Detailed breakdowns (from grounded gates)
             "breakdowns": {
                 "events_by_channel": grounded_gates.telemetry.events_by_channel,
@@ -777,7 +805,7 @@ impl Supervisor {
                 "signals_by_playbook": grounded_gates.detection.signals_by_playbook,
                 "signals_by_severity": grounded_gates.detection.signals_by_severity,
             },
-            
+
             // Summary rates
             "rates": {
                 "explain_valid_rate": grounded_gates.explainability.explain_valid_rate,
@@ -787,20 +815,20 @@ impl Supervisor {
                 "extraction_rate": grounded_gates.extraction.extraction_rate,
                 "detection_rate": grounded_gates.detection.match_rate,
             },
-            
+
             "timing": {
                 "run_duration_minutes": self.run_config.as_ref().map(|c| c.duration_minutes),
                 "elapsed_seconds": elapsed_seconds,
                 "events_per_second": grounded_gates.telemetry.events_per_second,
             },
-            
+
             // Grounding metadata
             "grounding": {
                 "computed_at": grounded_gates.computed_at,
                 "source": "disk+db+api",
                 "gates_summary": grounded_gates.summary(),
             },
-            
+
             // Legacy validation section for backward compatibility
             "validation": {
                 "has_signals": grounded_gates.detection.signals_count > 0,
@@ -816,46 +844,47 @@ impl Supervisor {
         let json = serde_json::to_string_pretty(&metrics)
             .map_err(|e| format!("Failed to serialize metrics: {}", e))?;
 
-        fs::write(&metrics_path, json)
-            .map_err(|e| format!("Failed to write metrics: {}", e))?;
+        fs::write(&metrics_path, json).map_err(|e| format!("Failed to write metrics: {}", e))?;
 
-        tracing::info!("Wrote Metrics v3.1 GROUNDED with health gates to {:?}", metrics_path);
+        tracing::info!(
+            "Wrote Metrics v3.1 GROUNDED with health gates to {:?}",
+            metrics_path
+        );
         Ok(metrics_path)
     }
-    
+
     /// Get grounded health gates for UI display
-    /// 
+    ///
     /// This is the SAME computation used by write_metrics() - single source of truth
     pub async fn get_grounded_health_gates(&self) -> Result<GroundedHealthGates, String> {
         let run_dir = self.run_dir.as_ref().ok_or("No run directory")?;
         let elapsed_seconds = self.run_started.map(|s| s.elapsed().as_secs()).unwrap_or(0);
-        let playbooks_loaded = self.run_config.as_ref()
+        let playbooks_loaded = self
+            .run_config
+            .as_ref()
             .and_then(|c| c.selected_playbooks.as_ref())
             .map(|p| p.len() as u32)
             .unwrap_or(9);
-            
+
         Ok(GroundedHealthGates::compute(
             run_dir,
             &self.api_base_url(),
             elapsed_seconds,
             playbooks_loaded,
-        ).await)
+        )
+        .await)
     }
-    
+
     /// Run E2E verification of grounded gates
     pub async fn verify_grounded_gates(&self) -> Result<E2EVerificationResult, String> {
         let run_dir = self.run_dir.as_ref().ok_or("No run directory")?;
-        Ok(E2EVerificationResult::run(
-            run_dir,
-            &self.api_base_url(),
-        ).await)
+        Ok(E2EVerificationResult::run(run_dir, &self.api_base_url()).await)
     }
 
     /// Export metrics to a specific path
     pub async fn export_metrics(&self, path: PathBuf) -> Result<(), String> {
         let metrics_path = self.write_metrics().await?;
-        fs::copy(&metrics_path, &path)
-            .map_err(|e| format!("Failed to export metrics: {}", e))?;
+        fs::copy(&metrics_path, &path).map_err(|e| format!("Failed to export metrics: {}", e))?;
         Ok(())
     }
 
@@ -886,29 +915,27 @@ impl Supervisor {
 
     /// Read tail of a log file
     pub fn read_log_tail(&self, kind: ProcessKind, lines: usize) -> Result<Vec<String>, String> {
-        let logs_dir = self.run_dir.as_ref()
+        let logs_dir = self
+            .run_dir
+            .as_ref()
             .map(|d| d.join("logs"))
             .unwrap_or_else(|| self.telemetry_root.join("logs"));
-            
+
         let log_path = logs_dir.join(format!("{}.log", kind.as_str()));
 
         if !log_path.exists() {
             return Ok(vec![]);
         }
 
-        let file =
-            File::open(&log_path).map_err(|e| format!("Failed to open log file: {}", e))?;
+        let file = File::open(&log_path).map_err(|e| format!("Failed to open log file: {}", e))?;
 
         let reader = BufReader::new(file);
-        let all_lines: Vec<String> = reader
-            .lines()
-            .map_while(Result::ok)
-            .collect();
+        let all_lines: Vec<String> = reader.lines().map_while(Result::ok).collect();
 
         let start = all_lines.len().saturating_sub(lines);
         Ok(all_lines[start..].to_vec())
     }
-    
+
     /// Get current run directory (if running)
     pub fn current_run_dir(&self) -> Option<PathBuf> {
         self.run_dir.clone()
@@ -921,9 +948,13 @@ impl Supervisor {
         let (sysmon_installed, sysmon_version) = check_sysmon();
         let audit_policy_state = check_audit_policy();
         let powershell_logging_enabled = check_powershell_logging();
-        
+
         // Determine overall readiness level
-        let overall_readiness = if is_admin && can_read_security_log && sysmon_installed && audit_policy_state.process_creation {
+        let overall_readiness = if is_admin
+            && can_read_security_log
+            && sysmon_installed
+            && audit_policy_state.process_creation
+        {
             ReadinessLevel::Full
         } else if is_admin && can_read_security_log {
             ReadinessLevel::Good
@@ -932,10 +963,10 @@ impl Supervisor {
         } else {
             ReadinessLevel::Blocked
         };
-        
+
         // Build recommended fixes
         let mut recommended_fixes = Vec::new();
-        
+
         if !is_admin {
             recommended_fixes.push(ReadinessFix {
                 id: "run_as_admin".to_string(),
@@ -946,18 +977,21 @@ impl Supervisor {
                 impact: "Enables Security log access and full process telemetry".to_string(),
             });
         }
-        
+
         if !sysmon_installed {
             recommended_fixes.push(ReadinessFix {
                 id: "install_sysmon".to_string(),
                 title: "Install Sysmon".to_string(),
-                description: "Install Microsoft Sysmon for enhanced process, network, and file telemetry.".to_string(),
+                description:
+                    "Install Microsoft Sysmon for enhanced process, network, and file telemetry."
+                        .to_string(),
                 command: Some("sysmon64.exe -accepteula -i".to_string()),
                 requires_admin: true,
-                impact: "Enables detailed process creation, network connections, file operations".to_string(),
+                impact: "Enables detailed process creation, network connections, file operations"
+                    .to_string(),
             });
         }
-        
+
         if !audit_policy_state.command_line_logging {
             recommended_fixes.push(ReadinessFix {
                 id: "enable_cmdline".to_string(),
@@ -968,7 +1002,7 @@ impl Supervisor {
                 impact: "Captures full command line arguments for process creation events".to_string(),
             });
         }
-        
+
         if !powershell_logging_enabled {
             recommended_fixes.push(ReadinessFix {
                 id: "enable_ps_logging".to_string(),
@@ -979,7 +1013,7 @@ impl Supervisor {
                 impact: "Captures PowerShell script content for detection".to_string(),
             });
         }
-        
+
         ReadinessCheck {
             is_admin,
             can_read_security_log,
@@ -991,61 +1025,82 @@ impl Supervisor {
             overall_readiness,
         }
     }
-    
+
     /// List all previous runs
     pub fn list_runs(&self) -> Result<Vec<RunHistoryEntry>, String> {
         let runs_dir = self.telemetry_root.join("runs");
-        
+
         if !runs_dir.exists() {
             return Ok(vec![]);
         }
-        
+
         let mut entries = Vec::new();
-        
-        let read_dir = fs::read_dir(&runs_dir)
-            .map_err(|e| format!("Failed to read runs directory: {}", e))?;
-            
+
+        let read_dir =
+            fs::read_dir(&runs_dir).map_err(|e| format!("Failed to read runs directory: {}", e))?;
+
         for entry in read_dir.flatten() {
             let path = entry.path();
             if !path.is_dir() {
                 continue;
             }
-            
-            let run_id = path.file_name()
+
+            let run_id = path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .map(|s| s.to_string())
                 .unwrap_or_default();
-                
+
             if !run_id.starts_with("run_") {
                 continue;
             }
-            
+
             // Try to read metrics file for this run
-            let metrics_path = path.join("metrics").join(format!("{}_metrics.json", run_id));
-            
-            let (started, duration_minutes, signals_count, is_admin_run) = 
+            let metrics_path = path
+                .join("metrics")
+                .join(format!("{}_metrics.json", run_id));
+
+            let (started, duration_minutes, signals_count, is_admin_run) =
                 if let Ok(contents) = fs::read_to_string(&metrics_path) {
                     if let Ok(metrics) = serde_json::from_str::<serde_json::Value>(&contents) {
                         (
-                            metrics.get("timestamp").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                            metrics.get("config").and_then(|c| c.get("duration_minutes")).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                            metrics.get("pipeline").and_then(|p| p.get("signals_count")).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                            metrics.get("environment").and_then(|e| e.get("is_admin")).and_then(|v| v.as_bool()).unwrap_or(false),
+                            metrics
+                                .get("timestamp")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string(),
+                            metrics
+                                .get("config")
+                                .and_then(|c| c.get("duration_minutes"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
+                            metrics
+                                .get("pipeline")
+                                .and_then(|p| p.get("signals_count"))
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32,
+                            metrics
+                                .get("environment")
+                                .and_then(|e| e.get("is_admin"))
+                                .and_then(|v| v.as_bool())
+                                .unwrap_or(false),
                         )
                     } else {
                         (String::new(), 0, 0, false)
                     }
                 } else {
                     // Fall back to directory metadata
-                    let started = entry.metadata().ok()
+                    let started = entry
+                        .metadata()
+                        .ok()
                         .and_then(|m| m.created().ok())
                         .map(|t| chrono::DateTime::<chrono::Local>::from(t).to_rfc3339())
                         .unwrap_or_default();
                     (started, 0, 0, false)
                 };
-            
+
             let segments_count = count_segments_in_dir(&path.join("segments"));
-            
+
             entries.push(RunHistoryEntry {
                 run_id,
                 started,
@@ -1056,45 +1111,45 @@ impl Supervisor {
                 run_dir: path.display().to_string(),
             });
         }
-        
+
         // Sort by run_id (which includes timestamp) descending
         entries.sort_by(|a, b| b.run_id.cmp(&a.run_id));
-        
+
         Ok(entries)
     }
-    
+
     /// Get metrics for a specific run
     pub fn get_run_metrics(&self, run_id: &str) -> Result<serde_json::Value, String> {
-        let metrics_path = self.telemetry_root
+        let metrics_path = self
+            .telemetry_root
             .join("runs")
             .join(run_id)
             .join("metrics")
             .join(format!("{}_metrics.json", run_id));
-            
+
         if !metrics_path.exists() {
             return Err(format!("Metrics not found for run: {}", run_id));
         }
-        
+
         let contents = fs::read_to_string(&metrics_path)
             .map_err(|e| format!("Failed to read metrics: {}", e))?;
-            
-        serde_json::from_str(&contents)
-            .map_err(|e| format!("Failed to parse metrics: {}", e))
+
+        serde_json::from_str(&contents).map_err(|e| format!("Failed to parse metrics: {}", e))
     }
-    
+
     /// Open run folder in explorer
     pub fn open_run_folder(&self, run_id: &str) -> Result<(), String> {
         let run_dir = self.telemetry_root.join("runs").join(run_id);
-        
+
         if !run_dir.exists() {
             return Err(format!("Run directory not found: {}", run_id));
         }
-        
+
         Command::new("explorer")
             .arg(&run_dir)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
-            
+
         Ok(())
     }
 }
@@ -1103,7 +1158,11 @@ impl Drop for Supervisor {
     fn drop(&mut self) {
         // Best-effort cleanup
         for (kind, mut proc) in self.processes.drain() {
-            tracing::info!("Supervisor dropping, killing {} (PID {})", kind.as_str(), proc.pid());
+            tracing::info!(
+                "Supervisor dropping, killing {} (PID {})",
+                kind.as_str(),
+                proc.pid()
+            );
             proc.kill();
         }
     }
@@ -1255,11 +1314,7 @@ fn count_segments_in_dir(segments_dir: &Path) -> u32 {
         .map(|entries| {
             entries
                 .filter_map(Result::ok)
-                .filter(|e| {
-                    e.path()
-                        .extension()
-                        .is_some_and(|ext| ext == "jsonl")
-                })
+                .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
                 .count() as u32
         })
         .unwrap_or(0)
@@ -1316,14 +1371,16 @@ async fn fetch_signal_stats(api_base_url: &str) -> Option<(serde_json::Value, se
 
     let response = client.get(&url).send().await.ok()?;
     let data: serde_json::Value = response.json().await.ok()?;
-    
-    let signals = data.get("data").and_then(|d| d.as_array())
+
+    let signals = data
+        .get("data")
+        .and_then(|d| d.as_array())
         .or_else(|| data.as_array())?;
-    
+
     // Count by playbook
     let mut by_playbook: HashMap<String, u32> = HashMap::new();
     let mut by_severity: HashMap<String, u32> = HashMap::new();
-    
+
     for signal in signals {
         if let Some(playbook) = signal.get("playbook_id").and_then(|v| v.as_str()) {
             *by_playbook.entry(playbook.to_string()).or_insert(0) += 1;
@@ -1332,8 +1389,11 @@ async fn fetch_signal_stats(api_base_url: &str) -> Option<(serde_json::Value, se
             *by_severity.entry(severity.to_string()).or_insert(0) += 1;
         }
     }
-    
-    Some((serde_json::to_value(by_playbook).ok()?, serde_json::to_value(by_severity).ok()?))
+
+    Some((
+        serde_json::to_value(by_playbook).ok()?,
+        serde_json::to_value(by_severity).ok()?,
+    ))
 }
 
 // ============================================================================
@@ -1370,54 +1430,67 @@ struct ExplainabilityStats {
 async fn fetch_telemetry_stats(api_base_url: &str) -> TelemetryStats {
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
-        .build() {
+        .build()
+    {
         Ok(c) => c,
         Err(_) => return TelemetryStats::default(),
     };
-    
+
     // Try to fetch stats from /api/stats endpoint if available
     let stats_url = format!("{}/api/stats", api_base_url);
     if let Ok(response) = client.get(&stats_url).send().await {
         if let Ok(data) = response.json::<serde_json::Value>().await {
             return TelemetryStats {
-                events_count: data.get("events_count")
+                events_count: data
+                    .get("events_count")
                     .and_then(|v| v.as_u64())
                     .map(|n| n as u32)
                     .unwrap_or(0),
-                channels: data.get("channels")
+                channels: data
+                    .get("channels")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
                     .unwrap_or_default(),
-                events_by_channel: data.get("events_by_channel")
+                events_by_channel: data
+                    .get("events_by_channel")
                     .and_then(|v| v.as_object())
-                    .map(|obj| obj.iter()
-                        .filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n as u32)))
-                        .collect())
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n as u32)))
+                            .collect()
+                    })
                     .unwrap_or_default(),
-                events_by_provider: data.get("events_by_provider")
+                events_by_provider: data
+                    .get("events_by_provider")
                     .and_then(|v| v.as_object())
-                    .map(|obj| obj.iter()
-                        .filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n as u32)))
-                        .collect())
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n as u32)))
+                            .collect()
+                    })
                     .unwrap_or_default(),
             };
         }
     }
-    
+
     // Fallback: Try to infer from events endpoint
     let events_url = format!("{}/api/events", api_base_url);
     if let Ok(response) = client.get(&events_url).send().await {
         if let Ok(data) = response.json::<serde_json::Value>().await {
-            let events = data.get("data").and_then(|d| d.as_array())
+            let events = data
+                .get("data")
+                .and_then(|d| d.as_array())
                 .or_else(|| data.as_array())
                 .cloned()
                 .unwrap_or_default();
-            
+
             let mut by_channel: HashMap<String, u32> = HashMap::new();
             let mut by_provider: HashMap<String, u32> = HashMap::new();
-            
+
             for event in &events {
                 if let Some(channel) = event.get("channel").and_then(|v| v.as_str()) {
                     *by_channel.entry(channel.to_string()).or_insert(0) += 1;
@@ -1426,9 +1499,9 @@ async fn fetch_telemetry_stats(api_base_url: &str) -> TelemetryStats {
                     *by_provider.entry(provider.to_string()).or_insert(0) += 1;
                 }
             }
-            
+
             let channels: Vec<String> = by_channel.keys().cloned().collect();
-            
+
             return TelemetryStats {
                 events_count: events.len() as u32,
                 channels,
@@ -1437,7 +1510,7 @@ async fn fetch_telemetry_stats(api_base_url: &str) -> TelemetryStats {
             };
         }
     }
-    
+
     TelemetryStats::default()
 }
 
@@ -1446,22 +1519,25 @@ async fn fetch_telemetry_stats(api_base_url: &str) -> TelemetryStats {
 async fn fetch_extraction_stats(api_base_url: &str) -> ExtractionStats {
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
-        .build() {
+        .build()
+    {
         Ok(c) => c,
         Err(_) => return ExtractionStats::default(),
     };
-    
+
     // Try to fetch from /api/facts endpoint
     let facts_url = format!("{}/api/facts", api_base_url);
     if let Ok(response) = client.get(&facts_url).send().await {
         if let Ok(data) = response.json::<serde_json::Value>().await {
-            let facts = data.get("data").and_then(|d| d.as_array())
+            let facts = data
+                .get("data")
+                .and_then(|d| d.as_array())
                 .or_else(|| data.as_array())
                 .cloned()
                 .unwrap_or_default();
-            
+
             let mut by_type: HashMap<String, u32> = HashMap::new();
-            
+
             for fact in &facts {
                 if let Some(fact_type) = fact.get("fact_type").and_then(|v| v.as_str()) {
                     *by_type.entry(fact_type.to_string()).or_insert(0) += 1;
@@ -1469,33 +1545,37 @@ async fn fetch_extraction_stats(api_base_url: &str) -> ExtractionStats {
                     *by_type.entry(fact_type.to_string()).or_insert(0) += 1;
                 }
             }
-            
+
             return ExtractionStats {
                 facts_count: facts.len() as u32,
                 facts_by_type: by_type,
             };
         }
     }
-    
+
     // Fallback: Try stats endpoint
     let stats_url = format!("{}/api/stats", api_base_url);
     if let Ok(response) = client.get(&stats_url).send().await {
         if let Ok(data) = response.json::<serde_json::Value>().await {
             return ExtractionStats {
-                facts_count: data.get("facts_count")
+                facts_count: data
+                    .get("facts_count")
                     .and_then(|v| v.as_u64())
                     .map(|n| n as u32)
                     .unwrap_or(0),
-                facts_by_type: data.get("facts_by_type")
+                facts_by_type: data
+                    .get("facts_by_type")
                     .and_then(|v| v.as_object())
-                    .map(|obj| obj.iter()
-                        .filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n as u32)))
-                        .collect())
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, v)| v.as_u64().map(|n| (k.clone(), n as u32)))
+                            .collect()
+                    })
                     .unwrap_or_default(),
             };
         }
     }
-    
+
     ExtractionStats::default()
 }
 
@@ -1503,51 +1583,59 @@ async fn fetch_extraction_stats(api_base_url: &str) -> ExtractionStats {
 #[allow(dead_code)]
 async fn fetch_explainability_stats(api_base_url: &str) -> ExplainabilityStats {
     use crate::health_gates::SignalExplainability;
-    
+
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
-        .build() {
+        .build()
+    {
         Ok(c) => c,
         Err(_) => return ExplainabilityStats::default(),
     };
-    
+
     // Fetch signals and validate their explanations
     let signals_url = format!("{}/api/signals", api_base_url);
     if let Ok(response) = client.get(&signals_url).send().await {
         if let Ok(data) = response.json::<serde_json::Value>().await {
-            let signals = data.get("data").and_then(|d| d.as_array())
+            let signals = data
+                .get("data")
+                .and_then(|d| d.as_array())
                 .or_else(|| data.as_array())
                 .cloned()
                 .unwrap_or_default();
-            
+
             let mut validations = Vec::new();
-            
+
             for signal in &signals {
-                let signal_id = signal.get("id")
+                let signal_id = signal
+                    .get("id")
                     .or_else(|| signal.get("signal_id"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                    
-                let playbook_id = signal.get("playbook_id")
+
+                let playbook_id = signal
+                    .get("playbook_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                
+
                 // Check for evidence_ptrs
-                let evidence_ptrs = signal.get("evidence_ptrs")
+                let evidence_ptrs = signal
+                    .get("evidence_ptrs")
                     .or_else(|| signal.get("evidence"))
                     .and_then(|v| v.as_array());
                 let has_evidence_ptrs = evidence_ptrs.is_some_and(|arr| !arr.is_empty());
                 let evidence_ptr_count = evidence_ptrs.map(|arr| arr.len() as u32).unwrap_or(0);
-                
+
                 // Check for entity bundle
-                let has_entity_bundle = signal.get("entity_bundle")
+                let has_entity_bundle = signal
+                    .get("entity_bundle")
                     .or_else(|| signal.get("entities"))
                     .is_some();
-                
+
                 // Check for required slots (in explanation or matched_slots)
-                let explanation = signal.get("explanation")
+                let explanation = signal
+                    .get("explanation")
                     .or_else(|| signal.get("matched_slots"));
                 let required_slots = explanation
                     .and_then(|e| e.as_object())
@@ -1555,23 +1643,31 @@ async fn fetch_explainability_stats(api_base_url: &str) -> ExplainabilityStats {
                     .unwrap_or(0);
                 let required_slots_filled = explanation
                     .and_then(|e| e.as_object())
-                    .map(|obj| obj.values()
-                        .filter(|v| !v.is_null() && !matches!(v, serde_json::Value::String(s) if s.is_empty()))
-                        .count() as u32)
+                    .map(|obj| {
+                        obj.values()
+                            .filter(|v| {
+                                !v.is_null()
+                                    && !matches!(v, serde_json::Value::String(s) if s.is_empty())
+                            })
+                            .count() as u32
+                    })
                     .unwrap_or(0);
                 let has_required_slots_filled = required_slots_filled > 0 || required_slots == 0;
-                
+
                 // Build issues list
                 let mut issues = Vec::new();
                 if !has_evidence_ptrs {
                     issues.push("Missing evidence_ptrs".to_string());
                 }
                 if !has_required_slots_filled && required_slots > 0 {
-                    issues.push(format!("Only {}/{} required slots filled", required_slots_filled, required_slots));
+                    issues.push(format!(
+                        "Only {}/{} required slots filled",
+                        required_slots_filled, required_slots
+                    ));
                 }
-                
+
                 let is_valid = has_evidence_ptrs && has_required_slots_filled;
-                
+
                 validations.push(SignalExplainability {
                     signal_id,
                     playbook_id,
@@ -1585,11 +1681,11 @@ async fn fetch_explainability_stats(api_base_url: &str) -> ExplainabilityStats {
                     issues,
                 });
             }
-            
+
             return ExplainabilityStats { validations };
         }
     }
-    
+
     ExplainabilityStats::default()
 }
 
@@ -1620,7 +1716,7 @@ fn check_security_log_access() -> bool {
         let result = Command::new("wevtutil")
             .args(["qe", "Security", "/c:1", "/rd:true", "/f:text"])
             .output();
-        
+
         match result {
             Ok(output) => output.status.success(),
             Err(_) => false,
@@ -1637,18 +1733,23 @@ fn check_sysmon() -> (bool, Option<String>) {
     #[cfg(windows)]
     {
         use std::process::Command;
-        
+
         // Check if Sysmon service exists
         let result = Command::new("sc")
             .args(["query", "Sysmon64"])
             .output()
             .or_else(|_| Command::new("sc").args(["query", "Sysmon"]).output());
-            
+
         match result {
             Ok(output) if output.status.success() => {
                 // Try to get version
                 let version = Command::new("reg")
-                    .args(["query", "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SysmonDrv", "/v", "ImagePath"])
+                    .args([
+                        "query",
+                        "HKLM\\SYSTEM\\CurrentControlSet\\Services\\SysmonDrv",
+                        "/v",
+                        "ImagePath",
+                    ])
                     .output()
                     .ok()
                     .and_then(|o| {
@@ -1676,7 +1777,7 @@ fn check_audit_policy() -> AuditPolicyState {
     #[cfg(windows)]
     {
         use std::process::Command;
-        
+
         // Check process creation auditing
         let process_creation = Command::new("auditpol")
             .args(["/get", "/subcategory:Process Creation"])
@@ -1686,17 +1787,22 @@ fn check_audit_policy() -> AuditPolicyState {
                 stdout.contains("Success") || stdout.contains("Failure")
             })
             .unwrap_or(false);
-        
+
         // Check if command line logging is enabled
         let command_line = Command::new("reg")
-            .args(["query", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Audit", "/v", "ProcessCreationIncludeCmdLine_Enabled"])
+            .args([
+                "query",
+                "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Audit",
+                "/v",
+                "ProcessCreationIncludeCmdLine_Enabled",
+            ])
             .output()
             .map(|o| {
                 let stdout = String::from_utf8_lossy(&o.stdout);
                 stdout.contains("0x1")
             })
             .unwrap_or(false);
-        
+
         // Check logon auditing
         let logon_events = Command::new("auditpol")
             .args(["/get", "/subcategory:Logon"])
@@ -1706,7 +1812,7 @@ fn check_audit_policy() -> AuditPolicyState {
                 stdout.contains("Success") || stdout.contains("Failure")
             })
             .unwrap_or(false);
-        
+
         AuditPolicyState {
             process_creation,
             command_line_logging: command_line,
@@ -1728,9 +1834,14 @@ fn check_powershell_logging() -> bool {
     #[cfg(windows)]
     {
         use std::process::Command;
-        
+
         Command::new("reg")
-            .args(["query", "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging", "/v", "EnableScriptBlockLogging"])
+            .args([
+                "query",
+                "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging",
+                "/v",
+                "EnableScriptBlockLogging",
+            ])
             .output()
             .map(|o| {
                 let stdout = String::from_utf8_lossy(&o.stdout);
@@ -1748,16 +1859,16 @@ fn check_powershell_logging() -> bool {
 #[cfg(windows)]
 fn get_port_holder(port: u16) -> Option<u32> {
     use std::process::Command;
-    
+
     // Use netstat to find the process holding the port
     let output = Command::new("netstat")
         .args(["-ano", "-p", "TCP"])
         .output()
         .ok()?;
-    
+
     let stdout = String::from_utf8_lossy(&output.stdout);
     let port_str = format!(":{}", port);
-    
+
     for line in stdout.lines() {
         if line.contains(&port_str) && line.contains("LISTENING") {
             // Last column is PID

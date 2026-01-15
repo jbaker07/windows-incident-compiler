@@ -1,0 +1,147 @@
+---
+# playbooks/windows/signal_net_command_abuse.yaml
+# Detection of net.exe command abuse
+
+id: "windows_net_command_001"
+title: "Net Command Abuse"
+name: "Net Command Detection"
+family: "discovery"
+version: "2.0"
+description: |
+  Detects suspicious net.exe usage for:
+  - User/group enumeration
+  - Share enumeration
+  - Session management
+  - Account manipulation
+
+enabled: true
+confidence_threshold: 0.70
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+mitre:
+  tactics:
+    - discovery
+    - lateral_movement
+    - persistence
+  techniques:
+    - T1087      # Account Discovery
+    - T1069      # Permission Groups Discovery
+    - T1135      # Network Share Discovery
+    - T1136      # Create Account
+
+input_facts:
+  required:
+    - Exec
+
+slots:
+  required:
+    - name: process_name
+      type: string
+      pattern: "(?i)net\\.exe|net1\\.exe"
+  optional:
+    - name: subcommand
+      type: string
+      pattern: "(?i)user|localgroup|group|share|session|use"
+
+rules:
+  - name: "Net User Add"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)net(1)?\\.exe"
+      - field: cmdline
+        matches: "(?i)\\buser\\b.*/add"
+    actions:
+      - severity: HIGH
+        tags:
+          - "account_creation"
+          - "persistence"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "Net Localgroup Add"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)net(1)?\\.exe"
+      - field: cmdline
+        matches: "(?i)\\blocalgroup\\b.*/add"
+    actions:
+      - severity: HIGH
+        tags:
+          - "group_modification"
+          - "privilege_escalation"
+
+  - name: "Net Share Enumeration"
+    window: 60
+    aggregation: count
+    threshold: 2
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)net(1)?\\.exe"
+      - field: cmdline
+        matches: "(?i)\\bshare\\b|\\bview\\b"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "share_enum"
+          - "discovery"
+
+  - name: "Net Use Remote Connection"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)net(1)?\\.exe"
+      - field: cmdline
+        matches: "(?i)\\buse\\b.*\\\\\\\\.*[$]"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lateral_movement"
+          - "admin_share"
+
+  - name: "Net Session Clear"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)net(1)?\\.exe"
+      - field: cmdline
+        matches: "(?i)\\bsession\\b.*/delete"
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "session_cleanup"
+          - "anti_forensics"
+
+  - name: "Net Password Change"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)net(1)?\\.exe"
+      - field: cmdline
+        matches: "(?i)\\buser\\b.*\\*"
+    actions:
+      - severity: HIGH
+        tags:
+          - "password_change"
+          - "credential_modification"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "Net Command Abuse Detected"
+    priority: "high"
+
+false_positives:
+  - "IT administrators managing users/shares"
+  - "Domain join operations"

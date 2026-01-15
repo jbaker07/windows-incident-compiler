@@ -42,9 +42,9 @@ pub enum ScenarioCategory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RiskLevel {
-    Safe,      // No system changes, read-only queries
-    Low,       // Minimal changes, easily reversible
-    Moderate,  // Some changes, may trigger AV/EDR
+    Safe,     // No system changes, read-only queries
+    Low,      // Minimal changes, easily reversible
+    Moderate, // Some changes, may trigger AV/EDR
 }
 
 /// Result of executing a scenario pack

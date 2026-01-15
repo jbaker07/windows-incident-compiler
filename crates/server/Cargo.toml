@@ -8,28 +8,49 @@ description = "HTTP API server for the attack documentation workbench"
 name = "edr_server"
 path = "src/lib.rs"
 
+# CORE: Primary server entrypoint (locint is preferred for desktop use)
 [[bin]]
 name = "edr-server"
 path = "src/main.rs"
+required-features = ["legacy_server"]
 
+# CORE: Desktop GUI entrypoint (double-click locint.exe)
+[[bin]]
+name = "locint"
+path = "src/bin/locint.rs"
+
+# NON-CORE: Golden bundle CI tool
 [[bin]]
 name = "golden-cli"
 path = "src/bin/golden_cli.rs"
+required-features = ["golden_bundle"]
 
+# NON-CORE: License generation (internal use)
 [[bin]]
 name = "license_gen"
 path = "src/bin/license_gen.rs"
+required-features = ["dev_utils"]
 
 [features]
+default = ["core"]
+core = ["edr-core/core"]     # Core loop only
 test-utils = []
-pro = ["edr-core/pro"]
+dev_utils = []               # Dev utilities (license_gen, etc.)
+pro = ["edr-core/pro", "diff", "narrative", "watermark"]
+diff = ["edr-core/diff"]     # Delta reports between runs
+narrative = ["edr-core/narrative"]  # Natural language narratives
+watermark = ["edr-core/watermark"]  # Report watermarking
+golden_bundle = []           # Golden bundle CI testing
+support_bundle = []          # Support bundle generation
+integrations = []            # SIEM/vendor integrations
+legacy_server = []           # Enable deprecated main.rs entrypoint
 
 [dependencies]
 edr-core = { path = "../core" }
 workbench = { path = "../workbench" }
 
 # Web framework
-axum = "0.7"
+axum = { version = "0.7", features = ["multipart"] }
 tower-http = { version = "0.5", features = ["cors", "fs", "set-header"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "time", "fs"] }
 hyper = "1"
@@ -37,6 +58,7 @@ hyper = "1"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"  # Playbook catalog YAML parsing
 
 # Time/utils
 chrono = { version = "0.4", features = ["serde"] }
@@ -52,6 +74,9 @@ dirs = "6.0"
 
 # Error handling
 thiserror = "1"  # Ship hardening: write isolation errors
+
+# Concurrency
+parking_lot = "0.12"
 
 # Hashing
 md5 = "0.7"
@@ -69,7 +94,16 @@ tempfile = "3"
 ed25519-dalek = "2"
 rand = "0.8"
 
+# Run control: binary discovery
+which = "7"
+
+# Browser auto-open
+open = "5"
+
 # Platform-specific
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"  # Ship hardening: disk free space and uid checks
 

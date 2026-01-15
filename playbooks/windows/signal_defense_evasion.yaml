@@ -5,6 +5,7 @@
 name: "Defense Evasion Detection (Windows)"
 description: "Detect attempts to disable or evade security controls"
 version: "1.0"
+requires: ["security_log"]
 
 detection:
   signals:

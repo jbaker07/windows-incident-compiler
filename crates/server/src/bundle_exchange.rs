@@ -7,7 +7,7 @@
 //! - Mechanical isolation of imported vs live data
 //! - Replay: precomputed report/explanation for instant viewing
 //! - Recompute: canonical inputs to re-run locally and verify determinism
-//! - Watermarking: license/install provenance embedded for attribution
+//! - Watermarking: license/install provenance embedded for attribution (requires watermark feature)
 //!
 //! Use cases:
 //! - HTB/Atomic writeups
@@ -16,6 +16,7 @@
 
 use crate::report::{IntegrityNoteEntry, ReportBundle};
 use chrono::{DateTime, Utc};
+#[cfg(feature = "watermark")]
 use edr_core::watermark::create_watermark_from_license;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -628,13 +629,16 @@ pub fn build_incident_bundle(
         None
     };
 
-    // Generate watermark for this export
+    // Generate watermark for this export (requires watermark feature)
+    #[cfg(feature = "watermark")]
     let watermark = create_watermark_from_license("bundle_export").map(|wm| BundleWatermark {
         visible: wm.to_visible_string(),
         license_id: wm.license_id,
         install_hash: wm.install_hash,
         build_version: wm.build_version,
     });
+    #[cfg(not(feature = "watermark"))]
+    let watermark: Option<BundleWatermark> = None;
 
     let mut incident_bundle = IncidentBundle {
         version: BUNDLE_FORMAT_VERSION.to_string(),

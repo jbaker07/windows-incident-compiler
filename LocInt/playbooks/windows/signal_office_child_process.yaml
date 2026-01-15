@@ -1,0 +1,115 @@
+---
+# playbooks/windows/signal_office_child_process.yaml
+# Detection of suspicious Office child processes
+
+id: "windows_office_child_001"
+title: "Office Application Child Process"
+name: "Office Child Process Detection"
+family: "execution"
+version: "2.0"
+description: |
+  Detects suspicious child processes spawned by Office applications:
+  - cmd.exe, powershell.exe, wscript.exe spawns
+  - Macro-enabled document execution
+  - DDE attack indicators
+
+enabled: true
+confidence_threshold: 0.85
+
+requires:
+  - security_log
+  - audit_proc_creation
+
+mitre:
+  tactics:
+    - execution
+    - initial_access
+  techniques:
+    - T1204.002  # Malicious File
+    - T1566.001  # Spearphishing Attachment
+    - T1559.002  # DDE
+
+input_facts:
+  required:
+    - Exec
+
+slots:
+  required:
+    - name: parent_process
+      type: string
+      pattern: "(?i)(winword|excel|powerpnt|outlook|msaccess)\\.exe"
+  optional:
+    - name: child_process
+      type: string
+      pattern: "(?i)(cmd|powershell|pwsh|wscript|cscript|mshta|certutil|bitsadmin)\\.exe"
+
+rules:
+  - name: "Office Spawns Shell"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)(cmd|powershell|pwsh)\\.exe"
+      - field: parent_path
+        matches: "(?i)(winword|excel|powerpnt)\\.exe"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "macro_execution"
+          - "shell_spawn"
+          - "phishing"
+    evidence:
+      - event_type: "process_creation"
+        event_id: [4688, 1]
+
+  - name: "Office Spawns Script Engine"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)(wscript|cscript|mshta)\\.exe"
+      - field: parent_path
+        matches: "(?i)(winword|excel|powerpnt|outlook)\\.exe"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "macro_script"
+          - "dropper"
+
+  - name: "Office Spawns LOLBin"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)(certutil|bitsadmin|rundll32|regsvr32)\\.exe"
+      - field: parent_path
+        matches: "(?i)(winword|excel|powerpnt|outlook)\\.exe"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "lolbin"
+          - "macro_dropper"
+
+  - name: "Outlook Spawns Process"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)(cmd|powershell|mshta|wscript)\\.exe"
+      - field: parent_path
+        matches: "(?i)outlook\\.exe"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "email_phishing"
+          - "attachment_execution"
+
+response:
+  - type: "alert"
+    channel: "siem"
+    title: "Office Child Process Detected"
+    priority: "critical"
+
+false_positives:
+  - "Legitimate Office add-ins executing scripts"
+  - "Mail merge operations"

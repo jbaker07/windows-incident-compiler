@@ -1,0 +1,203 @@
+RELIABILITY DIAGNOSIS
+Last Updated: 2026-01-11
+Purpose: Root cause analysis and fix plan for observed reliability issues
+
+================================================================================
+SUMMARY OF DIAGNOSED ISSUES
+================================================================================
+
+Issue   Symptom                              Root Cause                                     Fix Effort
+-----   -------                              ----------                                     ----------
+RD-1    Tickers not updating                 Log parsing for facts, byte estimate events   Low
+RD-2    0 findings when facts exist          Playbooks not loaded or tag-based skipped     Medium
+RD-3    Playbooks tab network error          Inconsistent response shape                   Low
+RD-4    Export triggers memory injection     No self-process allowlist                     Medium
+RD-5    Runs not persisting final counts     No finalize step on stop                      Medium
+
+================================================================================
+RD-1: TICK COUNTERS NOT RELIABLE
+================================================================================
+
+SYMPTOM:
+UI counters (events, facts, signals) show 0 or stale values even when capture is running.
+
+INVESTIGATION:
+
+What Endpoints Are Polled?
+  fetchRunStatus()  -> GET /api/run/status  -> every 1s (running) / 5s (stopped)
+  fetchMetrics()    -> GET /api/run/metrics -> every 1s (only when running)
+
+Polling Cadence (app.js lines 2731-2740):
+  let interval;
+  if (!isPageVisible) interval = 20000;      // 20s when tab hidden
+  else if (state.isRunning) interval = 1000; // 1s when running
+  else interval = 5000;                      // 5s when stopped
+
+Conditions That Disable Polling:
+  Condition                      Location    Effect
+  state.importedMode === true    line 2743   Skips poll entirely
+  pollingStopped === true        line 2727   Terminates loop
+  document.hidden === true       line 2732   Slows to 20s
+
+ROOT CAUSE ANALYSIS:
+
+Counter: events_total
+  Source: locint.rs line 510
+    "events_total": bytes_written / 500,  // rough estimate
+  Problem: Not counting actual events. Dividing bytes by 500 is a guess.
+
+Counter: facts_extracted
+  Source: locint.rs::parse_locald_facts() lines 615-640
+  Problem: Regex-parses locald.log for "facts:" keyword. If log format differs, returns 0.
+
+Counter: signals_fired
+  Source: locint.rs line 520 - queries database
+  Status: RELIABLE - correctly queries database
+
+Counter: segments_count
+  Source: locint.rs::count_segments() lines 595-610
+  Status: RELIABLE - correctly counts .jsonl files
+
+FIX PLAN:
+
+Fix 1: Query DB for facts_extracted (P0)
+  File: locint.rs line 510
+  Change: Replace log parsing with DB query:
+    SELECT SUM(fact_count) FROM coverage_rollup
+
+Fix 2: Count actual events instead of estimate (P2)
+  File: locint.rs line 510
+  Change: Count events from DB or parse segment files
+
+================================================================================
+RD-2: 0 FINDINGS WHEN FACTS EXIST
+================================================================================
+
+SYMPTOM:
+Coverage shows facts_total > 0, but signal_count = 0 and Findings tab is empty.
+
+ROOT CAUSE:
+
+1. Playbooks directory not found
+   File: locint.rs::discover_playbooks_dir()
+   Searched paths:
+     - LOCINT_PLAYBOOKS_DIR env var
+     - {exe_dir}/playbooks/windows/
+     - ./playbooks/windows/
+     - ../playbooks/windows/
+
+2. Tag-based playbooks skipped
+   File: playbook_manager.rs::load_from_yaml_dir() lines 340-400
+   Many playbooks use tags without mappings -> TAG_BASED_UNSUPPORTED
+
+3. Fact type mismatch
+   Playbooks expect fact types not being captured
+
+FIX PLAN:
+
+Fix 1: Add missing tag mappings (P2)
+  File: playbook_manager.rs line 755
+  Add mappings for: wmi, mof, log_clear, audit_*
+
+Fix 2: Log playbook skip reasons prominently
+  File: edr_locald.rs
+  Log at WARN level with counts
+
+================================================================================
+RD-3: PLAYBOOKS TAB SHOWS NETWORK ERROR
+================================================================================
+
+SYMPTOM:
+Clicking Playbooks tab shows "Network error" with "(missing: /api/runs/:run_id/playbooks)".
+
+ROOT CAUSE:
+
+Backend returns inconsistent response shape:
+  {
+    "available": true,           <- BUG: should be false
+    "playbooks_enabled": false,
+    "not_found_reason": "..."
+  }
+
+UI expects available=false when playbooks not configured.
+
+FIX PLAN:
+
+Fix 1: Return available: false when playbooks disabled (P0)
+  File: locint.rs line 1390
+  Change: Return available: false when playbooks_enabled is false
+
+================================================================================
+RD-4: EXPORT TRIGGERS MEMORY INJECTION SIGNAL
+================================================================================
+
+SYMPTOM:
+Clicking Export during/after a run sometimes adds a "memory injection" signal.
+
+ROOT CAUSE:
+
+1. Export process (locint.exe) opens workbench.db
+2. If capture still running, this file access is logged
+3. Sysmon may generate ProcessAccess events
+4. A playbook slot predicate matches
+5. No allowlist for LocInt's own processes
+
+FIX PLAN:
+
+Fix 1: Add self-process allowlist (P1)
+  File: signal_engine.rs
+  Add check:
+    fn is_self_process(proc_name: &str) -> bool {
+        let self_names = ["locint.exe", "edr-server.exe", "edr-locald.exe",
+                          "capture_windows_rotating.exe"];
+        self_names.iter().any(|n| proc_name.to_lowercase().contains(n))
+    }
+
+================================================================================
+RD-5: RUNS NOT PERSISTING FINAL COUNTS
+================================================================================
+
+SYMPTOM:
+After stopping a run, the runs list shows inconsistent or stale counts.
+
+ROOT CAUSE:
+
+1. run_stop_handler() only kills processes - no finalization
+2. run_meta.json may not have stopped_at set
+3. Stats derived on-demand from workbench.db which may be incomplete
+
+FIX PLAN:
+
+Fix 1: Add finalize step to stop handler (P1)
+  File: locint.rs line 375
+  Change: After killing processes:
+    - Wait 500ms for full termination
+    - Read final stats from DB
+    - Write finalized run_meta.json with stopped_at and all counts
+
+================================================================================
+FIX PRIORITY MATRIX
+================================================================================
+
+Priority  Fix                                           Issue  File                      LOE
+--------  ---                                           -----  ----                      ---
+P0        Query DB for facts_extracted                  RD-1   locint.rs:510             1h
+P0        Return available:false when playbooks off     RD-3   locint.rs:1390            30m
+P1        Add self-process allowlist                    RD-4   signal_engine.rs          2h
+P1        Add finalize step to stop                     RD-5   locint.rs:375             2h
+P2        Add missing tag mappings                      RD-2   playbook_manager.rs:755   2h
+P2        Count actual events instead of estimate       RD-1   locint.rs:510             2h
+P3        Add polling debug logging                     RD-1   app.js:2740               30m
+
+================================================================================
+VERIFICATION CHECKLIST
+================================================================================
+
+After implementing fixes:
+
+[ ] Start/stop run 3x - counters update smoothly, no stalls
+[ ] Stop run - run_meta.json has stopped_at and finalized: true
+[ ] Coverage endpoint returns facts_extracted > 0 when facts exist
+[ ] Playbooks tab shows clear message when playbooks dir not found
+[ ] Export does NOT create new signals
+[ ] Runs list shows correct counts after stop

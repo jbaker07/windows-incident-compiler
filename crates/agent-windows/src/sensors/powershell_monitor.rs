@@ -1,6 +1,16 @@
 // windows/sensors/powershell_monitor.rs
-// PowerShell command execution monitoring: scripts, cmdlets, execution policy bypass
-// Sources: Microsoft-Windows-PowerShell/Operational (Event IDs 4100, 4104=ScriptBlock execution)
+//! PowerShell command execution monitoring: scripts, cmdlets, execution policy bypass
+//!
+//! # Architecture Note
+//! This module is intentionally a STUB. PowerShell events are captured via the
+//! unified WEVTAPI polling path (`wevt_reader.rs`), then normalized in
+//! `attack_surface.rs::parse_powershell_exec()`.
+//!
+//! The sources handled by the main pipeline are:
+//! - PowerShell/Operational EventID 4103: Module logging (command invocation)
+//! - PowerShell/Operational EventID 4104: Script block logging (full script text)
+//!
+//! This module remains for reference and to document the expected event schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

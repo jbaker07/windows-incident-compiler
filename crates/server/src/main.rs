@@ -6,10 +6,15 @@ mod capture_control;
 mod db;
 mod diagnostics;
 mod diff_api;
+mod explain_normalize;
 mod integration_api;
 mod license_api;
 mod probe;
 mod report;
+mod run_control;
+mod run_coverage;
+mod run_db;
+mod server_core;
 mod support_bundle;
 mod verification_pack;
 
@@ -28,6 +33,7 @@ use bundle_exchange::{
 use capture_control::{CaptureProfile, ProfileConfig, ThrottleController, ThrottleDecision};
 use db::Database;
 use diagnostics::DiagnosticEngine;
+use edr_core::SignalSummary;
 use probe::{ProbeRunner, ProbeSpec};
 use report::{PdfRenderer, ReportRequest};
 use serde::{Deserialize, Serialize};
@@ -70,6 +76,8 @@ struct AppState {
     /// Server start time (used for uptime reporting)
     #[allow(dead_code)]
     start_time: chrono::DateTime<chrono::Utc>,
+    /// Run controller for browser-accessible capture lifecycle
+    run_controller: Arc<run_control::RunController>,
 }
 
 type SharedState = Arc<AppState>;
@@ -148,10 +156,14 @@ struct SignalIngestRequest {
 
 #[derive(Debug, Deserialize)]
 struct SignalQueryParams {
+    /// Filter by run_id
+    run_id: Option<String>,
     host: Option<String>,
     signal_type: Option<String>,
     severity: Option<String>,
     limit: Option<usize>,
+    /// Offset for pagination
+    offset: Option<usize>,
 }
 
 // ============================================================================
@@ -497,24 +509,108 @@ async fn ingest_signals(
     }
 }
 
+/// List signals - queries per-run DB when run_id is provided
+/// Stage 3 Fix: Reads from per-run workbench.db (the source of truth for run artifacts)
 async fn list_signals(
     State(state): State<SharedState>,
     axum::extract::Query(params): axum::extract::Query<SignalQueryParams>,
 ) -> impl IntoResponse {
-    let limit = params.limit.unwrap_or(100).min(1000);
+    // Bounded pagination: default=200, max=1000
+    const DEFAULT_LIMIT: usize = 200;
+    const MAX_LIMIT: usize = 1000;
+    
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
+    let offset = params.offset.unwrap_or(0);
 
-    match state.db.list_signals(
-        params.host.as_deref(),
-        params.signal_type.as_deref(),
-        params.severity.as_deref(),
-        limit,
-    ) {
-        Ok(signals) => ApiResponse::ok(signals),
-        Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
+    // If run_id is provided, query the per-run DB (source of truth)
+    if let Some(ref run_id) = params.run_id {
+        // Look up run_dir from runs table
+        let run_record = match state.db.get_run(run_id) {
+            Ok(Some(run)) => run,
+            Ok(None) => {
+                return ApiResponse::err(&format!("Run '{}' not found", run_id));
+            }
+            Err(e) => {
+                return ApiResponse::err(&format!("Database error looking up run: {}", e));
+            }
+        };
+        
+        let run_dir = match run_record.run_dir {
+            Some(dir) => dir,
+            None => {
+                return ApiResponse::err(&format!("Run '{}' has no run_dir", run_id));
+            }
+        };
+        
+        // Open per-run DB and query signals
+        match run_db::open_run_db(&run_dir) {
+            Ok(conn) => {
+                match run_db::query_signals_from_run_db(
+                    &conn,
+                    params.host.as_deref(),
+                    params.signal_type.as_deref(),
+                    params.severity.as_deref(),
+                    limit,
+                    offset,
+                ) {
+                    Ok(signals) => {
+                        let summaries: Vec<_> = signals
+                            .iter()
+                            .map(explain_normalize::signal_to_summary)
+                            .collect();
+                        ApiResponse::ok(summaries)
+                    }
+                    Err(e) => ApiResponse::err(&format!("Per-run DB error: {}", e)),
+                }
+            }
+            Err(run_db::RunDbError::DbNotFound(_path)) => {
+                // DB doesn't exist yet (run may still be in progress or no signals produced)
+                ApiResponse::ok(Vec::<SignalSummary>::new())
+            }
+            Err(e) => ApiResponse::err(&format!("Failed to open per-run DB: {}", e)),
+        }
+    } else {
+        // No run_id: fall back to server DB (for backwards compatibility / global queries)
+        match state.db.list_signals(
+            None,
+            params.host.as_deref(),
+            params.signal_type.as_deref(),
+            params.severity.as_deref(),
+            limit,
+            offset,
+        ) {
+            Ok(signals) => {
+                let summaries: Vec<_> = signals
+                    .iter()
+                    .map(explain_normalize::signal_to_summary)
+                    .collect();
+                ApiResponse::ok(summaries)
+            }
+            Err(e) => ApiResponse::err(&format!("Database error: {}", e)),
+        }
     }
 }
 
-async fn get_signal(State(state): State<SharedState>, Path(id): Path<String>) -> impl IntoResponse {
+/// Get signal by ID - tries per-run DB first if run_id query param provided
+async fn get_signal(
+    State(state): State<SharedState>, 
+    Path(id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<SignalQueryParams>,
+) -> impl IntoResponse {
+    // If run_id is provided, query per-run DB
+    if let Some(ref run_id) = params.run_id {
+        if let Ok(Some(run)) = state.db.get_run(run_id) {
+            if let Some(run_dir) = run.run_dir {
+                if let Ok(conn) = run_db::open_run_db(&run_dir) {
+                    if let Ok(Some(signal)) = run_db::get_signal_from_run_db(&conn, &id) {
+                        return (StatusCode::OK, ApiResponse::ok(signal));
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback to server DB
     match state.db.get_signal(&id) {
         Ok(Some(signal)) => (StatusCode::OK, ApiResponse::ok(signal)),
         Ok(None) => (StatusCode::NOT_FOUND, ApiResponse::err("Signal not found")),
@@ -525,13 +621,100 @@ async fn get_signal(State(state): State<SharedState>, Path(id): Path<String>) ->
     }
 }
 
+/// Query params for signal explanation (allows specifying run_id)
+#[derive(Debug, Deserialize)]
+struct ExplainQueryParams {
+    /// Run ID to locate the per-run DB
+    run_id: Option<String>,
+}
+
 /// Get explanation bundle for a signal
+/// Stage 3 Fix: Reads from per-run workbench.db (source of truth for explanations)
+/// Returns canonical ExplainResponse with consistent fields
+///
+/// Performance: O(1) lookup via PRIMARY KEY index on signal_id in both
+/// `signals` and `signal_explanations` tables.
 async fn get_signal_explanation(
     State(state): State<SharedState>,
     Path(id): Path<String>,
+    Query(params): Query<ExplainQueryParams>,
 ) -> impl IntoResponse {
-    // First check if signal exists
-    match state.db.get_signal(&id) {
+    // Stage 3 Fix: If run_id is provided, read from per-run workbench.db
+    if let Some(run_id) = params.run_id {
+        // Look up the run to get run_dir
+        let run_record = match state.db.get_run(&run_id) {
+            Ok(Some(run)) => run,
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    ApiResponse::err(&format!("Run '{}' not found", run_id)),
+                );
+            }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ApiResponse::err(&format!("Database error looking up run: {}", e)),
+                );
+            }
+        };
+        
+        let run_dir = match run_record.run_dir {
+            Some(dir) => dir,
+            None => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ApiResponse::err(&format!("Run '{}' has no run_dir", run_id)),
+                );
+            }
+        };
+
+        // Open the per-run workbench.db
+        let run_db = match run_db::open_run_db(&run_dir) {
+            Ok(db) => db,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ApiResponse::err(&format!("Failed to open run database: {}", e)),
+                );
+            }
+        };
+
+        // Get the signal from per-run DB
+        let signal = match run_db::get_signal_from_run_db(&run_db, &id) {
+            Ok(Some(sig)) => sig,
+            Ok(None) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    ApiResponse::err(&format!("Signal '{}' not found in run '{}'", id, run_id)),
+                );
+            }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ApiResponse::err(&format!("Database error reading signal: {}", e)),
+                );
+            }
+        };
+
+        // Get explanation from per-run DB
+        let explanation_json = match run_db::get_explanation_from_run_db(&run_db, &id) {
+            Ok(exp) => exp,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ApiResponse::err(&format!("Database error reading explanation: {}", e)),
+                );
+            }
+        };
+
+        // Normalize to canonical ExplainResponse format
+        let response = explain_normalize::normalize_explain_response(&signal, explanation_json.as_ref());
+        return (StatusCode::OK, ApiResponse::ok(response));
+    }
+
+    // Fallback: No run_id provided, query server DB (legacy behavior)
+    // First get signal (also verifies it exists)
+    let signal = match state.db.get_signal(&id) {
         Ok(None) => {
             return (
                 StatusCode::NOT_FOUND,
@@ -544,21 +727,25 @@ async fn get_signal_explanation(
                 ApiResponse::err(&format!("Database error: {}", e)),
             );
         }
-        Ok(Some(_)) => {} // Signal exists, continue
-    }
+        Ok(Some(sig)) => sig,
+    };
 
-    // Get explanation from signal_explanations table
-    match state.db.get_signal_explanation(&id) {
-        Ok(Some(explanation)) => (StatusCode::OK, ApiResponse::ok(explanation)),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            ApiResponse::err(&format!("Explanation not found for signal '{}'. The signal may have been created before explainability was enabled.", id)),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ApiResponse::err(&format!("Database error: {}", e)),
-        ),
-    }
+    // Get explanation from signal_explanations table (may be None)
+    let explanation_json = match state.db.get_signal_explanation(&id) {
+        Ok(exp) => exp,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ApiResponse::err(&format!("Database error: {}", e)),
+            );
+        }
+    };
+
+    // Normalize to canonical ExplainResponse format
+    // This ensures consistent fields even if explanation is missing
+    let response = explain_normalize::normalize_explain_response(&signal, explanation_json.as_ref());
+
+    (StatusCode::OK, ApiResponse::ok(response))
 }
 
 async fn signal_stats(State(state): State<SharedState>) -> impl IntoResponse {
@@ -2185,6 +2372,155 @@ async fn reset_throttle_counters(State(state): State<SharedState>) -> impl IntoR
     }))
 }
 
+// ============================================================================
+// Run Control API (browser-accessible capture lifecycle)
+// ============================================================================
+
+/// POST /api/run/start - Start capture + locald
+async fn run_start(
+    State(state): State<SharedState>,
+    Json(req): Json<run_control::StartRunRequest>,
+) -> impl IntoResponse {
+    let profile = req.profile.clone();
+    
+    match state.run_controller.start(req).await {
+        Ok(response) => {
+            // Persist run record to database
+            let run_record = db::RunRecord {
+                run_id: response.run_id.clone(),
+                profile,
+                started_at: response.started_at.to_rfc3339(),
+                stopped_at: None,
+                run_dir: Some(response.run_dir.clone()),
+                events_total: 0,
+                segments_count: 0,
+                facts_extracted: 0,
+                signals_fired: 0,
+                bytes_written: 0,
+                status: "running".to_string(),
+            };
+            
+            if let Err(e) = state.db.insert_run(&run_record) {
+                tracing::warn!("Failed to persist run record: {}", e);
+            }
+            
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "data": response
+                }))
+            )
+        },
+        Err(e) => {
+            // Check if this is a missing binaries error
+            if e.contains("BINARY NOT FOUND") || e.contains("not found") {
+                // Extract binary names from error
+                let mut missing = Vec::new();
+                if e.contains("capture_windows_rotating") {
+                    missing.push("capture_windows_rotating.exe");
+                }
+                if e.contains("edr-locald") {
+                    missing.push("edr-locald.exe");
+                }
+                
+                (
+                    StatusCode::PRECONDITION_FAILED, // 412
+                    Json(serde_json::json!({
+                        "success": false,
+                        "code": "MISSING_BINARIES",
+                        "error": "Required capture binaries not found",
+                        "missing": missing,
+                        "fix": [
+                            "cargo build --release -p agent-windows --bin capture_windows_rotating",
+                            "cargo build --release -p edr-locald --bin edr-locald"
+                        ],
+                        "details": e
+                    }))
+                )
+            } else if e.contains("already in progress") {
+                (
+                    StatusCode::CONFLICT, // 409
+                    Json(serde_json::json!({
+                        "success": false,
+                        "error": e
+                    }))
+                )
+            } else {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "success": false,
+                        "error": e
+                    }))
+                )
+            }
+        }
+    }
+}
+
+/// POST /api/run/stop - Stop all capture processes
+async fn run_stop(State(state): State<SharedState>) -> impl IntoResponse {
+    // Get run_id and metrics BEFORE stopping (while state is still available)
+    let run_id = state.run_controller.status().await.run_id.clone();
+    let metrics = state.run_controller.metrics().await;
+    
+    match state.run_controller.stop().await {
+        Ok(()) => {
+            // Finalize run record in database with final metrics
+            if let Some(run_id) = run_id {
+                let stopped_at = chrono::Utc::now().to_rfc3339();
+                let db_metrics = db::RunMetrics {
+                    events_total: metrics.events_total,
+                    segments_count: metrics.segments_count,
+                    facts_extracted: metrics.facts_extracted,
+                    signals_fired: metrics.signals_fired,
+                    bytes_written: metrics.bytes_written,
+                };
+                
+                if let Err(e) = state.db.finalize_run(&run_id, &stopped_at, &db_metrics) {
+                    tracing::warn!("Failed to finalize run record: {}", e);
+                } else {
+                    tracing::info!("Finalized run {} with {} signals", run_id, metrics.signals_fired);
+                }
+            }
+            
+            Json(serde_json::json!({
+                "success": true,
+                "message": "Run stopped",
+                "metrics": {
+                    "events_total": metrics.events_total,
+                    "segments_count": metrics.segments_count,
+                    "facts_extracted": metrics.facts_extracted,
+                    "signals_fired": metrics.signals_fired
+                }
+            }))
+        },
+        Err(e) => Json(serde_json::json!({
+            "success": false,
+            "error": e
+        })),
+    }
+}
+
+/// GET /api/run/status - Get current run status
+async fn run_status(State(state): State<SharedState>) -> impl IntoResponse {
+    let status = state.run_controller.status().await;
+    Json(serde_json::json!({
+        "success": true,
+        "data": status
+    }))
+}
+
+/// GET /api/run/metrics - Get live metrics
+async fn run_metrics(State(state): State<SharedState>) -> impl IntoResponse {
+    let metrics = state.run_controller.metrics().await;
+    Json(serde_json::json!({
+        "success": true,
+        "data": metrics
+    }))
+}
+
 /// GET /api/capture/config - Get full capture configuration (for bundles)
 async fn get_capture_config(State(state): State<SharedState>) -> impl IntoResponse {
     let snapshot = state.throttle_controller.create_config_snapshot();
@@ -2232,14 +2568,14 @@ async fn test_throttle_decision(
 async fn health() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "ok",
-        "service": "Attack Documentation Workbench",
+        "service": "Incident Compiler",
         "version": env!("CARGO_PKG_VERSION"),
     }))
 }
 
 async fn index() -> impl IntoResponse {
-    // Redirect to the workbench UI
-    axum::response::Redirect::permanent("/ui/workbench.html")
+    // Redirect to the main UI
+    axum::response::Redirect::permanent("/ui/index.html")
 }
 
 async fn api_docs() -> Html<&'static str> {
@@ -2247,7 +2583,7 @@ async fn api_docs() -> Html<&'static str> {
         r#"<!DOCTYPE html>
 <html>
 <head>
-    <title>Attack Documentation Workbench API</title>
+    <title>Incident Compiler API</title>
     <style>
         body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
         h1 { color: #1a1a2e; }
@@ -2257,9 +2593,9 @@ async fn api_docs() -> Html<&'static str> {
     </style>
 </head>
 <body>
-    <h1>🔬 Attack Documentation Workbench API</h1>
-    <p>Capture, analyze, edit, and export attack documentation for detection engineering.</p>
-    <p><a href="/ui/workbench.html">Open Workbench UI →</a></p>
+    <h1>🔬 Incident Compiler API</h1>
+    <p>Capture, analyze, explain, and compile security incidents.</p>
+    <p><a href="/ui/index.html">Open Incident Compiler →</a></p>
     
     <h2>API Endpoints</h2>
     
@@ -2358,6 +2694,9 @@ async fn main() {
         })
         .unwrap_or(3000);
 
+    // Check for --no-open flag (browser opens by default)
+    let open_browser = !args.iter().any(|a| a == "--no-open");
+
     // Get telemetry root from CLI args or environment
     let telemetry_root: Option<std::path::PathBuf> = args
         .iter()
@@ -2396,6 +2735,9 @@ async fn main() {
     let probe_runner = ProbeRunner::new();
     let start_time = chrono::Utc::now();
 
+    // Initialize run controller for browser-accessible capture lifecycle
+    let run_controller = Arc::new(run_control::RunController::new(data_dir.clone()));
+
     let state = Arc::new(AppState {
         db,
         sessions: RwLock::new(std::collections::HashMap::new()),
@@ -2410,6 +2752,7 @@ async fn main() {
         diagnostic_engine,
         probe_runner,
         start_time,
+        run_controller,
     });
 
     // Log first-run status
@@ -2459,9 +2802,12 @@ async fn main() {
         .route("/api/license/status", get(license_status_endpoint))
         .route("/api/license/install", post(license_install_endpoint))
         .route("/api/license/reload", post(license_reload_endpoint))
+        // Feature Flags API (UI capability gating)
+        .route("/api/features", get(license_api::get_feature_flags))
         // Pro: Diff API (requires Pro license entitlement)
         .route("/api/diff", get(diff_endpoint))
         .route("/api/runs", get(list_runs_endpoint))
+        .route("/api/runs/:run_id/coverage", get(run_coverage::get_run_coverage))
         // Narrative Actions API
         .route(
             "/api/narratives/:id/actions",
@@ -2512,6 +2858,11 @@ async fn main() {
             "/api/visibility/throttle/reset",
             post(reset_throttle_counters),
         )
+        // Run Control API (browser-accessible capture lifecycle)
+        .route("/api/run/start", post(run_start))
+        .route("/api/run/stop", post(run_stop))
+        .route("/api/run/status", get(run_status))
+        .route("/api/run/metrics", get(run_metrics))
         // Integration API endpoints (mounted separately due to different state)
         // These endpoints provide integration metadata and capabilities
         .route(
@@ -2536,12 +2887,30 @@ async fn main() {
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", port);
-    tracing::info!(
-        "🚀 Attack Documentation Workbench running at http://{}",
-        addr
-    );
+    let ui_url = format!("http://127.0.0.1:{}/ui/", port);
+    
+    println!("\n╔══════════════════════════════════════════════════════════════╗");
+    println!("║  EDR Incident Compiler - Ready                               ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║  UI:      {}                        ║", ui_url);
+    println!("║  API:     http://127.0.0.1:{}/api/                        ║", port);
+    println!("║                                                              ║");
+    println!("║  Click 'Start Run' in the browser to begin capture.         ║");
+    println!("║  Press Ctrl+C here to stop the server.                       ║");
+    println!("╚══════════════════════════════════════════════════════════════╝\n");
+    
+    tracing::info!("🚀 Server running at http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+
+    // Auto-open browser unless --no-open was specified
+    if open_browser {
+        tracing::info!("🌐 Opening browser at {}", ui_url);
+        if let Err(e) = open::that(&ui_url) {
+            tracing::warn!("Failed to open browser: {}. Please navigate to {} manually.", e, ui_url);
+        }
+    }
+
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await

@@ -1,0 +1,216 @@
+DATA FLOW MAP
+Last Updated: 2026-01-11
+Purpose: Complete pipeline documentation from capture to UI display
+
+================================================================================
+OVERVIEW
+================================================================================
+
+Data Pipeline:
+  capture_windows_rotating.exe -> JSONL segments -> edr-locald.exe -> 
+    facts extraction -> signal detection -> workbench.db -> 
+      locint HTTP API -> UI polling
+
+Process Boundaries:
+  1. capture_windows_rotating.exe - ETW/Sysmon capture, writes JSONL
+  2. edr-locald.exe - Processes segments, extracts facts, detects signals
+  3. locint.exe / edr-server.exe - HTTP server, serves UI, manages runs
+
+================================================================================
+CAPTURE LAYER
+================================================================================
+
+Binary: capture_windows_rotating.exe
+Source: crates/agent-windows/
+
+Input:
+  - ETW providers (Microsoft-Windows-Kernel-Process, etc.)
+  - Sysmon events (Event IDs 1, 3, 7, 8, 10, 11, 13, etc.)
+
+Output:
+  - {data_dir}/runs/run_{id}/segments/*.jsonl
+  - Rotating files, ~10MB each
+
+Spawn Location:
+  locint.rs::run_start_handler() line 217
+  RunController::start() in run_control.rs line 182
+
+================================================================================
+PROCESSING LAYER (LOCALD)
+================================================================================
+
+Binary: edr-locald.exe
+Source: crates/locald/
+
+Pipeline (pipeline.rs):
+  1. SegmentWatcher - monitors segments/ directory
+  2. EventParser - parses JSONL events
+  3. FactExtractor - extracts structured facts from events
+  4. SignalOrchestrator - routes facts to platform-specific detectors
+  5. SignalPersistence - writes signals to workbench.db
+
+Fact Types Extracted:
+  - Exec (process execution)
+  - FileWrite, FileDelete
+  - RegWrite, RegDelete
+  - NetConnect
+  - Auth (logon events)
+  - PersistArtifact
+
+Signal Detection:
+  - WindowsSignalEngine (os/windows/signal_engine.rs)
+  - Hardcoded detectors: LSASSAccessSuspicious, WmiPersistenceConfirmed, etc.
+  - PlaybookManager for YAML-based rules
+
+================================================================================
+DATABASE SCHEMA
+================================================================================
+
+File: {data_dir}/runs/run_{id}/workbench.db (SQLite)
+
+Tables:
+  signals
+    - id INTEGER PRIMARY KEY
+    - signal_type TEXT
+    - severity TEXT
+    - ts TEXT
+    - proc_key TEXT
+    - raw_json TEXT
+
+  signal_explanations
+    - id INTEGER PRIMARY KEY
+    - signal_id INTEGER FK
+    - explanation TEXT
+    - evidence_json TEXT
+
+  coverage_rollup
+    - ts_minute TEXT
+    - host TEXT
+    - sensor_mode TEXT
+    - fact_type TEXT
+    - fact_count INTEGER
+    - signal_type TEXT
+    - signal_count INTEGER
+
+================================================================================
+HTTP API LAYER
+================================================================================
+
+Binary: locint.exe (GUI) / edr-server.exe (CLI)
+Source: crates/server/src/bin/locint.rs
+
+Base URL: http://127.0.0.1:3000
+
+Key Endpoints:
+
+Run Management:
+  POST /api/run/start      -> run_start_handler() line 217
+  POST /api/run/stop       -> run_stop_handler() line 375
+  GET  /api/run/status     -> run_status_handler() line 315
+  GET  /api/run/metrics    -> run_metrics_handler() line 450
+
+Runs List:
+  GET  /api/runs           -> list_runs_handler() line 650
+  GET  /api/runs/:id       -> get_run_handler() line 780
+
+Coverage & Signals:
+  GET  /api/runs/:id/coverage  -> run_coverage_handler() line 850
+  GET  /api/runs/:id/signals   -> signals_handler() line 1560
+  GET  /api/runs/:id/playbooks -> run_playbooks_handler() line 1270
+
+Export:
+  GET  /api/runs/:id/export    -> export_bundle_handler() line 1780
+
+================================================================================
+UI POLLING
+================================================================================
+
+File: ui/app.js (2856 lines)
+
+Polling Loop: startPolling() line 2715
+
+Poll Functions:
+  fetchRunStatus()  - GET /api/run/status  - line 680
+  fetchMetrics()    - GET /api/run/metrics - line 707
+
+Polling Intervals:
+  Running + visible:    1000ms
+  Stopped + visible:    5000ms
+  Tab hidden:          20000ms
+
+Gating Conditions:
+  state.importedMode - skips polling when viewing imported bundle
+  pollingStopped     - terminates loop
+  document.hidden    - reduces frequency
+
+State Management:
+  Global state object contains:
+    - isRunning, isPaused
+    - selectedRunId
+    - metrics (events_total, facts_extracted, signals_fired, segments_count)
+    - signals array
+    - coverage data
+
+================================================================================
+DATA FLOW DIAGRAM (ASCII)
+================================================================================
+
+  +-------------------+
+  | ETW / Sysmon      |
+  +--------+----------+
+           |
+           v
+  +-------------------+
+  | capture_windows   |
+  | _rotating.exe     |
+  +--------+----------+
+           |
+           | JSONL segments
+           v
+  +-------------------+
+  | edr-locald.exe    |
+  | - FactExtractor   |
+  | - SignalEngine    |
+  | - PlaybookManager |
+  +--------+----------+
+           |
+           | SQL INSERT
+           v
+  +-------------------+
+  | workbench.db      |
+  | - signals         |
+  | - coverage_rollup |
+  +--------+----------+
+           |
+           | SQL SELECT
+           v
+  +-------------------+
+  | locint.exe        |
+  | HTTP API :3000    |
+  +--------+----------+
+           |
+           | JSON
+           v
+  +-------------------+
+  | app.js UI         |
+  | polling loop      |
+  +-------------------+
+
+================================================================================
+KNOWN ISSUES
+================================================================================
+
+1. facts_extracted parsed from log file, not DB
+   File: locint.rs::parse_locald_facts() line 615
+
+2. events_total is bytes_written / 500 estimate
+   File: locint.rs line 510
+
+3. Tag-based playbooks skipped with TAG_BASED_UNSUPPORTED
+   File: playbook_manager.rs::tag_to_slot_predicate() line 755
+
+4. No self-process allowlist in signal detection
+   File: signal_engine.rs
+
+5. No finalize step when run stops
+   File: locint.rs::run_stop_handler() line 375

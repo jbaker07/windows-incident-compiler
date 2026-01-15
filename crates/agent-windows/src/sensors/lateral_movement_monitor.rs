@@ -1,6 +1,17 @@
 // windows/sensors/lateral_movement_monitor.rs
-// Lateral movement detection: RDP, PSExec, WinRM, pass-the-hash, etc.
-// Sources: Security event logs, Sysmon
+//! Lateral movement detection: RDP, PSExec, WinRM, pass-the-hash, etc.
+//!
+//! # Architecture Note
+//! This module is intentionally a STUB. Lateral movement events are captured via the
+//! unified WEVTAPI polling path (`wevt_reader.rs`), then normalized in
+//! `attack_surface.rs::parse_remote_logon_rdp()` and `parse_remote_winrm()`.
+//!
+//! The sources handled by the main pipeline are:
+//! - Security EventID 4624 with LogonType=10: RDP interactive logon
+//! - Security EventID 4624 with LogonType=3: Network logon (SMB/PSExec)
+//! - WinRM/Operational EventID 91: WinRM session creation
+//!
+//! This module remains for reference and to document the expected event schema.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

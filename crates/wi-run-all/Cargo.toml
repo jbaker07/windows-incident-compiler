@@ -1,0 +1,17 @@
+[package]
+name = "wi-run-all"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "One-command runner for windows-incident-compiler: preflight, build, server, smoke tests, shutdown"
+
+[[bin]]
+name = "wi_run_all"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { version = "0.11", features = ["json", "multipart"] }
+tempfile = "3"

@@ -3,6 +3,7 @@
 //! Routes canonical Events through the appropriate signal engine based on
 //! the detected platform and returns detected signals.
 
+#[cfg(feature = "integrations")]
 use crate::integrations::ingest::VendorAlertIngester;
 use crate::os::linux::LinuxSignalEngine;
 use crate::os::macos::MacOSSignalEngine;
@@ -39,7 +40,8 @@ pub struct SignalOrchestrator {
     windows_engine: Option<WindowsSignalEngine>,
     macos_engine: Option<MacOSSignalEngine>,
     linux_engine: Option<LinuxSignalEngine>,
-    /// Optional vendor alert ingester for SIEM integration
+    /// Optional vendor alert ingester for SIEM integration (requires integrations feature)
+    #[cfg(feature = "integrations")]
     ingester: Option<VendorAlertIngester>,
 }
 
@@ -57,6 +59,7 @@ impl SignalOrchestrator {
             windows_engine: None,
             macos_engine: None,
             linux_engine: None,
+            #[cfg(feature = "integrations")]
             ingester: None,
         };
 
@@ -122,23 +125,32 @@ impl SignalOrchestrator {
         &self.host
     }
 
-    /// Enable vendor alert ingestion
+    /// Enable vendor alert ingestion (requires integrations feature)
+    #[cfg(feature = "integrations")]
     pub fn enable_ingester(&mut self) {
         self.ingester = Some(VendorAlertIngester::new(&self.host));
     }
 
-    /// Get ingester (if enabled)
+    /// Get ingester (if enabled) (requires integrations feature)
+    #[cfg(feature = "integrations")]
     pub fn ingester_mut(&mut self) -> Option<&mut VendorAlertIngester> {
         self.ingester.as_mut()
     }
 
-    /// Poll for vendor alerts (returns Facts for hypothesis pipeline)
+    /// Poll for vendor alerts (returns Facts for hypothesis pipeline) (requires integrations feature)
+    #[cfg(feature = "integrations")]
     pub fn poll_ingest(&mut self) -> Result<Vec<crate::hypothesis::Fact>, String> {
         if let Some(ingester) = &mut self.ingester {
             ingester.poll()
         } else {
             Ok(Vec::new())
         }
+    }
+    
+    /// Poll for vendor alerts - stub when integrations disabled
+    #[cfg(not(feature = "integrations"))]
+    pub fn poll_ingest(&mut self) -> Result<Vec<crate::hypothesis::Fact>, String> {
+        Ok(Vec::new())
     }
 }
 

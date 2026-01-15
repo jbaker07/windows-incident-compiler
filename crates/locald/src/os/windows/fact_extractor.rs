@@ -10,11 +10,277 @@ use crate::hypothesis::{EvidencePtr, ScopeKey};
 use chrono::{DateTime, TimeZone, Utc};
 use edr_core::Event;
 
+// ============================================================================
+// XML FIELD EXTRACTION HELPERS (W1/W2/W4 Fix + Hardening)
+// Windows Event Log XML format: <Data Name='FieldName'>value</Data>
+// Handles: empty nodes, XML entities, multiple matches, whitespace
+// ============================================================================
+
+/// Unescape common XML entities in a value
+/// Converts: &lt; -> <, &gt; -> >, &amp; -> &, &quot; -> ", &apos; -> '
+/// Safe and deterministic - no external crates needed
+fn unescape_xml_entities(s: &str) -> String {
+    // Quick check: if no ampersand, nothing to unescape
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            // Collect entity name until ';' or max 10 chars (avoid runaway)
+            let mut entity = String::with_capacity(10);
+            let mut found_semicolon = false;
+            for _ in 0..10 {
+                match chars.peek() {
+                    Some(';') => {
+                        chars.next();
+                        found_semicolon = true;
+                        break;
+                    }
+                    Some(&ch) if ch.is_ascii_alphanumeric() || ch == '#' => {
+                        entity.push(ch);
+                        chars.next();
+                    }
+                    _ => break,
+                }
+            }
+            
+            if found_semicolon {
+                // Decode known entities
+                match entity.as_str() {
+                    "lt" => result.push('<'),
+                    "gt" => result.push('>'),
+                    "amp" => result.push('&'),
+                    "quot" => result.push('"'),
+                    "apos" => result.push('\''),
+                    // Numeric entities: &#60; or &#x3c;
+                    s if s.starts_with('#') => {
+                        let num_str = &s[1..];
+                        let code_point = if num_str.starts_with('x') || num_str.starts_with('X') {
+                            u32::from_str_radix(&num_str[1..], 16).ok()
+                        } else {
+                            num_str.parse::<u32>().ok()
+                        };
+                        if let Some(cp) = code_point.and_then(char::from_u32) {
+                            result.push(cp);
+                        } else {
+                            // Unknown numeric entity, preserve as-is
+                            result.push('&');
+                            result.push_str(&entity);
+                            result.push(';');
+                        }
+                    }
+                    _ => {
+                        // Unknown entity, preserve as-is
+                        result.push('&');
+                        result.push_str(&entity);
+                        result.push(';');
+                    }
+                }
+            } else {
+                // No semicolon found, not a valid entity - preserve ampersand and collected chars
+                result.push('&');
+                result.push_str(&entity);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    
+    result
+}
+
+/// Extract a string field from Windows Event XML
+/// Handles both formats:
+/// - Direct field in event.fields (e.g., "NewProcessName")
+/// - Embedded in windows.xml as <Data Name='NewProcessName'>value</Data>
+fn extract_xml_string(event: &Event, field_name: &str) -> Option<String> {
+    // First try direct field lookup (works if capture agent extracts fields)
+    if let Some(val) = event.fields.get(field_name).and_then(|v| v.as_str()) {
+        let trimmed = val.trim();
+        if !trimmed.is_empty() && trimmed != "unknown" {
+            return Some(unescape_xml_entities(trimmed));
+        }
+    }
+    
+    // Also try common variations
+    let variations = [
+        field_name.to_string(),
+        field_name.to_lowercase(),
+        format!("windows.{}", field_name),
+    ];
+    
+    for var in &variations {
+        if let Some(val) = event.fields.get(var).and_then(|v| v.as_str()) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() && trimmed != "unknown" {
+                return Some(unescape_xml_entities(trimmed));
+            }
+        }
+    }
+    
+    // Fallback: parse from windows.xml
+    let xml = event.fields.get("windows.xml")?.as_str()?;
+    parse_xml_data_field(xml, field_name)
+}
+
+/// Extract a u32 field from Windows Event XML
+fn extract_xml_u32(event: &Event, field_name: &str) -> Option<u32> {
+    // First try direct field lookup
+    if let Some(val) = event.fields.get(field_name).and_then(|v| v.as_u64()) {
+        return Some(val as u32);
+    }
+    
+    // Try as string
+    if let Some(val) = event.fields.get(field_name).and_then(|v| v.as_str()) {
+        if let Ok(n) = val.trim().parse::<u32>() {
+            return Some(n);
+        }
+    }
+    
+    // Fallback: parse from windows.xml
+    let xml = event.fields.get("windows.xml")?.as_str()?;
+    parse_xml_data_field(xml, field_name)?.parse().ok()
+}
+
+/// Parse a <Data Name='field_name'>value</Data> from Windows Event XML
+/// Handles: empty nodes, self-closing tags, multiple matches (returns first non-empty)
+/// Applies XML entity unescaping to the result
+fn parse_xml_data_field(xml: &str, field_name: &str) -> Option<String> {
+    let field_lower = field_name.to_lowercase();
+    let xml_lower = xml.to_lowercase();
+    
+    // Build patterns for case-insensitive matching
+    // Pattern variants: single quotes, double quotes
+    let patterns = [
+        format!("<data name='{}'>", field_lower),
+        format!("<data name=\"{}\">", field_lower),
+    ];
+    
+    // Also check for self-closing empty tags: <Data Name="X" /> or <Data Name="X"/>
+    let empty_patterns = [
+        format!("<data name='{}' />", field_lower),
+        format!("<data name='{}'/>" , field_lower),
+        format!("<data name=\"{}\" />", field_lower),
+        format!("<data name=\"{}\"/>", field_lower),
+    ];
+    
+    // Check if any self-closing empty pattern exists (return None early)
+    for empty_pat in &empty_patterns {
+        if xml_lower.contains(empty_pat) {
+            // Found empty self-closing tag - this field is explicitly empty
+            // Continue searching for non-empty matches
+        }
+    }
+    
+    // Track all matches, return first non-empty
+    let mut first_value: Option<String> = None;
+    
+    for pattern in &patterns {
+        let mut search_start = 0;
+        while let Some(rel_idx) = xml_lower[search_start..].find(pattern) {
+            let start_idx = search_start + rel_idx;
+            let value_start = start_idx + pattern.len();
+            
+            // Find closing </Data> tag (case insensitive)
+            if let Some(end_offset) = xml_lower[value_start..].find("</data>") {
+                // Extract value from original XML to preserve case
+                let raw_value = &xml[value_start..value_start + end_offset];
+                let trimmed = raw_value.trim();
+                
+                if !trimmed.is_empty() {
+                    // Found non-empty value - unescape and return
+                    let unescaped = unescape_xml_entities(trimmed);
+                    if !unescaped.is_empty() {
+                        return Some(unescaped);
+                    }
+                }
+                
+                // Continue searching after this match
+                search_start = value_start + end_offset + 7; // len("</data>")
+            } else {
+                break; // No closing tag found, malformed XML
+            }
+        }
+    }
+    
+    // No non-empty value found
+    first_value
+}
+
+/// Parse Windows Security Event XML to extract the Message element (for PowerShell 4104)
+/// Applies XML entity unescaping to the result
+fn parse_xml_message(xml: &str) -> Option<String> {
+    let xml_lower = xml.to_lowercase();
+    
+    // Try <Message>...</Message> tag (case insensitive)
+    if let Some(start) = xml_lower.find("<message>") {
+        let value_start = start + "<message>".len();
+        if let Some(end) = xml_lower[value_start..].find("</message>") {
+            let raw_value = &xml[value_start..value_start + end];
+            let trimmed = raw_value.trim();
+            if !trimmed.is_empty() {
+                return Some(unescape_xml_entities(trimmed));
+            }
+        }
+    }
+    None
+}
+
+/// RD-4 FIX: Self-process allowlist to prevent LocInt from flagging itself
+/// Returns true if the process path/name belongs to LocInt's own processes
+fn is_self_process(proc_path: &str) -> bool {
+    let path_lower = proc_path.to_lowercase();
+    let self_processes = [
+        "locint.exe",
+        "edr-server.exe",
+        "edr-locald.exe",
+        "capture_windows_rotating.exe",
+        // Also match without extension (for path components)
+        "locint",
+        "edr-server",
+        "edr-locald", 
+        "capture_windows_rotating",
+    ];
+    self_processes.iter().any(|p| path_lower.ends_with(p) || path_lower.contains(&format!("\\{}", p)))
+}
+
 /// Extract canonical facts from a Windows event
 ///
 /// This is the primary entry point for the fact extraction pipeline.
 /// Maps Windows event tags/fields to canonical FactType variants.
 pub fn extract_facts(event: &Event) -> Vec<Fact> {
+    // RD-4 FIX: Skip events from our own processes to prevent self-flagging
+    // Check common process path fields
+    let exe_path = event.fields.get("exe")
+        .or(event.fields.get("exe_path"))
+        .or(event.fields.get("image"))
+        .or(event.fields.get("Image"))
+        .or(event.fields.get("process_name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    
+    if is_self_process(exe_path) {
+        // This event is from one of our own processes - skip fact extraction
+        // This prevents export operations, DB queries, etc. from generating signals
+        return Vec::new();
+    }
+    
+    // Also check parent process (for child process creation events)
+    let parent_path = event.fields.get("parent_exe")
+        .or(event.fields.get("ParentImage"))
+        .or(event.fields.get("parent_image"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    
+    if is_self_process(parent_path) {
+        // Parent is one of our processes - skip (e.g., locint spawning child)
+        return Vec::new();
+    }
+
     let mut facts = Vec::new();
     let ts = timestamp_from_ms(event.ts_ms);
     let host_id = event.host.clone();
@@ -374,33 +640,39 @@ fn build_scope_key(event: &Event) -> ScopeKey {
 }
 
 /// Extract process creation fact (4688, Sysmon 1)
+/// W1 FIX: Now extracts fields from windows.xml when not available directly
 fn extract_process_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    let exe_path = event
-        .fields
-        .get("exe")
-        .or_else(|| event.fields.get("NewProcessName"))
-        .or_else(|| event.fields.get("Image"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+    // Try multiple field names for exe path (Sysmon uses Image, Security 4688 uses NewProcessName)
+    let exe_path = extract_xml_string(event, "Image")
+        .or_else(|| extract_xml_string(event, "NewProcessName"))
+        .or_else(|| extract_xml_string(event, "exe"))
+        .unwrap_or_else(|| "unknown".to_string());
 
-    let cmdline = event
-        .fields
-        .get("cmdline")
-        .or_else(|| event.fields.get("CommandLine"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    // CommandLine extraction
+    let cmdline = extract_xml_string(event, "CommandLine")
+        .or_else(|| extract_xml_string(event, "cmdline"));
 
-    let hash = event
-        .fields
-        .get("hash")
-        .or_else(|| event.fields.get("Hashes"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    // Hash extraction (Sysmon provides hashes)
+    let hash = extract_xml_string(event, "Hashes")
+        .or_else(|| extract_xml_string(event, "hash"));
+    
+    // User extraction for better scope key
+    let user = extract_xml_string(event, "User")
+        .or_else(|| extract_xml_string(event, "SubjectUserName"))
+        .or_else(|| extract_xml_string(event, "TargetUserName"));
+    
+    // Build scope key - prefer process key if available, else use user
+    let scope_key = if let Some(proc_key) = &event.proc_key {
+        ScopeKey::Process { key: proc_key.clone() }
+    } else if let Some(u) = &user {
+        ScopeKey::User { key: u.clone() }
+    } else {
+        ScopeKey::Process { key: format!("host:{}", host_id) }
+    };
 
     let fact = Fact::new(
         host_id,
-        build_scope_key(event),
+        scope_key,
         FactType::Exec {
             exe_hash: hash,
             path: exe_path,
@@ -454,24 +726,32 @@ fn extract_network_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) ->
 }
 
 /// Extract authentication fact (4624, 4625)
+/// W4 FIX: Now extracts TargetUserName, LogonType, IpAddress from windows.xml
 fn extract_auth_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    let user = event
-        .fields
-        .get("TargetUserName")
-        .or_else(|| event.fields.get("user"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+    // Extract user - Security 4624 uses TargetUserName
+    let user = extract_xml_string(event, "TargetUserName")
+        .or_else(|| extract_xml_string(event, "user"))
+        .or_else(|| extract_xml_string(event, "SubjectUserName"))
+        .unwrap_or_else(|| "unknown".to_string());
+    
+    // Extract domain for full user identity
+    let domain = extract_xml_string(event, "TargetDomainName")
+        .or_else(|| extract_xml_string(event, "SubjectDomainName"));
+    
+    // Build qualified user name (DOMAIN\user)
+    let qualified_user = if let Some(d) = &domain {
+        if !d.is_empty() && d != "-" {
+            format!("{}\\{}", d, user)
+        } else {
+            user.clone()
+        }
+    } else {
+        user.clone()
+    };
 
-    let logon_type_str = event
-        .fields
-        .get("LogonType")
-        .or_else(|| event.fields.get("logon_type"))
-        .and_then(|v| {
-            v.as_str()
-                .map(|s| s.to_string())
-                .or_else(|| v.as_u64().map(|n| n.to_string()))
-        })
+    // Extract LogonType - critical for distinguishing local vs remote
+    let logon_type_str = extract_xml_string(event, "LogonType")
+        .or_else(|| extract_xml_u32(event, "LogonType").map(|n| n.to_string()))
         .unwrap_or_else(|| "0".to_string());
 
     let auth_type = match logon_type_str.as_str() {
@@ -481,32 +761,50 @@ fn extract_auth_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Op
         "7" => AuthType::Unlock,
         "10" => AuthType::RemoteInteractive,
         "11" => AuthType::CachedInteractive,
-        _ => AuthType::Other(logon_type_str),
+        _ => AuthType::Other(logon_type_str.clone()),
     };
 
-    let source_ip = event
-        .fields
-        .get("SourceNetworkAddress")
-        .or_else(|| event.fields.get("source_ip"))
-        .or_else(|| event.fields.get("IpAddress"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    // Source IP - important for remote logon detection
+    let source_ip = extract_xml_string(event, "IpAddress")
+        .or_else(|| extract_xml_string(event, "SourceNetworkAddress"))
+        .or_else(|| extract_xml_string(event, "source_ip"))
+        // Filter out local/empty IPs
+        .filter(|ip| !ip.is_empty() && ip != "-" && ip != "127.0.0.1" && ip != "::1");
 
     // Check if success (4624) or failure (4625)
-    let success =
-        !event.tags.contains(&"failed".to_string()) && !event.tags.contains(&"4625".to_string());
+    let event_id = event.fields.get("windows.event_id")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
+    let success = event_id != Some(4625) 
+        && !event.tags.contains(&"failed".to_string()) 
+        && !event.tags.contains(&"4625".to_string());
+    
+    // Build scope key using qualified user
+    let scope_key = ScopeKey::User { key: qualified_user.clone() };
 
-    let fact = Fact::new(
+    let mut fact = Fact::new(
         host_id,
-        ScopeKey::User { key: user.clone() },
+        scope_key,
         FactType::AuthEvent {
             auth_type,
-            user,
+            user: qualified_user,
             source: source_ip,
             success,
         },
         vec![evidence.clone()],
     );
+    
+    // Add logon type description to extra fields for UI
+    let logon_desc = match logon_type_str.as_str() {
+        "2" => "Interactive (local)",
+        "3" => "Network",
+        "5" => "Service",
+        "7" => "Unlock",
+        "10" => "RemoteInteractive (RDP)",
+        "11" => "CachedInteractive",
+        _ => "Other",
+    };
+    fact.extra_fields.insert("logon_type_description".to_string(), serde_json::json!(logon_desc));
 
     Some(fact)
 }
@@ -737,27 +1035,70 @@ fn extract_wmi_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Opt
 }
 
 /// Extract LSASS access fact (Sysmon 10)
+/// Sysmon Event ID 10 is ProcessAccess - semantic fact type: ProcessAccess
 fn extract_lsass_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
     // Sysmon 10 TargetImage contains "lsass.exe"
-    let target = event
+    let target_image = event
         .fields
         .get("TargetImage")
         .or_else(|| event.fields.get("target"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    if !target.to_lowercase().contains("lsass") {
+    if !target_image.to_lowercase().contains("lsass") {
         return None;
     }
 
-    // This is suspicious memory access - use MemAlloc for credential access detection
+    // Extract source process info
+    let source_proc_key = event
+        .fields
+        .get("SourceProcessGuid")
+        .or_else(|| event.fields.get("SourceProcessId"))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let target_proc_key = event
+        .fields
+        .get("TargetProcessGuid")
+        .or_else(|| event.fields.get("TargetProcessId"))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
+        .unwrap_or_else(|| "lsass".to_string());
+
+    // GrantedAccess is typically a hex value like "0x1410"
+    let granted_access = event
+        .fields
+        .get("GrantedAccess")
+        .or_else(|| event.fields.get("granted_access"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("0x0")
+        .to_string();
+
+    // CallTrace helps identify the source of the access
+    let call_trace = event
+        .fields
+        .get("CallTrace")
+        .or_else(|| event.fields.get("call_trace"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // Use ProcessAccess fact type - semantically correct for Sysmon Event 10
     let fact = Fact::new(
         host_id,
         build_scope_key(event),
-        FactType::MemAlloc {
-            addr: 0, // Address not typically available
-            size: 0,
-            protection: 0,
+        FactType::ProcessAccess {
+            source_proc_key,
+            target_proc_key,
+            target_image: target_image.to_string(),
+            granted_access,
+            call_trace,
         },
         vec![evidence.clone()],
     );
@@ -770,24 +1111,40 @@ fn extract_lsass_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> O
 // ============================================================================
 
 /// Extract PowerShell script block fact (4103, 4104)
+/// W2 FIX: Now extracts ScriptBlockText from windows.xml when not available directly
 fn extract_powershell_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    // 4104 has ScriptBlockText, 4103 has Payload
-    let script_content = event
-        .fields
-        .get("ScriptBlockText")
-        .or_else(|| event.fields.get("Payload"))
-        .or_else(|| event.fields.get("script_block_text"))
-        .and_then(|v| v.as_str());
+    // 4104 has ScriptBlockText in EventData, sometimes in Message element
+    let script_content = extract_xml_string(event, "ScriptBlockText")
+        .or_else(|| extract_xml_string(event, "Payload"))
+        .or_else(|| {
+            // PowerShell 4104 sometimes embeds script in Message
+            event.fields.get("windows.xml")
+                .and_then(|v| v.as_str())
+                .and_then(|xml| parse_xml_message(xml))
+                .and_then(|msg| {
+                    // Extract script content after "ScriptBlockText:" prefix if present
+                    if let Some(idx) = msg.find("ScriptBlockText:") {
+                        let start = idx + "ScriptBlockText:".len();
+                        let content = msg[start..].trim();
+                        if !content.is_empty() {
+                            return Some(content.to_string());
+                        }
+                    }
+                    // Otherwise use full message as script content
+                    if !msg.is_empty() {
+                        Some(msg)
+                    } else {
+                        None
+                    }
+                })
+        });
 
-    let script_path = event
-        .fields
-        .get("Path")
-        .or_else(|| event.fields.get("ScriptName"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    // Script path - where the script file is located (if from file)
+    let script_path = extract_xml_string(event, "Path")
+        .or_else(|| extract_xml_string(event, "ScriptName"));
 
     // Compute simple hash of script content for tracking
-    let content_hash = script_content.map(|c| {
+    let content_hash = script_content.as_ref().map(|c| {
         format!("{:016x}", {
             let mut hash: u64 = 0;
             for byte in c.bytes() {
@@ -796,8 +1153,17 @@ fn extract_powershell_fact(event: &Event, host_id: &str, evidence: &EvidencePtr)
             hash
         })
     });
+    
+    // Store script preview (first 400 chars) in the fact for UI display
+    let script_preview = script_content.as_ref().map(|c| {
+        if c.len() > 400 {
+            format!("{}...", &c[..400])
+        } else {
+            c.clone()
+        }
+    });
 
-    let fact = Fact::new(
+    let mut fact = Fact::new(
         host_id,
         build_scope_key(event),
         FactType::ScriptExec {
@@ -807,6 +1173,11 @@ fn extract_powershell_fact(event: &Event, host_id: &str, evidence: &EvidencePtr)
         },
         vec![evidence.clone()],
     );
+    
+    // Store script preview in extra_fields for UI
+    if let Some(preview) = script_preview {
+        fact.extra_fields.insert("script_preview".to_string(), serde_json::json!(preview));
+    }
 
     Some(fact)
 }
@@ -1323,5 +1694,103 @@ mod tests {
             }
             _ => panic!("Expected LogTamper fact"),
         }
+    }
+
+    // =========================================================================
+    // XML Parsing Hardening Tests (Caveat 1 Fix)
+    // =========================================================================
+
+    #[test]
+    fn test_unescape_xml_entities_basic() {
+        // Test common entities
+        assert_eq!(unescape_xml_entities("hello &lt;world&gt;"), "hello <world>");
+        assert_eq!(unescape_xml_entities("a &amp; b"), "a & b");
+        assert_eq!(unescape_xml_entities("&quot;quoted&quot;"), "\"quoted\"");
+        assert_eq!(unescape_xml_entities("it&apos;s fine"), "it's fine");
+    }
+    
+    #[test]
+    fn test_unescape_xml_entities_numeric() {
+        // Numeric entities
+        assert_eq!(unescape_xml_entities("&#60;tag&#62;"), "<tag>");
+        assert_eq!(unescape_xml_entities("&#x3c;hex&#x3e;"), "<hex>");
+    }
+    
+    #[test]
+    fn test_unescape_xml_entities_passthrough() {
+        // No entities - passthrough unchanged
+        assert_eq!(unescape_xml_entities("normal text"), "normal text");
+        // Unknown entities preserved
+        assert_eq!(unescape_xml_entities("&unknown;"), "&unknown;");
+        // Broken ampersand preserved
+        assert_eq!(unescape_xml_entities("a & b"), "a & b");
+    }
+    
+    #[test]
+    fn test_unescape_xml_entities_cmdline() {
+        // Real-world cmdline with entities
+        let input = "powershell.exe -Command &quot;if ($x -lt 10) { Write-Host &apos;yes&apos; }&quot;";
+        let expected = "powershell.exe -Command \"if ($x -lt 10) { Write-Host 'yes' }\"";
+        assert_eq!(unescape_xml_entities(input), expected);
+    }
+    
+    #[test]
+    fn test_parse_xml_data_field_basic() {
+        let xml = r#"<EventData><Data Name='CommandLine'>cmd.exe /c dir</Data></EventData>"#;
+        let result = parse_xml_data_field(xml, "CommandLine");
+        assert_eq!(result, Some("cmd.exe /c dir".to_string()));
+    }
+    
+    #[test]
+    fn test_parse_xml_data_field_with_entities() {
+        let xml = r#"<EventData><Data Name='CommandLine'>powershell -c &quot;Get-Process&quot;</Data></EventData>"#;
+        let result = parse_xml_data_field(xml, "CommandLine");
+        assert_eq!(result, Some("powershell -c \"Get-Process\"".to_string()));
+    }
+    
+    #[test]
+    fn test_parse_xml_data_field_empty_node() {
+        // Empty value between tags
+        let xml = r#"<EventData><Data Name='ParentImage'></Data></EventData>"#;
+        let result = parse_xml_data_field(xml, "ParentImage");
+        assert_eq!(result, None);
+    }
+    
+    #[test]
+    fn test_parse_xml_data_field_self_closing() {
+        // Self-closing tag (no value)
+        let xml = r#"<EventData><Data Name='Hashes' /></EventData>"#;
+        let result = parse_xml_data_field(xml, "Hashes");
+        assert_eq!(result, None);
+    }
+    
+    #[test]
+    fn test_parse_xml_data_field_multiple_same_name() {
+        // Multiple Data nodes with same name - should return first non-empty
+        let xml = r#"<EventData><Data Name='User'></Data><Data Name='User'>SYSTEM</Data></EventData>"#;
+        let result = parse_xml_data_field(xml, "User");
+        assert_eq!(result, Some("SYSTEM".to_string()));
+    }
+    
+    #[test]
+    fn test_parse_xml_data_field_case_insensitive() {
+        let xml = r#"<EventData><Data Name='COMMANDLINE'>test</Data></EventData>"#;
+        let result = parse_xml_data_field(xml, "CommandLine");
+        assert_eq!(result, Some("test".to_string()));
+    }
+    
+    #[test]
+    fn test_parse_xml_data_field_whitespace() {
+        // Whitespace around value should be trimmed
+        let xml = r#"<EventData><Data Name='Image'>  C:\Windows\cmd.exe  </Data></EventData>"#;
+        let result = parse_xml_data_field(xml, "Image");
+        assert_eq!(result, Some("C:\\Windows\\cmd.exe".to_string()));
+    }
+    
+    #[test]
+    fn test_parse_xml_data_field_double_quotes() {
+        let xml = r#"<EventData><Data Name="Image">notepad.exe</Data></EventData>"#;
+        let result = parse_xml_data_field(xml, "Image");
+        assert_eq!(result, Some("notepad.exe".to_string()));
     }
 }

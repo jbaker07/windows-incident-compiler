@@ -165,7 +165,7 @@ impl FileKind {
                 | FileKind::ReconOutput
         )
     }
-    
+
     /// Check if this is an artifact-only file (stored but not parsed for events)
     pub fn is_artifact_only(&self) -> bool {
         matches!(self, FileKind::Pcap | FileKind::Evtx)
@@ -199,27 +199,27 @@ impl FileKind {
         if filename == "files.log" || filename.starts_with("files.") {
             return FileKind::ZeekFiles;
         }
-        
+
         // Suricata EVE by filename
         if filename == "eve.json" || filename.starts_with("eve.") {
             return FileKind::SuricataEve;
         }
-        
+
         // Nmap XML
         if filename.contains("nmap") && ext == "xml" {
             return FileKind::NmapXml;
         }
-        
+
         // osquery
         if filename.contains("osquery") && (ext == "json" || ext == "jsonl") {
             return FileKind::Osquery;
         }
-        
+
         // Velociraptor
         if filename.contains("velociraptor") || filename.contains("vr_") {
             return FileKind::Velociraptor;
         }
-        
+
         // YARA
         if filename.contains("yara") {
             if ext == "json" {
@@ -227,33 +227,36 @@ impl FileKind {
             }
             return FileKind::YaraText;
         }
-        
+
         // ZAP
         if filename.contains("zap") && ext == "json" {
             return FileKind::ZapJson;
         }
-        
+
         // Burp
         if filename.contains("burp") && ext == "xml" {
             return FileKind::BurpXml;
         }
-        
+
         // Atomic Red Team
         if filename.contains("atomic") || filename.contains("invoke-atomic") {
             return FileKind::AtomicOutput;
         }
-        
+
         // PowerShell transcript
         if filename.contains("transcript") || filename.starts_with("powershell_") {
             return FileKind::PsTranscript;
         }
-        
+
         // Shell history
-        if filename == ".bash_history" || filename == ".zsh_history" || 
-           filename == "ps_history" || filename.contains("history") {
+        if filename == ".bash_history"
+            || filename == ".zsh_history"
+            || filename == "ps_history"
+            || filename.contains("history")
+        {
             return FileKind::ShellHistory;
         }
-        
+
         // Recon tools
         if filename.contains("gobuster") {
             return FileKind::Gobuster;
@@ -261,8 +264,10 @@ impl FileKind {
         if filename.contains("ffuf") {
             return FileKind::Ffuf;
         }
-        if filename.contains("dirb") || filename.contains("dirsearch") || 
-           filename.contains("feroxbuster") {
+        if filename.contains("dirb")
+            || filename.contains("dirsearch")
+            || filename.contains("feroxbuster")
+        {
             return FileKind::ReconOutput;
         }
 
@@ -354,13 +359,13 @@ pub struct ImportLimits {
 impl Default for ImportLimits {
     fn default() -> Self {
         Self {
-            max_total_bytes: 2 * 1024 * 1024 * 1024,    // 2GB
+            max_total_bytes: 2 * 1024 * 1024 * 1024, // 2GB
             max_files: 50_000,
             max_depth: 16,
-            max_single_file_bytes: 200 * 1024 * 1024,  // 200MB
+            max_single_file_bytes: 200 * 1024 * 1024, // 200MB
             max_compression_ratio: 200.0,
-            max_lines_per_file: 10_000_000,            // 10M lines
-            max_line_bytes: 1024 * 1024,               // 1MB per line
+            max_lines_per_file: 10_000_000, // 10M lines
+            max_line_bytes: 1024 * 1024,    // 1MB per line
         }
     }
 }
@@ -412,7 +417,7 @@ impl ImportEvidencePtr {
     pub fn to_stream_path(&self) -> String {
         format!("import:{}:{}", self.bundle_id, self.rel_path)
     }
-    
+
     /// Get record index (line number or 0)
     pub fn record_index(&self) -> u32 {
         self.line_no.unwrap_or(0) as u32
@@ -534,8 +539,7 @@ pub struct TimelineEntry {
 }
 
 /// Entity index
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EntityIndex {
     pub processes: Vec<EntityEntry>,
     pub files: Vec<EntityEntry>,
@@ -543,7 +547,6 @@ pub struct EntityIndex {
     pub users: Vec<EntityEntry>,
     pub other: Vec<EntityEntry>,
 }
-
 
 /// Entity entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -662,18 +665,26 @@ impl EntityKey {
         Self {
             key_type: EntityKeyType::ProcKey,
             value: Self::hash_key(&value),
-            display: format!("{}:{}", host, image.split('\\').next_back().unwrap_or(image)),
+            display: format!(
+                "{}:{}",
+                host,
+                image.split('\\').next_back().unwrap_or(image)
+            ),
         }
     }
-    
+
     pub fn file_key(path: &str) -> Self {
         Self {
             key_type: EntityKeyType::FileKey,
             value: Self::hash_key(path),
-            display: path.split(['/', '\\']).next_back().unwrap_or(path).to_string(),
+            display: path
+                .split(['/', '\\'])
+                .next_back()
+                .unwrap_or(path)
+                .to_string(),
         }
     }
-    
+
     pub fn file_key_sha256(sha256: &str) -> Self {
         Self {
             key_type: EntityKeyType::FileKey,
@@ -681,7 +692,7 @@ impl EntityKey {
             display: format!("{}...", &sha256[..8.min(sha256.len())]),
         }
     }
-    
+
     pub fn identity_key(user: &str, domain: Option<&str>) -> Self {
         let value = match domain {
             Some(d) => format!("id:{}\\{}", d, user),
@@ -696,7 +707,7 @@ impl EntityKey {
             },
         }
     }
-    
+
     pub fn net_key(src_ip: &str, dst_ip: &str, dst_port: u16, proto: &str) -> Self {
         let value = format!("net:{}:{}:{}:{}", src_ip, dst_ip, dst_port, proto);
         Self {
@@ -705,7 +716,7 @@ impl EntityKey {
             display: format!("{} → {}:{}", src_ip, dst_ip, dst_port),
         }
     }
-    
+
     pub fn host_key(hostname: &str) -> Self {
         Self {
             key_type: EntityKeyType::HostKey,
@@ -713,7 +724,7 @@ impl EntityKey {
             display: hostname.to_string(),
         }
     }
-    
+
     pub fn url_key(url: &str) -> Self {
         Self {
             key_type: EntityKeyType::UrlKey,
@@ -725,7 +736,7 @@ impl EntityKey {
             },
         }
     }
-    
+
     pub fn domain_key(domain: &str) -> Self {
         Self {
             key_type: EntityKeyType::DomainKey,
@@ -733,7 +744,7 @@ impl EntityKey {
             display: domain.to_string(),
         }
     }
-    
+
     pub fn ip_key(ip: &str) -> Self {
         Self {
             key_type: EntityKeyType::IpKey,
@@ -741,7 +752,7 @@ impl EntityKey {
             display: ip.to_string(),
         }
     }
-    
+
     fn hash_key(input: &str) -> String {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -921,4 +932,3 @@ pub struct AdapterStats {
     pub events_with_timestamp: u64,
     pub events_entity_linked: u64,
 }
-

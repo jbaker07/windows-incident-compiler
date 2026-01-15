@@ -13,8 +13,12 @@
 //! - Mission Workflow Harness: profiles, scenario packs, quality gates, regression
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Allow dead_code for planned/future-use APIs
+#![allow(dead_code)]
 
 mod baseline;
+mod capability_exhaust;
+mod delta_report;
 mod grounded_gates;
 mod health_gates;
 mod logging;
@@ -28,11 +32,17 @@ mod scenario_packs;
 mod scenario_profiles;
 mod supervisor;
 
+use capability_exhaust::CapabilityExhaustReport;
+use delta_report::DeltaReport;
 use grounded_gates::E2EVerificationResult;
 use mission_commands::MissionStateHandle;
-use supervisor::{ProcessKind, RunConfig, StackStatus, SupervisorState, ReadinessCheck, RunHistoryEntry};
-use scenario_profiles::{ScenarioProfile, ScenarioTier, get_all_scenarios, get_scenarios_by_tier, get_scenario_by_id};
+use scenario_profiles::{
+    get_all_scenarios, get_scenario_by_id, get_scenarios_by_tier, ScenarioProfile, ScenarioTier,
+};
 use std::path::PathBuf;
+use supervisor::{
+    ProcessKind, ReadinessCheck, RunConfig, RunHistoryEntry, StackStatus, SupervisorState,
+};
 use tauri::{Emitter, Manager, State};
 
 // ============================================================================
@@ -47,7 +57,11 @@ async fn start_run(
     selected_playbooks: Option<Vec<String>>,
 ) -> Result<StackStatus, String> {
     let config = RunConfig {
-        duration_minutes: if duration_minutes == 0 { 10 } else { duration_minutes },
+        duration_minutes: if duration_minutes == 0 {
+            10
+        } else {
+            duration_minutes
+        },
         selected_playbooks,
     };
 
@@ -220,7 +234,10 @@ async fn run_activity_command(exe: String, args: Vec<String>) -> Result<String, 
         .unwrap_or(&exe_lower);
 
     if !allowed_exes.contains(&exe_name) {
-        return Err(format!("Executable '{}' not in whitelist for activity generation", exe));
+        return Err(format!(
+            "Executable '{}' not in whitelist for activity generation",
+            exe
+        ));
     }
 
     tracing::info!("Running activity command: {} {:?}", exe, args);
@@ -238,9 +255,12 @@ async fn run_activity_command(exe: String, args: Vec<String>) -> Result<String, 
     } else {
         // Still return success for activity generation purposes - the command ran
         // and generated telemetry even if it returned non-zero
-        Ok(format!("Command completed (exit {}): {} {}", 
+        Ok(format!(
+            "Command completed (exit {}): {} {}",
             output.status.code().unwrap_or(-1),
-            stdout, stderr))
+            stdout,
+            stderr
+        ))
     }
 }
 
@@ -274,10 +294,7 @@ async fn get_run_metrics(
 
 /// Open a specific run folder in explorer
 #[tauri::command]
-async fn open_run_folder(
-    state: State<'_, SupervisorState>,
-    run_id: String,
-) -> Result<(), String> {
+async fn open_run_folder(state: State<'_, SupervisorState>, run_id: String) -> Result<(), String> {
     let supervisor = state.inner.read().await;
     supervisor.open_run_folder(&run_id)
 }
@@ -286,41 +303,71 @@ async fn open_run_folder(
 #[tauri::command]
 async fn get_current_run_dir(state: State<'_, SupervisorState>) -> Result<Option<String>, String> {
     let supervisor = state.inner.read().await;
-    Ok(supervisor.current_run_dir().map(|p| p.display().to_string()))
+    Ok(supervisor
+        .current_run_dir()
+        .map(|p| p.display().to_string()))
 }
 
 /// Apply an advanced telemetry fix (requires admin)
 #[tauri::command]
 async fn apply_telemetry_fix(fix_id: String) -> Result<String, String> {
     tracing::info!("Applying telemetry fix: {}", fix_id);
-    
+
     let (cmd, args): (&str, Vec<&str>) = match fix_id.as_str() {
         "enable_cmdline" => (
             "reg",
-            vec!["add", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Audit", 
-                 "/v", "ProcessCreationIncludeCmdLine_Enabled", "/t", "REG_DWORD", "/d", "1", "/f"]
+            vec![
+                "add",
+                "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\Audit",
+                "/v",
+                "ProcessCreationIncludeCmdLine_Enabled",
+                "/t",
+                "REG_DWORD",
+                "/d",
+                "1",
+                "/f",
+            ],
         ),
         "enable_ps_logging" => (
             "reg",
-            vec!["add", "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging",
-                 "/v", "EnableScriptBlockLogging", "/t", "REG_DWORD", "/d", "1", "/f"]
+            vec![
+                "add",
+                "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging",
+                "/v",
+                "EnableScriptBlockLogging",
+                "/t",
+                "REG_DWORD",
+                "/d",
+                "1",
+                "/f",
+            ],
         ),
         "enable_process_audit" => (
             "auditpol",
-            vec!["/set", "/subcategory:Process Creation", "/success:enable", "/failure:enable"]
+            vec![
+                "/set",
+                "/subcategory:Process Creation",
+                "/success:enable",
+                "/failure:enable",
+            ],
         ),
         "enable_logon_audit" => (
             "auditpol",
-            vec!["/set", "/subcategory:Logon", "/success:enable", "/failure:enable"]
+            vec![
+                "/set",
+                "/subcategory:Logon",
+                "/success:enable",
+                "/failure:enable",
+            ],
         ),
         _ => return Err(format!("Unknown fix ID: {}", fix_id)),
     };
-    
+
     let output = std::process::Command::new(cmd)
         .args(&args)
         .output()
         .map_err(|e| format!("Failed to run {}: {}", cmd, e))?;
-    
+
     if output.status.success() {
         Ok(format!("Successfully applied fix: {}", fix_id))
     } else {
@@ -354,9 +401,7 @@ async fn verify_grounded_gates(
 
 /// Get grounded gates summary (one-liner for status bar)
 #[tauri::command]
-async fn get_grounded_gates_summary(
-    state: State<'_, SupervisorState>,
-) -> Result<String, String> {
+async fn get_grounded_gates_summary(state: State<'_, SupervisorState>) -> Result<String, String> {
     let supervisor = state.inner.read().await;
     let gates = supervisor.get_grounded_health_gates().await?;
     Ok(gates.summary())
@@ -387,8 +432,7 @@ async fn get_scenarios_for_tier(tier: String) -> Result<Vec<ScenarioProfile>, St
 /// Get a specific scenario by ID
 #[tauri::command]
 async fn get_scenario(scenario_id: String) -> Result<ScenarioProfile, String> {
-    get_scenario_by_id(&scenario_id)
-        .ok_or_else(|| format!("Scenario not found: {}", scenario_id))
+    get_scenario_by_id(&scenario_id).ok_or_else(|| format!("Scenario not found: {}", scenario_id))
 }
 
 /// Run a scenario's commands (for activity generation)
@@ -399,13 +443,13 @@ async fn run_scenario(
 ) -> Result<Vec<scenario_profiles::StepResult>, String> {
     let scenario = get_scenario_by_id(&scenario_id)
         .ok_or_else(|| format!("Scenario not found: {}", scenario_id))?;
-    
+
     // Check capabilities
     let readiness = {
         let supervisor = state.inner.read().await;
         supervisor.get_readiness()
     };
-    
+
     let missing = scenario_profiles::check_scenario_capabilities(
         &scenario,
         readiness.is_admin,
@@ -413,35 +457,52 @@ async fn run_scenario(
         readiness.audit_policy_state.process_creation,
         readiness.powershell_logging_enabled,
     );
-    
+
     if !missing.is_empty() {
-        tracing::warn!("Scenario {} has missing capabilities: {:?}", scenario_id, missing);
+        tracing::warn!(
+            "Scenario {} has missing capabilities: {:?}",
+            scenario_id,
+            missing
+        );
     }
-    
+
     // Execute scenario steps
     let mut results = Vec::new();
-    
+
     for step in &scenario.steps {
         let start = std::time::Instant::now();
-        
-        tracing::info!("Executing scenario step: {} - {} {:?}", step.name, step.exe, step.args);
-        
+
+        tracing::info!(
+            "Executing scenario step: {} - {} {:?}",
+            step.name,
+            step.exe,
+            step.args
+        );
+
         let output = std::process::Command::new(&step.exe)
             .args(&step.args)
             .output();
-        
+
         let duration_ms = start.elapsed().as_millis() as u64;
-        
+
         let result = match output {
             Ok(out) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                
+
                 scenario_profiles::StepResult {
                     step_name: step.name.clone(),
                     success: out.status.success(),
-                    output: if stdout.is_empty() { None } else { Some(stdout) },
-                    error: if stderr.is_empty() || out.status.success() { None } else { Some(stderr) },
+                    output: if stdout.is_empty() {
+                        None
+                    } else {
+                        Some(stdout)
+                    },
+                    error: if stderr.is_empty() || out.status.success() {
+                        None
+                    } else {
+                        Some(stderr)
+                    },
                     duration_ms,
                 }
             }
@@ -453,13 +514,13 @@ async fn run_scenario(
                 duration_ms,
             },
         };
-        
+
         results.push(result);
-        
+
         // Small delay between steps for telemetry capture
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    
+
     Ok(results)
 }
 
@@ -471,12 +532,12 @@ async fn check_scenario_capabilities(
 ) -> Result<Vec<String>, String> {
     let scenario = get_scenario_by_id(&scenario_id)
         .ok_or_else(|| format!("Scenario not found: {}", scenario_id))?;
-    
+
     let readiness = {
         let supervisor = state.inner.read().await;
         supervisor.get_readiness()
     };
-    
+
     Ok(scenario_profiles::check_scenario_capabilities(
         &scenario,
         readiness.is_admin,
@@ -484,6 +545,118 @@ async fn check_scenario_capabilities(
         readiness.audit_policy_state.process_creation,
         readiness.powershell_logging_enabled,
     ))
+}
+
+// ============================================================================
+// Capability Exhaust Commands (Agent-CAPABILITY-EXHAUST)
+// ============================================================================
+
+/// Run comprehensive capability exhaust - verifies system readiness with safe probes
+/// verification_source: "EventLog" (default), "Pipeline", or "Both"
+#[tauri::command]
+async fn run_capability_exhaust(
+    state: State<'_, SupervisorState>,
+    timeout_seconds: Option<u64>,
+    verification_source: Option<String>,
+) -> Result<CapabilityExhaustReport, String> {
+    let telemetry_root = {
+        let supervisor = state.inner.read().await;
+        supervisor.telemetry_root()
+    };
+
+    let timeout = timeout_seconds.unwrap_or(30);
+    let source = match verification_source.as_deref() {
+        Some("Pipeline") => capability_exhaust::VerificationSource::Pipeline,
+        Some("Both") => capability_exhaust::VerificationSource::Both,
+        _ => capability_exhaust::VerificationSource::EventLog,
+    };
+    
+    tracing::info!(
+        "Running capability exhaust with {}s timeout, verification source: {:?}",
+        timeout,
+        source
+    );
+
+    capability_exhaust::run_capability_exhaust_with_source(&telemetry_root, timeout, source).await
+}
+
+/// Get the latest capability exhaust report (if available)
+#[tauri::command]
+async fn get_latest_readiness_report(
+    state: State<'_, SupervisorState>,
+) -> Result<Option<CapabilityExhaustReport>, String> {
+    let telemetry_root = {
+        let supervisor = state.inner.read().await;
+        supervisor.telemetry_root()
+    };
+
+    Ok(capability_exhaust::load_latest_report(&telemetry_root))
+}
+
+// ============================================================================
+// Delta Report Commands (Agent-DELTA)
+// ============================================================================
+
+/// Compute delta between current run and baseline (or previous run)
+#[tauri::command]
+async fn compute_run_delta(
+    state: State<'_, SupervisorState>,
+    run_id: String,
+    baseline_id: Option<String>,
+) -> Result<DeltaReport, String> {
+    let telemetry_root = {
+        let supervisor = state.inner.read().await;
+        supervisor.telemetry_root()
+    };
+
+    tracing::info!(
+        "Computing delta for run {} (baseline: {:?})",
+        run_id,
+        baseline_id
+    );
+
+    delta_report::compute_delta(&run_id, baseline_id.as_deref(), &telemetry_root)
+}
+
+/// Get the latest delta report
+#[tauri::command]
+async fn get_latest_delta(
+    state: State<'_, SupervisorState>,
+) -> Result<Option<DeltaReport>, String> {
+    let telemetry_root = {
+        let supervisor = state.inner.read().await;
+        supervisor.telemetry_root()
+    };
+
+    Ok(delta_report::load_latest_delta(&telemetry_root))
+}
+
+/// Get delta report for a specific run
+#[tauri::command]
+async fn get_run_delta(
+    state: State<'_, SupervisorState>,
+    run_id: String,
+) -> Result<Option<DeltaReport>, String> {
+    let telemetry_root = {
+        let supervisor = state.inner.read().await;
+        supervisor.telemetry_root()
+    };
+
+    Ok(delta_report::load_run_delta(&run_id, &telemetry_root))
+}
+
+/// Compute delta for an imported bundle
+#[tauri::command]
+async fn compute_import_delta(
+    state: State<'_, SupervisorState>,
+    import_namespace: String,
+) -> Result<DeltaReport, String> {
+    let telemetry_root = {
+        let supervisor = state.inner.read().await;
+        supervisor.telemetry_root()
+    };
+
+    delta_report::compute_import_delta(&import_namespace, &telemetry_root)
 }
 
 // ============================================================================
@@ -523,10 +696,7 @@ fn main() {
                             supervisor.is_admin()
                         };
 
-                        tracing::info!(
-                            "Supervisor initialized (admin: {})",
-                            is_admin
-                        );
+                        tracing::info!("Supervisor initialized (admin: {})", is_admin);
 
                         // Store state
                         app_handle.manage(state);
@@ -608,12 +778,20 @@ fn main() {
             get_grounded_health_gates,
             verify_grounded_gates,
             get_grounded_gates_summary,
-            // Agent-SCENARIOS commands  
+            // Agent-SCENARIOS commands
             get_scenarios,
             get_scenarios_for_tier,
             get_scenario,
             run_scenario,
             check_scenario_capabilities,
+            // Agent-CAPABILITY-EXHAUST commands
+            run_capability_exhaust,
+            get_latest_readiness_report,
+            // Agent-DELTA commands
+            compute_run_delta,
+            get_latest_delta,
+            get_run_delta,
+            compute_import_delta,
             // Agent-MISSION: Mission Workflow commands
             mission_commands::get_mission_profiles,
             mission_commands::get_mission_profiles_by_type,
