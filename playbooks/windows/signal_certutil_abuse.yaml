@@ -78,6 +78,17 @@ rules:
           process: "NewProcessName"
           cmdline: "CommandLine"
           url: "CommandLine"
+    expected:
+      facts:
+        - "certutil.exe execution with -urlcache flag"
+        - "Remote URL (HTTP/HTTPS) in command line"
+        - "-split flag for file download"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["certutil", "-urlcache", "-split", "http"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "CertUtil Decode Operation"
     window: 10
@@ -92,6 +103,16 @@ rules:
         tags:
           - "decode"
           - "payload_staging"
+    expected:
+      facts:
+        - "certutil.exe execution with -decode flag"
+        - "Base64 decoding of file (potential payload staging)"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["certutil", "-decode"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "CertUtil Encode Operation"
     window: 10
@@ -106,6 +127,16 @@ rules:
         tags:
           - "encode"
           - "exfiltration_prep"
+    expected:
+      facts:
+        - "certutil.exe execution with -encode flag"
+        - "Base64 encoding of file (potential exfiltration prep)"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["certutil", "-encode"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "CertUtil Cache Clear (Evasion)"
     window: 10
@@ -120,6 +151,16 @@ rules:
         tags:
           - "anti_forensics"
           - "cleanup"
+    expected:
+      facts:
+        - "certutil.exe clearing URL cache"
+        - "Anti-forensics: removing download traces"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["certutil", "-urlcache", "delete"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 # Response
 response:

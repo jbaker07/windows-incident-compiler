@@ -60,6 +60,16 @@ rules:
         tags:
           - "account_creation"
           - "persistence"
+    expected:
+      facts:
+        - "net.exe user /add command - creating new local user account"
+        - "Potential persistence via account creation"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["net", "user", "/add", "net1"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -77,6 +87,16 @@ rules:
         tags:
           - "group_modification"
           - "privilege_escalation"
+    expected:
+      facts:
+        - "net.exe localgroup /add command - adding user to local group"
+        - "Potential privilege escalation via group membership change"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["net", "localgroup", "/add", "administrators"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Net Share Enumeration"
     window: 60
@@ -93,6 +113,16 @@ rules:
         tags:
           - "share_enum"
           - "discovery"
+    expected:
+      facts:
+        - "net.exe share or view command - network share enumeration"
+        - "Discovery activity to identify accessible network shares"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["net", "share", "view", "net1"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Net Use Remote Connection"
     window: 10
@@ -107,6 +137,16 @@ rules:
         tags:
           - "lateral_movement"
           - "admin_share"
+    expected:
+      facts:
+        - "net.exe use command connecting to admin share (C$, ADMIN$, IPC$)"
+        - "Lateral movement via administrative share connection"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["net", "use", "C$", "ADMIN$", "IPC$"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Net Session Clear"
     window: 10
@@ -121,6 +161,16 @@ rules:
         tags:
           - "session_cleanup"
           - "anti_forensics"
+    expected:
+      facts:
+        - "net.exe session /delete command - clearing network sessions"
+        - "Anti-forensics activity clearing evidence of network connections"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["net", "session", "/delete"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Net Password Change"
     window: 10
@@ -135,6 +185,16 @@ rules:
         tags:
           - "password_change"
           - "credential_modification"
+    expected:
+      facts:
+        - "net.exe user command with password parameter"
+        - "Account credential modification via command line"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["net", "user", "password"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

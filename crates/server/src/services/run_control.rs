@@ -22,6 +22,8 @@ pub enum RunDbErrorCode {
     MissingDb,
     /// Database open/query failed
     DbError,
+    /// run_meta.json run_id doesn't match expected run_id (prevents mis-association on backfill)
+    RunMetaMismatch,
 }
 
 impl RunDbErrorCode {
@@ -31,6 +33,7 @@ impl RunDbErrorCode {
             RunDbErrorCode::MissingRunDir => "MISSING_RUN_DIR",
             RunDbErrorCode::MissingDb => "MISSING_DB",
             RunDbErrorCode::DbError => "DB_ERROR",
+            RunDbErrorCode::RunMetaMismatch => "RUN_META_MISMATCH",
         }
     }
 }
@@ -81,6 +84,18 @@ impl RunDbError {
         }
     }
 
+    pub fn run_meta_mismatch(run_id: &str, meta_run_id: &str) -> Self {
+        Self {
+            code: RunDbErrorCode::RunMetaMismatch,
+            message: format!(
+                "run_meta.json run_id '{}' does not match expected '{}' - refusing backfill",
+                meta_run_id, run_id
+            ),
+            run_id: run_id.to_string(),
+            expected_path: None,
+        }
+    }
+
     /// Convert to JSON response
     pub fn to_json(&self) -> serde_json::Value {
         let mut obj = serde_json::json!({
@@ -112,9 +127,104 @@ pub struct RunDbHandle {
     pub run_record: RunRecord,
 }
 
+/// Resolved run reference (paths without opening DB connection)
+#[derive(Debug, Clone)]
+pub struct RunRef {
+    pub run_id: String,
+    pub run_dir: PathBuf,
+    pub run_meta_path: PathBuf,
+    pub workbench_db_path: PathBuf,
+    pub run_record: Option<RunRecord>,
+}
+
 // ============================================================================
 // Run DB Resolution (CANONICAL HELPER)
 // ============================================================================
+
+/// Resolve run reference with filesystem fallback.
+///
+/// This is the SSoT (Single Source of Truth) for resolving run paths.
+/// Resolution order:
+/// 1. Look up run in DB → use run_dir if non-NULL
+/// 2. If run_dir is NULL → check filesystem at data_dir/runs/{run_id}
+/// 3. If found on filesystem → validate run_meta.json run_id matches → optionally backfill run_dir in DB
+/// 4. If not found anywhere → return RUN_NOT_FOUND
+/// 5. If run_meta.json run_id mismatch → return RUN_META_MISMATCH (prevents mis-association)
+///
+/// Use this instead of ad-hoc fallbacks in handlers.
+pub fn resolve_run_ref(db: &Database, run_id: &str, data_dir: &Path, backfill: bool) -> Result<RunRef, RunDbError> {
+    // Step 1: Look up run in database
+    let run_record_opt = db
+        .get_run(run_id)
+        .map_err(|e| RunDbError::db_error(run_id, &e.to_string()))?;
+    
+    let run_record = match run_record_opt {
+        Some(r) => r,
+        None => {
+            // Run not in DB - check filesystem as pure fallback
+            let fallback_dir = data_dir.join("runs").join(run_id);
+            if fallback_dir.exists() {
+                // Found on filesystem (orphaned run directory)
+                return Ok(RunRef {
+                    run_id: run_id.to_string(),
+                    run_dir: fallback_dir.clone(),
+                    run_meta_path: fallback_dir.join("run_meta.json"),
+                    workbench_db_path: fallback_dir.join("workbench.db"),
+                    run_record: None,
+                });
+            }
+            return Err(RunDbError::run_not_found(run_id));
+        }
+    };
+    
+    // Step 2: Check if run_dir is available in DB
+    if let Some(ref run_dir_str) = run_record.run_dir {
+        let run_dir = PathBuf::from(run_dir_str);
+        if run_dir.exists() {
+            return Ok(RunRef {
+                run_id: run_id.to_string(),
+                run_dir: run_dir.clone(),
+                run_meta_path: run_dir.join("run_meta.json"),
+                workbench_db_path: run_dir.join("workbench.db"),
+                run_record: Some(run_record),
+            });
+        }
+    }
+    
+    // Step 3: run_dir is NULL or doesn't exist - try filesystem fallback
+    let fallback_dir = data_dir.join("runs").join(run_id);
+    if fallback_dir.exists() {
+        // Validate run_meta.json before backfill to prevent mis-association
+        if backfill {
+            let meta_path = fallback_dir.join("run_meta.json");
+            if let Some(meta_run_id) = read_run_meta_run_id(&meta_path) {
+                if meta_run_id != run_id {
+                    // run_meta.json exists but run_id doesn't match - refuse backfill
+                    return Err(RunDbError::run_meta_mismatch(run_id, &meta_run_id));
+                }
+            }
+            // Either no run_meta.json or run_id matches - safe to backfill
+            let _ = db.backfill_run_dir(run_id, fallback_dir.to_string_lossy().as_ref());
+        }
+        return Ok(RunRef {
+            run_id: run_id.to_string(),
+            run_dir: fallback_dir.clone(),
+            run_meta_path: fallback_dir.join("run_meta.json"),
+            workbench_db_path: fallback_dir.join("workbench.db"),
+            run_record: Some(run_record),
+        });
+    }
+    
+    // Not found anywhere
+    Err(RunDbError::run_not_found(run_id))
+}
+
+/// Read run_id from run_meta.json (for backfill validation)
+fn read_run_meta_run_id(meta_path: &Path) -> Option<String> {
+    let contents = std::fs::read_to_string(meta_path).ok()?;
+    let meta: serde_json::Value = serde_json::from_str(&contents).ok()?;
+    meta.get("run_id").and_then(|v| v.as_str()).map(|s| s.to_string())
+}
 
 /// Open the per-run workbench.db using the runs table as source of truth.
 ///
@@ -560,6 +670,7 @@ pub fn create_run_record(
         baseline_scope: None,
         baseline_enabled: false,
         baseline_set_at: None,
+        chain_ids: None,
     }
 }
 
@@ -609,4 +720,161 @@ pub async fn legacy_stop_processes() {
 #[cfg(not(target_os = "windows"))]
 pub async fn legacy_stop_processes() {
     // No-op on non-Windows
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::RunRecord;
+    use std::fs;
+    use tempfile::TempDir;
+
+    /// Test that resolve_run_ref correctly falls back to filesystem when run_dir is NULL
+    #[test]
+    fn test_resolve_run_ref_filesystem_fallback() {
+        // Setup: create temp directory structure
+        let temp = TempDir::new().unwrap();
+        let data_dir = temp.path();
+        
+        // Create a run directory with a workbench.db
+        let run_id = "test-run-001";
+        let run_dir = data_dir.join("runs").join(run_id);
+        fs::create_dir_all(&run_dir).unwrap();
+        
+        // Create a minimal workbench.db file (empty file is sufficient for this test)
+        fs::write(run_dir.join("workbench.db"), b"").unwrap();
+        // run_meta.json with matching run_id
+        fs::write(run_dir.join("run_meta.json"), format!(r#"{{"run_id":"{}","status":"stopped"}}"#, run_id)).unwrap();
+        
+        // Create an in-memory database and insert a run with NULL run_dir
+        let db = Database::open_in_memory().unwrap();
+        let run_record = RunRecord {
+            run_id: run_id.to_string(),
+            name: None,
+            profile: None,
+            started_at: "2025-01-01T00:00:00Z".to_string(),
+            stopped_at: None,
+            run_dir: None, // NULL run_dir - simulating legacy data
+            events_total: 0,
+            segments_count: 0,
+            facts_extracted: 0,
+            signals_fired: 0,
+            bytes_written: 0,
+            status: "stopped".to_string(),
+            baseline_scope: None,
+            baseline_enabled: false,
+            baseline_set_at: None,
+            chain_ids: None,
+        };
+        db.insert_run(&run_record).unwrap();
+        
+        // Test: resolve_run_ref should find the run via filesystem fallback
+        let result = resolve_run_ref(&db, run_id, data_dir, false);
+        assert!(result.is_ok(), "resolve_run_ref should succeed via filesystem fallback");
+        
+        let run_ref = result.unwrap();
+        assert_eq!(run_ref.run_id, run_id);
+        assert_eq!(run_ref.run_dir, run_dir);
+        assert!(run_ref.run_record.is_some(), "Should have the DB record");
+    }
+
+    /// Test that backfill actually updates the database
+    #[test]
+    fn test_resolve_run_ref_backfill() {
+        // Setup: create temp directory structure
+        let temp = TempDir::new().unwrap();
+        let data_dir = temp.path();
+        
+        let run_id = "test-run-backfill";
+        let run_dir = data_dir.join("runs").join(run_id);
+        fs::create_dir_all(&run_dir).unwrap();
+        fs::write(run_dir.join("workbench.db"), b"").unwrap();
+        // run_meta.json with matching run_id
+        fs::write(run_dir.join("run_meta.json"), format!(r#"{{"run_id":"{}","status":"stopped"}}"#, run_id)).unwrap();
+        
+        // Create an in-memory database with NULL run_dir
+        let db = Database::open_in_memory().unwrap();
+        let run_record = RunRecord {
+            run_id: run_id.to_string(),
+            name: None,
+            profile: None,
+            started_at: "2025-01-01T00:00:00Z".to_string(),
+            stopped_at: None,
+            run_dir: None, // NULL run_dir
+            events_total: 0,
+            segments_count: 0,
+            facts_extracted: 0,
+            signals_fired: 0,
+            bytes_written: 0,
+            status: "stopped".to_string(),
+            baseline_scope: None,
+            baseline_enabled: false,
+            baseline_set_at: None,
+            chain_ids: None,
+        };
+        db.insert_run(&run_record).unwrap();
+        
+        // Call with backfill = true
+        let result = resolve_run_ref(&db, run_id, data_dir, true);
+        assert!(result.is_ok());
+        
+        // Verify backfill happened
+        let record = db.get_run(run_id).unwrap().unwrap();
+        assert!(record.run_dir.is_some(), "run_dir should be backfilled");
+        assert!(record.run_dir.unwrap().contains(run_id), "run_dir should contain the run_id");
+    }
+
+    /// Test that backfill is rejected when run_meta.json run_id doesn't match
+    #[test]
+    fn test_backfill_rejects_mismatched_run_meta() {
+        // Setup: create temp directory structure
+        let temp = TempDir::new().unwrap();
+        let data_dir = temp.path();
+        
+        let run_id = "test-run-mismatch";
+        let wrong_run_id = "some-other-run";
+        let run_dir = data_dir.join("runs").join(run_id);
+        fs::create_dir_all(&run_dir).unwrap();
+        fs::write(run_dir.join("workbench.db"), b"").unwrap();
+        // run_meta.json with WRONG run_id - simulates a mis-associated folder
+        fs::write(run_dir.join("run_meta.json"), format!(r#"{{"run_id":"{}","status":"stopped"}}"#, wrong_run_id)).unwrap();
+        
+        // Create an in-memory database with NULL run_dir
+        let db = Database::open_in_memory().unwrap();
+        let run_record = RunRecord {
+            run_id: run_id.to_string(),
+            name: None,
+            profile: None,
+            started_at: "2025-01-01T00:00:00Z".to_string(),
+            stopped_at: None,
+            run_dir: None, // NULL run_dir
+            events_total: 0,
+            segments_count: 0,
+            facts_extracted: 0,
+            signals_fired: 0,
+            bytes_written: 0,
+            status: "stopped".to_string(),
+            baseline_scope: None,
+            baseline_enabled: false,
+            baseline_set_at: None,
+            chain_ids: None,
+        };
+        db.insert_run(&run_record).unwrap();
+        
+        // Call with backfill = true - should FAIL due to mismatch
+        let result = resolve_run_ref(&db, run_id, data_dir, true);
+        assert!(result.is_err(), "resolve_run_ref should fail due to run_meta mismatch");
+        
+        let err = result.unwrap_err();
+        assert_eq!(err.code, RunDbErrorCode::RunMetaMismatch, "Should return RUN_META_MISMATCH error");
+        assert!(err.message.contains(wrong_run_id), "Error message should mention the wrong run_id");
+        
+        // Verify DB was NOT updated
+        let record = db.get_run(run_id).unwrap().unwrap();
+        assert!(record.run_dir.is_none(), "run_dir should NOT be backfilled on mismatch");
+    }
 }

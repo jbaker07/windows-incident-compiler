@@ -1,7 +1,7 @@
 // Database persistence layer using SQLite
 
 use rusqlite::{params, Connection};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use workbench::Document;
 
@@ -52,6 +52,9 @@ pub struct RunRecord {
     pub baseline_enabled: bool,  // true if this run is marked as baseline
     #[serde(default)]
     pub baseline_set_at: Option<String>,  // ISO timestamp when marked as baseline
+    // Chain stack for Investigate tab (INVESTIGATE_CHAINS-1)
+    #[serde(default)]
+    pub chain_ids: Option<Vec<String>>,  // Persisted chain IDs for this run
 }
 
 /// Metrics from a run (used for finalization)
@@ -66,13 +69,17 @@ pub struct RunMetrics {
 
 pub struct Database {
     conn: Mutex<Connection>,
+    data_dir: PathBuf,
 }
 
 impl Database {
     pub fn open(path: &Path) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(path)?;
+        // Derive data_dir from the database path (workbench.db is in data_dir)
+        let data_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         let db = Self {
             conn: Mutex::new(conn),
+            data_dir,
         };
         db.init_schema()?;
         Ok(db)
@@ -83,6 +90,7 @@ impl Database {
         let conn = Connection::open_in_memory()?;
         let db = Self {
             conn: Mutex::new(conn),
+            data_dir: PathBuf::from("."),
         };
         db.init_schema()?;
         Ok(db)
@@ -154,6 +162,10 @@ impl Database {
                 signals_fired INTEGER NOT NULL DEFAULT 0,
                 bytes_written INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'running',
+                baseline_scope TEXT,
+                baseline_enabled INTEGER NOT NULL DEFAULT 0,
+                baseline_set_at TEXT,
+                chain_ids TEXT,
                 created_at TEXT NOT NULL
             );
             
@@ -318,102 +330,264 @@ impl Database {
             }
         }
         
-        // W6 FIX: Recover orphan runs (runs stuck in "running" status from previous crashes)
-        // Uses smart heuristic to avoid false positives on long-running or paused sessions
-        self.recover_orphan_runs(&conn)?;
+        // Add chain_ids column (INVESTIGATE_CHAINS-1)
+        if !existing_columns.contains("chain_ids") {
+            tracing::info!("Migrating runs table: adding column 'chain_ids'");
+            if let Err(e) = conn.execute("ALTER TABLE runs ADD COLUMN chain_ids TEXT", []) {
+                if !e.to_string().contains("duplicate column") {
+                    tracing::warn!("Migration warning for 'chain_ids': {}", e);
+                }
+            }
+        }
+        
+        tracing::debug!("runs table baseline columns OK (baseline_scope, baseline_enabled, baseline_set_at)");
+        tracing::debug!("runs table chain_ids column OK");
+        
+        // Safe orphan reconciliation: only abandon runs that are truly dead
+        // NOT the aggressive "abandon all running" which creates false positives
+        tracing::info!("DB startup: running orphan reconciliation...");
+        if let Err(e) = self.reconcile_orphan_runs(&conn) {
+            tracing::error!("Orphan reconciliation failed: {}", e);
+        }
+        tracing::info!("DB startup: orphan reconciliation complete");
         
         Ok(())
     }
     
-    /// W6 FIX: Recover orphan runs left in "running" status from server crashes
-    /// Uses a smart heuristic to avoid false positives:
-    /// 1) Requires >10 minutes since started_at (grace period for long runs)
-    /// 2) OR if run_dir exists, checks for stale checkpoint (no file activity in run_dir for >5 min)
-    /// 3) Does NOT abandon runs that have recent segment activity
-    fn recover_orphan_runs(&self, conn: &std::sync::MutexGuard<'_, Connection>) -> Result<(), rusqlite::Error> {
-        // Find candidate orphan runs: status='running' and started >10 minutes ago
-        // This is the minimum threshold to avoid false positives on long runs
-        let mut stmt = conn.prepare(
-            r#"SELECT run_id, run_dir, started_at FROM runs 
-               WHERE status = 'running' 
-               AND datetime(started_at) < datetime('now', '-10 minutes')"#
-        )?;
-        
-        let mut candidates: Vec<(String, Option<String>, String)> = Vec::new();
-        let mut rows = stmt.query([])?;
-        while let Some(row) = rows.next()? {
-            let run_id: String = row.get(0)?;
-            let run_dir: Option<String> = row.get(1)?;
-            let started_at: String = row.get(2)?;
-            candidates.push((run_id, run_dir, started_at));
-        }
-        drop(rows);
-        drop(stmt);
-        
-        if candidates.is_empty() {
+    /// Safe orphan reconciliation: only abandon runs that are truly dead/stale
+    /// 
+    /// For each run with status="running":
+    /// 1) If run_meta.json has PIDs: check if PIDs are alive
+    /// 2) Else: check run_dir activity (segments/, checkpoint) within last 120s
+    /// 3) Only mark as abandoned if truly dead AND stale beyond threshold
+    fn reconcile_orphan_runs(&self, _conn: &std::sync::MutexGuard<'_, Connection>) -> Result<(), rusqlite::Error> {
+        // Scan filesystem for runs (run_meta.json is the source of truth for status)
+        let runs_dir = self.data_dir.join("runs");
+        if !runs_dir.exists() {
+            tracing::debug!("Orphan reconciliation: runs directory does not exist");
             return Ok(());
         }
         
-        tracing::info!("W6 Recovery: Checking {} candidate orphan run(s)", candidates.len());
+        let entries = match std::fs::read_dir(&runs_dir) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("Orphan reconciliation: failed to read runs directory: {}", e);
+                return Ok(());
+            }
+        };
         
-        let now = chrono::Utc::now();
-        let now_str = now.to_rfc3339();
+        let mut running_count = 0;
         let mut abandoned_count = 0;
+        let mut kept_running = 0;
         
-        for (run_id, run_dir, started_at) in candidates {
-            let should_abandon = if let Some(ref dir) = run_dir {
-                // If we have a run_dir, check if it's truly stale
-                // Look for recent file activity (checkpoint, segments, run.db)
-                is_run_dir_stale(dir)
-            } else {
-                // No run_dir - rely on time-based heuristic only
-                // If started >10 minutes ago and no run_dir, likely orphan
-                true
+        for entry in entries.flatten() {
+            if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+            
+            let run_dir = entry.path();
+            let meta_path = run_dir.join("run_meta.json");
+            
+            // Read run_meta.json
+            let meta_content = match std::fs::read_to_string(&meta_path) {
+                Ok(c) => c,
+                Err(_) => continue, // No run_meta.json, skip
             };
             
+            let meta: serde_json::Value = match serde_json::from_str(&meta_content) {
+                Ok(m) => m,
+                Err(_) => continue, // Invalid JSON, skip
+            };
+            
+            // Only process runs with status="running"
+            let status = meta.get("status").and_then(|s| s.as_str()).unwrap_or("");
+            if status != "running" {
+                continue;
+            }
+            
+            running_count += 1;
+            let run_id = entry.file_name().to_string_lossy().to_string();
+            let run_dir_str = run_dir.display().to_string();
+            
+            // Check if this run is still alive
+            let (should_abandon, reason) = check_run_status(&run_dir_str);
+            
             if should_abandon {
-                tracing::info!("W6 Recovery: Marking run '{}' as abandoned (started: {}, dir: {:?})", 
-                    run_id, started_at, run_dir);
+                tracing::info!(
+                    "Orphan reconciliation: Marking run '{}' as abandoned (reason: {})", 
+                    run_id, reason
+                );
                 
-                conn.execute(
-                    "UPDATE runs SET status = 'abandoned', stopped_at = ?2 WHERE run_id = ?1",
-                    params![run_id, now_str],
-                )?;
+                // Update run_meta.json with status and reason
+                update_run_meta_status(&run_dir_str, "abandoned", &reason, Some("interrupted"));
                 abandoned_count += 1;
             } else {
-                tracing::debug!("W6 Recovery: Run '{}' has recent activity, not abandoning", run_id);
+                tracing::debug!(
+                    "Orphan reconciliation: Keeping run '{}' as 'running' (reason: {})",
+                    run_id, reason
+                );
+                kept_running += 1;
             }
         }
         
-        if abandoned_count > 0 {
-            tracing::info!("W6 Recovery: Marked {} run(s) as 'abandoned'", abandoned_count);
+        if running_count > 0 {
+            tracing::info!(
+                "Orphan reconciliation: found {} runs in 'running' state, {} abandoned, {} kept running",
+                running_count, abandoned_count, kept_running
+            );
+        } else {
+            tracing::debug!("Orphan reconciliation: no runs in 'running' state");
         }
         
         Ok(())
     }
 }
 
-/// Check if a run directory appears stale (no recent file activity)
-/// Returns true if the directory doesn't exist OR has no files modified in last 5 minutes
-fn is_run_dir_stale(run_dir: &str) -> bool {
+/// Check if a run is still active or should be abandoned
+/// Returns (should_abandon: bool, reason: String)
+fn check_run_status(run_dir: &str) -> (bool, String) {
+    use std::path::Path;
+    
+    let path = Path::new(run_dir);
+    if !path.exists() {
+        return (true, "RUN_DIR_MISSING".to_string());
+    }
+    
+    // 1) Check for PIDs in run_meta.json and verify they're alive
+    let meta_path = path.join("run_meta.json");
+    if meta_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&meta_path) {
+            if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&content) {
+                // Check capture_pid
+                if let Some(pid) = meta.get("capture_pid").and_then(|v| v.as_u64()) {
+                    if is_pid_alive(pid as u32) {
+                        return (false, format!("CAPTURE_PID_{}_ALIVE", pid));
+                    }
+                }
+                // Check locald_pid
+                if let Some(pid) = meta.get("locald_pid").and_then(|v| v.as_u64()) {
+                    if is_pid_alive(pid as u32) {
+                        return (false, format!("LOCALD_PID_{}_ALIVE", pid));
+                    }
+                }
+                // Check supervisor_pid (if we add it)
+                if let Some(pid) = meta.get("supervisor_pid").and_then(|v| v.as_u64()) {
+                    if is_pid_alive(pid as u32) {
+                        return (false, format!("SUPERVISOR_PID_{}_ALIVE", pid));
+                    }
+                }
+            }
+        }
+    }
+    
+    // 2) No live PIDs found - check file activity threshold (120 seconds)
+    let stale_threshold_secs = 120;
+    if !is_run_dir_stale_secs(run_dir, stale_threshold_secs) {
+        return (false, format!("RECENT_ACTIVITY_WITHIN_{}s", stale_threshold_secs));
+    }
+    
+    // 3) Run has no live PIDs and no recent activity - it's dead
+    (true, "PROCESS_DIED_NO_ACTIVITY".to_string())
+}
+
+/// Check if a process with given PID is alive
+#[cfg(windows)]
+fn is_pid_alive(pid: u32) -> bool {
+    use std::ptr::null_mut;
+    
+    // OpenProcess with PROCESS_QUERY_LIMITED_INFORMATION (0x1000)
+    let handle = unsafe {
+        winapi::um::processthreadsapi::OpenProcess(0x1000, 0, pid)
+    };
+    
+    if handle.is_null() {
+        return false;
+    }
+    
+    // Check if process is still running
+    let mut exit_code: u32 = 0;
+    let result = unsafe {
+        winapi::um::processthreadsapi::GetExitCodeProcess(handle, &mut exit_code)
+    };
+    
+    unsafe { winapi::um::handleapi::CloseHandle(handle) };
+    
+    // STILL_ACTIVE = 259
+    result != 0 && exit_code == 259
+}
+
+#[cfg(not(windows))]
+fn is_pid_alive(pid: u32) -> bool {
+    // On Unix, send signal 0 to check if process exists
+    unsafe { libc::kill(pid as i32, 0) == 0 }
+}
+
+/// Update run_meta.json with status, reason, and optional compile_status
+fn update_run_meta_status(run_dir: &str, status: &str, reason: &str, compile_status: Option<&str>) {
+    use std::path::Path;
+    
+    let meta_path = Path::new(run_dir).join("run_meta.json");
+    if !meta_path.exists() {
+        tracing::debug!("No run_meta.json to update at {:?}", meta_path);
+        return;
+    }
+    
+    // Read existing meta
+    let content = match std::fs::read_to_string(&meta_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Failed to read run_meta.json: {}", e);
+            return;
+        }
+    };
+    
+    // Parse as JSON and update
+    let mut meta: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("Failed to parse run_meta.json: {}", e);
+            return;
+        }
+    };
+    
+    if let Some(obj) = meta.as_object_mut() {
+        obj.insert("status".to_string(), serde_json::Value::String(status.to_string()));
+        obj.insert("abandoned_reason".to_string(), serde_json::Value::String(reason.to_string()));
+        obj.insert("stopped_at".to_string(), serde_json::Value::String(chrono::Utc::now().to_rfc3339()));
+        
+        // S6 FIX: Persist compile_status in run_meta.json
+        if let Some(cs) = compile_status {
+            obj.insert("compile_status".to_string(), serde_json::Value::String(cs.to_string()));
+        }
+    }
+    
+    // Write back
+    if let Err(e) = std::fs::write(&meta_path, serde_json::to_string_pretty(&meta).unwrap_or_default()) {
+        tracing::warn!("Failed to write updated run_meta.json: {}", e);
+    } else {
+        tracing::debug!("Updated run_meta.json: status={}, reason={}, compile_status={:?}", status, reason, compile_status);
+    }
+}
+
+/// Check if a run directory is stale (no recent file activity within threshold seconds)
+fn is_run_dir_stale_secs(run_dir: &str, threshold_secs: u64) -> bool {
     use std::path::Path;
     use std::time::{Duration, SystemTime};
     
     let path = Path::new(run_dir);
     if !path.exists() {
-        // Directory doesn't exist - definitely stale/orphan
         return true;
     }
     
-    let stale_threshold = Duration::from_secs(5 * 60); // 5 minutes
+    let stale_threshold = Duration::from_secs(threshold_secs);
     let now = SystemTime::now();
     
     // Check key files that would be updated during an active run
     let key_files = [
-        "run.db",
-        "index.json", 
+        "workbench.db",
         "run_meta.json",
         "checkpoint.json",
+        "locald_checkpoint.json",
     ];
     
     for filename in &key_files {
@@ -422,15 +596,14 @@ fn is_run_dir_stale(run_dir: &str) -> bool {
             if let Ok(modified) = metadata.modified() {
                 if let Ok(elapsed) = now.duration_since(modified) {
                     if elapsed < stale_threshold {
-                        // Found a recently modified file - not stale
-                        return false;
+                        return false; // Recent activity found
                     }
                 }
             }
         }
     }
     
-    // Also check segments directory for recent segment files
+    // Check segments directory for recent files
     let segments_dir = path.join("segments");
     if segments_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(&segments_dir) {
@@ -439,8 +612,7 @@ fn is_run_dir_stale(run_dir: &str) -> bool {
                     if let Ok(modified) = metadata.modified() {
                         if let Ok(elapsed) = now.duration_since(modified) {
                             if elapsed < stale_threshold {
-                                // Found a recently modified segment - not stale
-                                return false;
+                                return false; // Recent segment activity
                             }
                         }
                     }
@@ -449,8 +621,14 @@ fn is_run_dir_stale(run_dir: &str) -> bool {
         }
     }
     
-    // No recent activity found - consider stale
-    true
+    true // No recent activity
+}
+
+/// Check if a run directory appears stale (no recent file activity)
+/// Returns true if the directory doesn't exist OR has no files modified in last 5 minutes
+#[allow(dead_code)]
+fn is_run_dir_stale(run_dir: &str) -> bool {
+    is_run_dir_stale_secs(run_dir, 5 * 60)
 }
 
 impl Database {
@@ -707,12 +885,15 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
         
+        // Serialize chain_ids as JSON if present
+        let chain_ids_json = run.chain_ids.as_ref().map(|ids| serde_json::to_string(ids).unwrap_or_default());
+        
         conn.execute(
             r#"INSERT OR REPLACE INTO runs 
                (run_id, name, profile, started_at, stopped_at, run_dir, 
                 events_total, segments_count, facts_extracted, signals_fired, bytes_written,
-                status, baseline_scope, baseline_enabled, baseline_set_at, created_at)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)"#,
+                status, baseline_scope, baseline_enabled, baseline_set_at, chain_ids, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"#,
             params![
                 run.run_id,
                 run.name,
@@ -729,6 +910,7 @@ impl Database {
                 run.baseline_scope,
                 if run.baseline_enabled { 1 } else { 0 },
                 run.baseline_set_at,
+                chain_ids_json,
                 now
             ],
         )?;
@@ -768,7 +950,7 @@ impl Database {
         let mut stmt = conn.prepare(
             r#"SELECT run_id, name, profile, started_at, stopped_at, run_dir,
                       events_total, segments_count, facts_extracted, signals_fired, bytes_written,
-                      status, baseline_scope, baseline_enabled, baseline_set_at
+                      status, baseline_scope, baseline_enabled, baseline_set_at, chain_ids
                FROM runs 
                ORDER BY started_at DESC 
                LIMIT ?1"#
@@ -778,6 +960,10 @@ impl Database {
         let mut runs = Vec::new();
         
         while let Some(row) = rows.next()? {
+            // Deserialize chain_ids from JSON string
+            let chain_ids_json: Option<String> = row.get(15)?;
+            let chain_ids: Option<Vec<String>> = chain_ids_json.and_then(|s| serde_json::from_str(&s).ok());
+            
             runs.push(RunRecord {
                 run_id: row.get(0)?,
                 name: row.get(1)?,
@@ -794,6 +980,7 @@ impl Database {
                 baseline_scope: row.get(12)?,
                 baseline_enabled: row.get::<_, i64>(13).unwrap_or(0) != 0,
                 baseline_set_at: row.get(14)?,
+                chain_ids,
             });
         }
         Ok(runs)
@@ -805,12 +992,16 @@ impl Database {
         let mut stmt = conn.prepare(
             r#"SELECT run_id, name, profile, started_at, stopped_at, run_dir,
                       events_total, segments_count, facts_extracted, signals_fired, bytes_written,
-                      status, baseline_scope, baseline_enabled, baseline_set_at
+                      status, baseline_scope, baseline_enabled, baseline_set_at, chain_ids
                FROM runs WHERE run_id = ?1"#
         )?;
         
         let mut rows = stmt.query(params![run_id])?;
         if let Some(row) = rows.next()? {
+            // Deserialize chain_ids from JSON string
+            let chain_ids_json: Option<String> = row.get(15)?;
+            let chain_ids: Option<Vec<String>> = chain_ids_json.and_then(|s| serde_json::from_str(&s).ok());
+            
             Ok(Some(RunRecord {
                 run_id: row.get(0)?,
                 name: row.get(1)?,
@@ -827,6 +1018,7 @@ impl Database {
                 baseline_scope: row.get(12)?,
                 baseline_enabled: row.get::<_, i64>(13).unwrap_or(0) != 0,
                 baseline_set_at: row.get(14)?,
+                chain_ids,
             }))
         } else {
             Ok(None)
@@ -883,6 +1075,7 @@ impl Database {
                 baseline_scope: row.get(12)?,
                 baseline_enabled: row.get::<_, i64>(13).unwrap_or(0) != 0,
                 baseline_set_at: row.get(14)?,
+                chain_ids: None,
             }))
         } else {
             Ok(None)
@@ -918,6 +1111,7 @@ impl Database {
                 baseline_scope: row.get(12)?,
                 baseline_enabled: row.get::<_, i64>(13).unwrap_or(0) != 0,
                 baseline_set_at: row.get(14)?,
+                chain_ids: None,
             });
         }
         Ok(baselines)
@@ -939,6 +1133,17 @@ impl Database {
         let rows_affected = conn.execute(
             "UPDATE runs SET name = ?2 WHERE run_id = ?1",
             params![run_id, name],
+        )?;
+        Ok(rows_affected > 0)
+    }
+
+    /// Backfill run_dir for a run (used when resolving legacy runs with NULL run_dir)
+    pub fn backfill_run_dir(&self, run_id: &str, run_dir: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        // Only update if run_dir is currently NULL
+        let rows_affected = conn.execute(
+            "UPDATE runs SET run_dir = ?2 WHERE run_id = ?1 AND run_dir IS NULL",
+            params![run_id, run_dir],
         )?;
         Ok(rows_affected > 0)
     }

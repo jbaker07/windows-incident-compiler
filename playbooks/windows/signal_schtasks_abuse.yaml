@@ -66,6 +66,16 @@ rules:
           - "persistence"
           - "privilege_escalation"
           - "system_task"
+    expected:
+      facts:
+        - "schtasks.exe /create with /ru SYSTEM - task running as SYSTEM"
+        - "Scheduled task persistence with elevated SYSTEM privileges"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["schtasks", "/create", "/ru", "SYSTEM"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -83,6 +93,16 @@ rules:
         tags:
           - "lateral_movement"
           - "remote_task"
+    expected:
+      facts:
+        - "schtasks.exe /create with /s parameter - remote task creation"
+        - "Lateral movement via remote scheduled task on target host"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["schtasks", "/create", "/s", "remote"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Task with Hidden Attribute"
     window: 10
@@ -97,6 +117,16 @@ rules:
         tags:
           - "hidden_task"
           - "evasion"
+    expected:
+      facts:
+        - "schtasks.exe /create with /v1 - Task Scheduler 1.0 compatibility (allows hiding)"
+        - "Potential hidden task creation for evasion"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["schtasks", "/create", "/v1", "hidden"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Task Running PowerShell"
     window: 10
@@ -111,6 +141,16 @@ rules:
         tags:
           - "powershell_persistence"
           - "scheduled_task"
+    expected:
+      facts:
+        - "schtasks.exe /create with /tr running PowerShell"
+        - "Scheduled task persistence executing PowerShell commands"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["schtasks", "/create", "/tr", "powershell"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Task Running from Temp"
     window: 10
@@ -125,6 +165,16 @@ rules:
         tags:
           - "suspicious_location"
           - "malware_persistence"
+    expected:
+      facts:
+        - "schtasks.exe /create executing binary from TEMP or APPDATA"
+        - "Malware persistence indicator - task runs executable from suspicious location"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["schtasks", "/create", "/tr", "temp", "appdata"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

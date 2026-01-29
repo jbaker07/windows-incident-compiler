@@ -72,6 +72,16 @@ rules:
           user: "TargetUserName"
           source_ip: "SourceNetworkAddress"
           failure_reason: "FailureReason"
+    expected:
+      facts:
+        - "5+ failed logon attempts within 5 minutes (Event 4625)"
+        - "Potential brute force or password spraying attack"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["4625", "failed", "logon", "FailureReason"]
+        event_ids: [4625]
+      visibility_requires: ["security_log"]
 
   - name: "Multiple Logon Sources"
     window: 3600
@@ -92,6 +102,16 @@ rules:
     evidence:
       - event_type: "logon"
         event_id: 4624
+    expected:
+      facts:
+        - "Successful logons from 3+ distinct source IPs within 1 hour"
+        - "Potential account compromise or credential sharing"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["4624", "SourceNetworkAddress", "IpAddress"]
+        event_ids: [4624]
+      visibility_requires: ["security_log"]
 
   - name: "Service Account Interactive Logon"
     window: 10
@@ -106,6 +126,16 @@ rules:
         tags:
           - "service_account_abuse"
           - "credential_theft"
+    expected:
+      facts:
+        - "Service account used for interactive or RDP logon"
+        - "Service accounts should not have interactive sessions"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["4624", "svc_", "service", "LogonType 2", "LogonType 10"]
+        event_ids: [4624]
+      visibility_requires: ["security_log"]
 
   - name: "RDP From External IP"
     window: 10
@@ -120,6 +150,16 @@ rules:
         tags:
           - "external_rdp"
           - "initial_access"
+    expected:
+      facts:
+        - "RDP logon (LogonType 10) from external/public IP address"
+        - "Source IP outside RFC1918 private ranges"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["4624", "LogonType 10", "RDP", "SourceNetworkAddress"]
+        event_ids: [4624]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

@@ -1,0 +1,122 @@
+---
+# playbooks/windows/signal_service_persistence.yaml
+# Detection of service installation for persistence
+# Monitors System event log (Event ID 7045) for new services
+
+name: "Windows Service Installation"
+id: "windows_service_persistence_001"
+version: "1.0"
+description: |
+  Detects creation of Windows services for persistence.
+  Looks for:
+  - Services with suspicious binary paths (%TEMP%, %APPDATA%, removable media)
+  - Services started by non-admin accounts
+  - Services with auto/boot start type
+  - Service property modifications post-installation
+
+enabled: true
+confidence_threshold: 0.75
+
+# Input signals from service_monitor
+signals:
+  - tag: "windows_service"
+  - tag: "service_install"
+  - tag: "service_modify"
+
+# Correlation rules
+rules:
+  - name: "Suspicious Service Installation"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "service_install"
+      - tag: "persistence"
+    actions:
+      - severity: HIGH
+        tags:
+          - "persistence"
+          - "service"
+          - "privilege_escalation"
+    evidence:
+      - event_type: "service_creation"
+        event_id: 7045
+        field_mapping:
+          service_name: "ServiceName"
+          binary_path: "ImagePath"
+          start_type: "StartType"
+
+  - name: "Temp/Appdata Service Binary"
+    window: 60
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "service_install"
+      - or:
+          - binary_path: "*\\Temp\\*"
+          - binary_path: "*\\AppData\\*"
+          - binary_path: "*\\ProgramData\\*"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "malware"
+          - "persistence"
+
+  - name: "Service Registry Modification"
+    window: 300
+    aggregation: count
+    threshold: 1
+    conditions:
+      - tag: "service_modify"
+      - event_id: 4697
+    actions:
+      - severity: MEDIUM
+        tags:
+          - "post_exploitation"
+
+# Playbook response
+response:
+  - type: "isolate_service"
+    target: "service"
+    action: "stop"
+    description: "Stop suspicious service immediately"
+    
+  - type: "preserve_evidence"
+    target: "service_executable"
+    action: "quarantine"
+    description: "Quarantine service binary for analysis"
+
+  - type: "audit_log"
+    description: "Extract full service details and modification history"
+    fields:
+      - service_name
+      - binary_path
+      - display_name
+      - start_type
+      - service_account
+
+  - type: "alert"
+    channel: "siem"
+    title: "Malicious Service Detected"
+    priority: "critical"
+
+# Remediation steps
+remediation:
+  steps:
+    - "Stop the service: 'sc stop ServiceName'"
+    - "Delete the service: 'sc delete ServiceName'"
+    - "Quarantine the executable for malware analysis"
+    - "Review system for lateral movement attempts (e.g., psexec)"
+    - "Check for code injection via 'Get-Process | Select-Object -Property Handle,ProcessName'"
+    - "Perform memory dump for artifact analysis"
+
+# Exceptions/whitelisting
+whitelist:
+  - services:
+    - "WinDefend"  # Windows Defender
+    - "wuauserv"   # Windows Update
+    - "RealTimeProtection"
+    - "SecurityHealthService"
+  - by_account:
+    - "NT AUTHORITY\\SYSTEM"
+    - "NT AUTHORITY\\LOCAL SERVICE"

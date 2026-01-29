@@ -59,6 +59,16 @@ rules:
         tags:
           - "script_execution"
           - "lolbin"
+    expected:
+      facts:
+        - "rundll32.exe executing JavaScript code via javascript: protocol"
+        - "LOLBin abuse for script execution bypassing controls"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["rundll32", "javascript", "script"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -76,6 +86,16 @@ rules:
         tags:
           - "url_execution"
           - "download"
+    expected:
+      facts:
+        - "rundll32.exe with url.dll FileProtocolHandler - opening URL/file"
+        - "Potential download or file execution via URL handler"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["rundll32", "url.dll", "fileprotocolhandler"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Rundll32 Comsvcs MiniDump"
     window: 10
@@ -91,6 +111,16 @@ rules:
           - "credential_theft"
           - "memory_dump"
           - "lsass_dump"
+    expected:
+      facts:
+        - "rundll32.exe with comsvcs.dll MiniDump - LSASS credential dumping"
+        - "Credential theft technique using native Windows DLL for memory dump"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["rundll32", "comsvcs", "minidump", "lsass", "#24"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Rundll32 DLL from Temp"
     window: 10
@@ -105,6 +135,16 @@ rules:
         tags:
           - "suspicious_location"
           - "dropper"
+    expected:
+      facts:
+        - "rundll32.exe loading DLL from TEMP or APPDATA directory"
+        - "Suspicious DLL execution from temporary location"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["rundll32", "temp", "appdata", ".dll"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

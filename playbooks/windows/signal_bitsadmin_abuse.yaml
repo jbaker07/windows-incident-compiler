@@ -64,6 +64,16 @@ rules:
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
+    expected:
+      facts:
+        - "bitsadmin.exe execution with /transfer flag"
+        - "Remote URL (HTTP/HTTPS) in command line"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["bitsadmin", "/transfer", "http"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "BITSAdmin Add File"
     window: 10
@@ -78,6 +88,16 @@ rules:
         tags:
           - "bits_job"
           - "staging"
+    expected:
+      facts:
+        - "bitsadmin.exe execution with /addfile flag"
+        - "File being added to BITS job for download"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["bitsadmin", "/addfile"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "BITSAdmin Create Job"
     window: 10
@@ -91,6 +111,16 @@ rules:
       - severity: MEDIUM
         tags:
           - "bits_persistence"
+    expected:
+      facts:
+        - "bitsadmin.exe creating persistent BITS job"
+        - "Potential persistence mechanism via BITS"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["bitsadmin", "/create"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

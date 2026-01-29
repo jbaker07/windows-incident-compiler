@@ -2,45 +2,222 @@
 # playbooks/windows/signal_defense_evasion.yaml
 # Detect defense evasion attempts (log clearing, Defender disable, etc.)
 
+id: "windows_defense_evasion_001"
+title: "Defense Evasion Detection"
 name: "Defense Evasion Detection (Windows)"
-description: "Detect attempts to disable or evade security controls"
-version: "1.0"
-requires: ["security_log"]
+family: "defense_evasion"
+version: "2.0"
+description: |
+  Detects defense evasion techniques including:
+  - Windows Event Log clearing (1102, 104)
+  - Windows Defender disabling
+  - Audit policy tampering
+  - Log file deletion
+  - Security service manipulation
 
-detection:
-  signals:
-    - type: "windows_log_clear"
-      event_ids:
-        - 1102  # Security log cleared
-      sources:
-        - "cmd.exe"
-        - "powershell.exe"
-        - "wevtutil.exe"
+enabled: true
+confidence_threshold: 0.80
 
-    - type: "windows_defender_disable"
-      commands:
-        - "Set-MpPreference -DisableRealtimeMonitoring"
-        - "Disable-WindowsOptionalFeature"
-        - "sc stop WinDefend"
-        - "sc delete WinDefend"
+requires:
+  - security_log
 
-    - type: "windows_security_tamper"
-      registry_changes:
-        - "HKLM\\System\\CurrentControlSet\\Services\\EventLog\\Security\\Retention"
-      file_deletions:
-        - "*.evtx"
+mitre:
+  tactics:
+    - defense_evasion
+  techniques:
+    - T1562.001  # Disable or Modify Tools
+    - T1562.002  # Disable Windows Event Logging
+    - T1070.001  # Clear Windows Event Logs
+
+input_facts:
+  required:
+    - Exec
+  optional:
+    - LogTamper
+    - RegistryMod
+
+rules:
+  - name: "Security Log Cleared"
+    window: 10
+    conditions:
+      - fact_type: LogTamper
+      - field: event_id
+        matches: "1102|104"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "log_clear"
+          - "defense_evasion"
+          - "anti_forensics"
+    expected:
+      facts:
+        - "Windows Security Event Log cleared (Event ID 1102)"
+        - "Windows System Event Log cleared (Event ID 104)"
+      evidence:
+        lens: "process"
+        fact_types: ["LogTamper", "Exec"]
+        query_terms: ["1102", "104", "log", "cleared"]
+        event_ids: [1102, 104]
+      visibility_requires: ["security_log"]
+
+  - name: "Log Clear via WevtUtil"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)wevtutil.*(cl|clear-log)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "log_clear"
+          - "wevtutil"
+    expected:
+      facts:
+        - "wevtutil.exe execution with cl (clear-log) parameter"
+        - "Manual event log clearing attempt"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wevtutil", "cl", "clear-log"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "Log Clear via PowerShell"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)Clear-EventLog|Remove-EventLog"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "log_clear"
+          - "powershell"
+    expected:
+      facts:
+        - "PowerShell Clear-EventLog or Remove-EventLog cmdlet"
+        - "Programmatic event log clearing"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["Clear-EventLog", "Remove-EventLog", "powershell"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
+
+  - name: "Windows Defender Disable via PowerShell"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)Set-MpPreference.*-Disable"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "defender_disable"
+          - "security_bypass"
+    expected:
+      facts:
+        - "Set-MpPreference PowerShell cmdlet with -Disable parameter"
+        - "Attempt to disable Windows Defender features"
+      variants:
+        - label: "Disable Real-time Monitoring"
+          facts:
+            - "Set-MpPreference -DisableRealtimeMonitoring $true"
+        - label: "Disable Behavior Monitoring"
+          facts:
+            - "Set-MpPreference -DisableBehaviorMonitoring $true"
+        - label: "Disable Script Scanning"
+          facts:
+            - "Set-MpPreference -DisableScriptScanning $true"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["Set-MpPreference", "Disable", "Defender"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
+
+  - name: "Windows Defender Service Manipulation"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)sc.*(stop|delete|config).*WinDefend"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "defender_disable"
+          - "service_manipulation"
+    expected:
+      facts:
+        - "sc.exe command targeting WinDefend service"
+        - "Attempt to stop, delete, or reconfigure Windows Defender"
+      variants:
+        - label: "Stop Defender Service"
+          facts:
+            - "sc stop WinDefend"
+        - label: "Delete Defender Service"
+          facts:
+            - "sc delete WinDefend"
+        - label: "Disable Defender Service"
+          facts:
+            - "sc config WinDefend start= disabled"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["sc", "WinDefend", "stop", "delete", "config"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "Audit Policy Tampering"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)auditpol.*/set.*/failure:disable|/success:disable"
+    actions:
+      - severity: HIGH
+        tags:
+          - "audit_disable"
+          - "anti_forensics"
+    expected:
+      facts:
+        - "auditpol.exe with /set and disable parameters"
+        - "Attempt to disable Windows audit logging"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["auditpol", "/set", "disable"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "EVTX File Deletion"
+    window: 60
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)(del|remove|erase).*\\.evtx"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "log_deletion"
+          - "anti_forensics"
+    expected:
+      facts:
+        - "Command deleting .evtx (event log) files"
+        - "Direct log file deletion for anti-forensics"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec", "FileDelete"]
+        query_terms: ["del", "remove", ".evtx", "winevt"]
+        event_ids: [4688, 1, 4663]
+      visibility_requires: ["security_log"]
 
 response:
   severity: "critical"
   actions:
     - alert: true
     - isolate: true
-    - block_network: true
     - escalate_incident: true
-
-correlation_boost:
-  - followed_by_malware_execution: 2.0
-  - combined_with_lateral_movement: 1.8
 
 tags:
   - "T1562"

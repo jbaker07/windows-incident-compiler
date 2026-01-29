@@ -47,6 +47,16 @@ rules:
           - "macro_execution"
           - "office_spawn"
           - "initial_access"
+    expected:
+      facts:
+        - "wscript.exe or cscript.exe spawned by Office application"
+        - "Macro-based attack executing VBScript/JScript from document"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wscript", "cscript", "winword", "excel", "outlook", "office"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -64,6 +74,16 @@ rules:
         tags:
           - "suspicious_location"
           - "dropper"
+    expected:
+      facts:
+        - "wscript/cscript executing .vbs/.js/.wsf from TEMP or APPDATA"
+        - "Script execution from suspicious temporary location"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wscript", "cscript", "temp", "appdata", ".vbs", ".js"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Script with Download Content"
     window: 10
@@ -76,6 +96,16 @@ rules:
       - severity: MEDIUM
         tags:
           - "script_execution"
+    expected:
+      facts:
+        - "wscript.exe or cscript.exe execution detected"
+        - "Windows Script Host execution - monitor for follow-up activity"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wscript", "cscript", "script", ".vbs", ".js"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Script Engine Spawns PowerShell"
     window: 60
@@ -90,6 +120,16 @@ rules:
         tags:
           - "script_chain"
           - "multi_stage"
+    expected:
+      facts:
+        - "PowerShell spawned by wscript.exe or cscript.exe"
+        - "Multi-stage attack - VBScript/JScript executing PowerShell"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wscript", "cscript", "powershell", "script"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

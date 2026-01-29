@@ -60,6 +60,16 @@ rules:
           - "squiblydoo"
           - "applocker_bypass"
           - "scriptlet"
+    expected:
+      facts:
+        - "regsvr32.exe with Squiblydoo attack pattern (/s /n /u /i: scrobj.dll)"
+        - "AppLocker bypass technique executing remote scriptlet"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["regsvr32", "scrobj", "squiblydoo", "/i:"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -77,6 +87,16 @@ rules:
         tags:
           - "remote_execution"
           - "dropper"
+    expected:
+      facts:
+        - "regsvr32.exe loading scriptlet from HTTP/HTTPS URL"
+        - "Remote code execution via regsvr32 scriptlet download"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["regsvr32", "http", "https", "/i:"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Regsvr32 Silent Execute"
     window: 10
@@ -93,6 +113,16 @@ rules:
         tags:
           - "dll_execution"
           - "suspicious_location"
+    expected:
+      facts:
+        - "regsvr32.exe silently registering DLL from TEMP/APPDATA path"
+        - "DLL execution from suspicious temporary location"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["regsvr32", "/s", ".dll", "temp", "appdata"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

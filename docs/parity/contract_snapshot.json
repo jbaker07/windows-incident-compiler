@@ -1,6 +1,6 @@
 {
-  "contract_version": "1.0.0",
-  "contract_hash": "v1-core-202601",
+  "contract_version": "1.1.0",
+  "contract_hash": "v1-core-202601b",
   "wrapper": {
     "success_field": "success",
     "data_field": "data",

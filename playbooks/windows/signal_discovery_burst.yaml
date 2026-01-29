@@ -78,6 +78,26 @@ rules:
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
+    expected:
+      facts:
+        - "Multiple user/group enumeration commands in short window"
+        - "whoami, net user, net localgroup, or quser execution"
+      variants:
+        - label: "whoami"
+          facts:
+            - "whoami /all - detailed user context enumeration"
+        - label: "net user"
+          facts:
+            - "net user - enumerate local user accounts"
+        - label: "net localgroup"
+          facts:
+            - "net localgroup administrators - enumerate admin members"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["whoami", "net user", "net localgroup", "quser"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Network Discovery Burst"
     window: 60
@@ -92,6 +112,26 @@ rules:
         tags:
           - "discovery"
           - "network_enum"
+    expected:
+      facts:
+        - "Multiple network enumeration commands in short window"
+        - "Network configuration and connection discovery"
+      variants:
+        - label: "ipconfig"
+          facts:
+            - "ipconfig /all - network adapter configuration"
+        - label: "netstat"
+          facts:
+            - "netstat -an - active network connections"
+        - label: "arp -a"
+          facts:
+            - "arp -a - ARP cache (local network hosts)"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["ipconfig", "netstat", "arp", "route", "nbtstat"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Domain Discovery Burst"
     window: 60
@@ -107,6 +147,27 @@ rules:
           - "discovery"
           - "domain_enum"
           - "ad_recon"
+    expected:
+      facts:
+        - "Active Directory reconnaissance commands"
+        - "Domain trust, policy, or structure enumeration"
+      variants:
+        - label: "nltest"
+          facts:
+            - "nltest /dclist - domain controller enumeration"
+            - "nltest /domain_trusts - trust relationships"
+        - label: "dsquery"
+          facts:
+            - "dsquery user/computer - AD object queries"
+        - label: "gpresult"
+          facts:
+            - "gpresult /r - applied group policies"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["nltest", "dsquery", "gpresult", "net domain"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Combined Discovery Activity"
     window: 300
@@ -122,6 +183,17 @@ rules:
           - "discovery_burst"
           - "attack_framework"
           - "post_exploitation"
+    expected:
+      facts:
+        - "5+ discovery commands within 5 minutes"
+        - "Pattern consistent with automated attack framework"
+        - "Post-exploitation reconnaissance burst"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["whoami", "hostname", "ipconfig", "systeminfo", "tasklist", "nltest"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

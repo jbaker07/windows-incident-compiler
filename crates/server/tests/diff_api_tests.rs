@@ -2,6 +2,10 @@
 //!
 //! These tests verify the /api/diff endpoint behavior for Pro builds.
 //! In core builds, the endpoint should return 402 (Payment Required).
+//!
+//! These tests require the `diff` feature to compile.
+
+#![cfg(feature = "diff")]
 
 use serde_json::json;
 

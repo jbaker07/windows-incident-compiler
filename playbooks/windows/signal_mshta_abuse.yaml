@@ -71,6 +71,23 @@ rules:
         field_mapping:
           process: "NewProcessName"
           cmdline: "CommandLine"
+    expected:
+      facts:
+        - "mshta.exe executing inline VBScript or JavaScript"
+        - "Script protocol handler (vbscript:, javascript:) in command line"
+      variants:
+        - label: "Inline VBScript"
+          facts:
+            - "mshta.exe vbscript:Execute(\"...\") or Close()"
+        - label: "Inline JavaScript"
+          facts:
+            - "mshta.exe javascript:code"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["mshta", "vbscript:", "javascript:"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "MSHTA Remote URL"
     window: 10
@@ -85,6 +102,16 @@ rules:
         tags:
           - "remote_execution"
           - "dropper"
+    expected:
+      facts:
+        - "mshta.exe executing remote HTA file from URL"
+        - "HTTP/HTTPS URL in command line"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["mshta", "http://", "https://", ".hta"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "MSHTA About Protocol"
     window: 10
@@ -99,6 +126,16 @@ rules:
         tags:
           - "obfuscated_script"
           - "evasion"
+    expected:
+      facts:
+        - "mshta.exe using about: protocol for script execution"
+        - "Obfuscated script embedding via about:<html>..."
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["mshta", "about:", "<html", "<script"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "block_execution"

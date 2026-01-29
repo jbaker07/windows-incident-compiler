@@ -20,6 +20,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use serde::Deserialize;
 use edr_server::server_core::{ShippedResources, StartupError};
 use edr_server::flight_recorder::{
     self, InstanceIdentity, SharedFlightRecorder,
@@ -27,6 +28,11 @@ use edr_server::flight_recorder::{
 use edr_server::instance_lock::{InstanceLock, LockResult, InstanceConflictError};
 use edr_server::db;
 use edr_server::run_coverage;
+use edr_server::playbook_scope::{
+    PlaybookScope, PlaybookEvalResult, PlaybookEvalStatus, PlaybooksEvalResponse,
+    EvalReasonCode, SlotEvalResult, SlotEvalStatus, VisibilitySummary, PermissionState,
+    SlotSearchHints, ScopeMode, generate_narrative, MatchTrace, EvidenceRef,
+};
 use edr_server::services::{
     self,
     types::{ProductTier, RouteInfo, SharedState, LocintState},
@@ -124,13 +130,52 @@ fn main() {
     std::env::set_var("EDR_PLAYBOOKS_DIR", &resources.playbooks_dir);
     std::env::set_var("EDR_UI_DIR", &resources.ui_dir);
     
-    // Step 3: Build server config
+    // Step 3: Build server config with optional UI dir override
     let port: u16 = std::env::var("EDR_SERVER_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(3000);
     
-    let config = resources.to_server_config(port);
+    let mut config = resources.to_server_config(port);
+    
+    // UI_SYNC_HARDENED-1: Dev mode serving - LOCINT_DEV_UI=1 serves directly from repo ui/
+    // This ensures UI changes are instantly reflected without manual sync
+    let dev_ui_mode = std::env::var("LOCINT_DEV_UI").map(|v| v == "1").unwrap_or(false);
+    if dev_ui_mode {
+        // Find repo root by looking for Cargo.toml upward from exe
+        if let Some(repo_root) = find_repo_root(&resources.exe_dir) {
+            let source_ui = repo_root.join("ui");
+            if source_ui.exists() && source_ui.join("index.html").exists() {
+                eprintln!("[UI] ==========================================");
+                eprintln!("[UI] DEV MODE: Serving from source ui/");
+                eprintln!("[UI] Path: {:?}", source_ui);
+                eprintln!("[UI] ==========================================");
+                config.ui_dir = source_ui;
+            } else {
+                eprintln!("[UI] WARN: LOCINT_DEV_UI=1 but repo ui/ not found at {:?}", source_ui);
+            }
+        } else {
+            eprintln!("[UI] WARN: LOCINT_DEV_UI=1 but couldn't find repo root (no Cargo.toml)");
+        }
+    }
+    
+    // UI dir override - LOCINT_UI_DIR takes precedence over dev mode
+    // This allows pointing to a specific UI directory for debugging
+    if let Ok(override_ui_dir) = std::env::var("LOCINT_UI_DIR") {
+        let override_path = std::path::PathBuf::from(&override_ui_dir);
+        eprintln!("[UI] LOCINT_UI_DIR override detected: {:?}", override_path);
+        config.ui_dir = override_path;
+    } else if !dev_ui_mode {
+        // Only check EDR_UI_DIR if not in dev mode
+        if let Ok(override_ui_dir) = std::env::var("EDR_UI_DIR") {
+            // Only use EDR_UI_DIR if it differs from the default (resources.ui_dir)
+            let override_path = std::path::PathBuf::from(&override_ui_dir);
+            if override_path != resources.ui_dir {
+                eprintln!("[UI] EDR_UI_DIR override detected: {:?}", override_path);
+                config.ui_dir = override_path;
+            }
+        }
+    }
     
     // Step 4: Create data directory
     if let Err(e) = std::fs::create_dir_all(&config.data_dir) {
@@ -177,8 +222,28 @@ fn main() {
     init_file_logging(&log_path);
     
     tracing::info!("LocInt starting...");
-    tracing::info!("Exe dir: {:?}", resources.exe_dir);
-    tracing::info!("UI dir: {:?}", config.ui_dir);
+    
+    // === UI ORIGIN PROOF (UI_ORIGIN_PROOF-1) ===
+    let exe_path = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    let ui_index_path = config.ui_dir.join("index.html");
+    let ui_app_js_path = config.ui_dir.join("app.js");
+    let ui_index_exists = ui_index_path.exists();
+    let ui_app_js_exists = ui_app_js_path.exists();
+    
+    tracing::info!("[UI] exe_path={}", exe_path);
+    tracing::info!("[UI] ui_dir={:?}", config.ui_dir);
+    tracing::info!("[UI] index={:?} (exists={})", ui_index_path, ui_index_exists);
+    tracing::info!("[UI] app.js={:?} (exists={})", ui_app_js_path, ui_app_js_exists);
+    
+    if let Ok(override_val) = std::env::var("LOCINT_UI_DIR") {
+        tracing::info!("[UI] LOCINT_UI_DIR override active: {}", override_val);
+    } else if let Ok(override_val) = std::env::var("EDR_UI_DIR") {
+        tracing::info!("[UI] EDR_UI_DIR override active: {}", override_val);
+    }
+    // === END UI ORIGIN PROOF ===
+    
     tracing::info!("Data dir: {:?}", config.data_dir);
     tracing::info!("Port: {}", config.port);
     
@@ -226,14 +291,54 @@ async fn run_server(
     let db_path = config.data_dir.join("workbench.db");
     tracing::info!("Database: {:?}", db_path);
     
-    // Bind to port first to catch "port in use" errors
-    let addr = format!("0.0.0.0:{}", config.port);
-    let listener = tokio::net::TcpListener::bind(&addr).await.map_err(|e| {
-        StartupError::PortInUse {
-            port: config.port,
-            error: e.to_string(),
+    // Check if port fallback is enabled (dev mode only)
+    // In production, we want hard fail with PID diagnostic for port conflicts
+    let port_fallback_enabled = std::env::var("LOCINT_DEV_PORT_FALLBACK")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false);
+    
+    // Bind to port - try fallback ports only if LOCINT_DEV_PORT_FALLBACK=1
+    let ports_to_try: Vec<u16> = if port_fallback_enabled {
+        vec![config.port, config.port + 1, config.port + 2, config.port + 3]
+    } else {
+        vec![config.port]  // Production: only try the configured port
+    };
+    let mut bound_port = config.port;
+    let mut listener_opt: Option<tokio::net::TcpListener> = None;
+    let mut last_error = String::new();
+    
+    for port in ports_to_try.iter().copied() {
+        let addr = format!("0.0.0.0:{}", port);
+        match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => {
+                if port != config.port {
+                    tracing::warn!("Primary port {} unavailable, using fallback port {}", config.port, port);
+                }
+                bound_port = port;
+                listener_opt = Some(l);
+                break;
+            }
+            Err(e) => {
+                let port_diag = diagnose_port_owner(port);
+                tracing::warn!("Port {} bind failed: {} - {}", port, e, port_diag.lines().next().unwrap_or(""));
+                last_error = format!("{}\n\nPort diagnostics:\n{}", e, port_diag);
+            }
         }
-    })?;
+    }
+    
+    let listener = match listener_opt {
+        Some(l) => l,
+        None => {
+            tracing::error!("All ports {:?} unavailable", ports_to_try);
+            return Err(StartupError::PortInUse {
+                port: config.port,
+                error: format!("All ports {:?} in use.\n\n{}", ports_to_try, last_error),
+            });
+        }
+    };
+    
+    // Update config.port to the actual bound port for the rest of startup
+    let config = edr_server::server_core::ServerConfig { port: bound_port, ..config };
     
     // Build router with CORS
     let cors = CorsLayer::new()
@@ -278,7 +383,12 @@ async fn run_server(
         tracing::warn!("Failed to open browser. Navigate to {} manually.", ui_url);
     }
     
-    tracing::info!("Server listening on {}", addr);
+    // Log chain registry at startup
+    let chain_count = services::chains::get_chain_count();
+    tracing::info!("[CHAINS] Registry loaded {} chains", chain_count);
+    tracing::info!("[STEP_STATUS] Backend-canonical step satisfaction enabled (GET /api/runs/:run_id/step_status)");
+    
+    tracing::info!("Server listening on 0.0.0.0:{}", config.port);
     
     // Run server with graceful shutdown
     axum::serve(listener, app)
@@ -310,6 +420,8 @@ fn build_locint_router(
     // Shared state
     let state = Arc::new(LocintState {
         data_dir: config.data_dir.clone(),
+        ui_dir: config.ui_dir.clone(),
+        exe_dir: config.exe_dir.clone(),
         port: config.port,
         supervisor,
         db,
@@ -335,6 +447,13 @@ fn build_locint_router(
         .route("/api/runs/:run_id/baseline", post(set_baseline_handler))
         .route("/api/runs/:run_id/coverage", get(run_coverage_handler))
         .route("/api/runs/:run_id/facts", get(run_facts_handler))
+        .route("/api/runs/:run_id/facts/resolve", post(facts_resolve_handler))
+        .route("/api/runs/:run_id/evidence_summary", get(run_evidence_summary_handler))
+        .route("/api/runs/:run_id/brief", get(run_brief_handler))
+        // Evidence Browse Modes - canonical surfaces for events/signals/segments
+        .route("/api/runs/:run_id/events", get(run_events_handler))
+        .route("/api/runs/:run_id/signals", get(run_signals_handler))
+        .route("/api/runs/:run_id/segments", get(run_segments_handler))
         .route("/api/runs/:run_id/changes", get(run_changes_handler))
         .route("/api/runs/:run_id/discovery_summary", get(run_discovery_summary_handler))
         .route("/api/runs/:run_id/diff", get(run_diff_v2_handler))
@@ -364,6 +483,11 @@ fn build_locint_router(
         .route("/api/capability/status", get(capability_status_handler))
         .route("/api/capability/detection_plan", get(capability_detection_plan_handler))
         .route("/api/capability/gaps", get(capability_gaps_handler))
+        // Micro Chains (canonical backend source of truth)
+        .route("/api/chains", get(chains_list_handler))
+        .route("/api/chains/compile", post(chains_compile_handler))
+        // Run Step Status (backend-canonical satisfaction)
+        .route("/api/runs/:run_id/step_status", get(run_step_status_handler))
         // Playbook catalog
         .route("/api/playbooks/catalog", get(playbooks_catalog_handler))
         .route("/api/playbooks/:playbook_id/yaml", get(playbook_yaml_handler))
@@ -390,6 +514,7 @@ fn build_locint_router(
         .route("/api/meta/contract", get(meta_contract_handler))
         .route("/api/meta/features", get(meta_features_handler))
         .route("/api/meta/dataflow_snapshot", get(dataflow_snapshot_handler))
+        .route("/api/meta/ui_dir", get(meta_ui_dir_handler))
         // Debug (dev only)
         .route("/api/run/debug_counts", get(debug_counts_handler))
         // Team Case Store (Team tier)
@@ -403,9 +528,41 @@ fn build_locint_router(
         .route("/api/team/cases/:case_id/notes", post(team_add_note_handler))
         .route("/api/team/cases/:case_id/publish_run", post(team_publish_run_handler))
         .route("/api/team/cases/:case_id/import_run", post(team_import_run_handler))
-        // Static UI
-        .nest_service("/ui", ServeDir::new(&config.ui_dir))
+        // Static UI with no-cache headers for dev mode (UI_ORIGIN_PROOF-1)
+        .nest_service("/ui", 
+            ServeDir::new(&config.ui_dir)
+                .append_index_html_on_directories(true)
+        )
+        .layer(axum::middleware::from_fn(dev_no_cache_middleware))
         .with_state(state)
+}
+
+// ============================================================================
+// Dev Mode Cache Control (UI_ORIGIN_PROOF-1)
+// ============================================================================
+
+/// Middleware that adds Cache-Control: no-store headers for /ui/* requests
+/// This prevents browser caching issues during development
+async fn dev_no_cache_middleware(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let path = req.uri().path().to_string();
+    let mut response = next.run(req).await;
+    
+    // Only apply no-cache to /ui/* paths
+    if path.starts_with("/ui/") {
+        response.headers_mut().insert(
+            axum::http::header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-store, no-cache, must-revalidate, max-age=0"),
+        );
+        response.headers_mut().insert(
+            axum::http::header::PRAGMA,
+            axum::http::HeaderValue::from_static("no-cache"),
+        );
+    }
+    
+    response
 }
 
 // ============================================================================
@@ -495,6 +652,109 @@ fn is_elevated() -> bool {
     unsafe { libc::geteuid() == 0 }
 }
 
+/// Diagnose what process owns a port when bind fails
+/// Uses netstat to find the owning PID and process name
+#[cfg(target_os = "windows")]
+fn diagnose_port_owner(port: u16) -> String {
+    use std::process::Command;
+    
+    // Run netstat to find what's using the port
+    let output = match Command::new("netstat")
+        .args(["-ano"])
+        .output() {
+        Ok(o) => o,
+        Err(e) => return format!("Failed to run netstat: {}", e),
+    };
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let port_str = format!(":{}", port);
+    
+    let mut results = Vec::new();
+    let mut pids_seen = std::collections::HashSet::new();
+    
+    for line in stdout.lines() {
+        if line.contains(&port_str) {
+            results.push(line.trim().to_string());
+            // Extract PID from end of line
+            if let Some(pid_str) = line.split_whitespace().last() {
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    pids_seen.insert(pid);
+                }
+            }
+        }
+    }
+    
+    if results.is_empty() {
+        return format!(
+            "No process found listening on port {}.\n\
+             This may be TIME_WAIT connections from a recently closed process.\n\
+             Wait 30-60 seconds or use a different port (EDR_SERVER_PORT env var).",
+            port
+        );
+    }
+    
+    // Get process names for the PIDs
+    let mut pid_info = Vec::new();
+    for pid in &pids_seen {
+        if *pid == 0 {
+            continue; // System idle process
+        }
+        let proc_name = get_process_name(*pid).unwrap_or_else(|| "unknown".to_string());
+        pid_info.push(format!("PID {} = {}", pid, proc_name));
+    }
+    
+    format!(
+        "Port {} is in use:\n{}\n\nProcess info:\n{}",
+        port,
+        results.join("\n"),
+        pid_info.join("\n")
+    )
+}
+
+#[cfg(target_os = "windows")]
+fn get_process_name(pid: u32) -> Option<String> {
+    use std::process::Command;
+    
+    // Use tasklist to get process name
+    let output = Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/FO", "CSV", "/NH"])
+        .output()
+        .ok()?;
+    
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // CSV format: "process.exe","PID","Session Name","Session#","Mem Usage"
+    let first_line = stdout.lines().next()?;
+    let name = first_line.split(',').next()?;
+    Some(name.trim_matches('"').to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn diagnose_port_owner(port: u16) -> String {
+    use std::process::Command;
+    
+    // Try lsof or ss on Unix
+    let output = Command::new("lsof")
+        .args(["-i", &format!(":{}", port)])
+        .output()
+        .or_else(|_| {
+            Command::new("ss")
+                .args(["-tlnp", &format!("sport = :{}", port)])
+                .output()
+        });
+    
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            if stdout.trim().is_empty() {
+                format!("No process found on port {}. May be TIME_WAIT.", port)
+            } else {
+                format!("Port {} in use:\n{}", port, stdout)
+            }
+        }
+        Err(e) => format!("Failed to diagnose port: {}", e),
+    }
+}
+
 /// Show error dialog on Windows, print to stderr on other platforms
 fn show_error(title: &str, message: &str) {
     eprintln!("ERROR [{}]: {}", title, message);
@@ -524,6 +784,22 @@ fn show_error(title: &str, message: &str) {
             );
         }
     }
+}
+
+/// Find repository root by looking for Cargo.toml upward from a starting directory
+/// UI_SYNC_HARDENED-1: Used to locate source ui/ for dev mode serving
+fn find_repo_root(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut current = start.to_path_buf();
+    // Walk up to 10 levels (enough for target/release/build/... depth)
+    for _ in 0..10 {
+        if current.join("Cargo.toml").exists() && current.join("ui").exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
 }
 
 // ============================================================================
@@ -585,6 +861,63 @@ async fn meta_features_handler() -> Json<serde_json::Value> {
         "success": true,
         "data": services::meta::get_feature_flags(tier)
     }))
+}
+
+/// UI directory diagnostics endpoint (UI_ORIGIN_PROOF-1, UI_SYNC_HARDENED-1)
+/// Returns information about where the UI is being served from, including file hashes
+/// Also includes source UI info for mismatch detection
+async fn meta_ui_dir_handler(
+    State(state): State<SharedState>,
+) -> Json<serde_json::Value> {
+    let ui_index_path = state.ui_dir.join("index.html");
+    let ui_app_js_path = state.ui_dir.join("app.js");
+    
+    // Compute SHA256 hashes for identity verification (served files)
+    let ui_index_sha256 = compute_file_sha256(&ui_index_path);
+    let ui_app_js_sha256 = compute_file_sha256(&ui_app_js_path);
+    
+    let exe_path = std::env::current_exe()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+    
+    // UI_SYNC_HARDENED-1: Check for source ui/ in repo and compute its hash
+    // This enables the UI to detect stale served files
+    let dev_mode = std::env::var("LOCINT_DEV_UI").map(|v| v == "1").unwrap_or(false);
+    let (source_ui_dir, source_ui_app_js_sha256) = find_repo_root(&state.exe_dir)
+        .map(|repo| {
+            let source_ui = repo.join("ui");
+            let source_sha = compute_file_sha256(&source_ui.join("app.js"));
+            (Some(source_ui.display().to_string()), source_sha)
+        })
+        .unwrap_or((None, None));
+    
+    Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "exe_path": exe_path,
+            "exe_dir": state.exe_dir.display().to_string(),
+            "ui_dir": state.ui_dir.display().to_string(),
+            "ui_index_path": ui_index_path.display().to_string(),
+            "ui_index_exists": ui_index_path.exists(),
+            "ui_index_sha256": ui_index_sha256,
+            "ui_app_js_path": ui_app_js_path.display().to_string(),
+            "ui_app_js_exists": ui_app_js_path.exists(),
+            "ui_app_js_sha256": ui_app_js_sha256,
+            "locint_ui_dir_override": std::env::var("LOCINT_UI_DIR").ok(),
+            // UI_SYNC_HARDENED-1: Source ui info for mismatch detection
+            "dev_mode": dev_mode,
+            "source_ui_dir": source_ui_dir,
+            "source_ui_app_js_sha256": source_ui_app_js_sha256,
+        }
+    }))
+}
+
+/// Compute SHA256 hash of a file (returns None if file doesn't exist or can't be read)
+fn compute_file_sha256(path: &std::path::Path) -> Option<String> {
+    use sha2::{Sha256, Digest};
+    let content = std::fs::read(path).ok()?;
+    let hash = Sha256::digest(&content);
+    Some(format!("{:x}", hash))
 }
 
 // Run control handlers
@@ -839,6 +1172,7 @@ async fn get_run_handler(
                 baseline_scope: None,
                 baseline_enabled: false,
                 baseline_set_at: None,
+                chain_ids: None,
             };
             (run_dir, run_record)
         }
@@ -854,6 +1188,12 @@ async fn get_run_handler(
         } else {
             (0, 0, 0, 0, started_at.as_ref().map(|t| t.timestamp_millis()).unwrap_or(0), 0, None)
         };
+    
+    // Read run readiness fields from run_meta.json
+    let readiness = read_run_readiness(&meta_path);
+    
+    // Read playbook scope from run_meta.json (D2: include in run detail response)
+    let playbook_scope = read_playbook_scope(&meta_path);
     
     Json(serde_json::json!({
         "success": true,
@@ -871,6 +1211,15 @@ async fn get_run_handler(
             "segments_count": segments,
             "facts_extracted": facts,
             "status": status,
+            // Run readiness fields (A: endpoint consistency)
+            "compile_status": readiness.compile_status.as_deref().unwrap_or(if status == "running" { "compiling" } else { "finalized" }),
+            "facts_ready": readiness.facts_ready,
+            "facts_partial": readiness.facts_partial,
+            "abandoned_reason": readiness.abandoned_reason,
+            "last_activity_at": readiness.last_activity_at,
+            "metadata_unavailable": readiness.metadata_unavailable,
+            // Playbook scope (D2: playbook scope visibility)
+            "playbook_scope": playbook_scope,
         }
     }))
 }
@@ -957,6 +1306,223 @@ async fn delete_run_handler(
     }))
 }
 
+/// S6 FIX: Helper to read run readiness fields from run_meta.json
+/// Returns RunReadinessFields struct with all 5 readiness fields
+#[derive(Default, Clone)]
+struct RunReadinessFields {
+    compile_status: Option<String>,
+    facts_ready: bool,
+    facts_partial: bool,
+    abandoned_reason: Option<String>,
+    last_activity_at: Option<String>,
+    /// True if run_meta.json doesn't exist (pre-readiness metadata run)
+    metadata_unavailable: bool,
+}
+
+fn read_run_readiness(meta_path: &std::path::Path) -> RunReadinessFields {
+    if !meta_path.exists() {
+        // OLD RUN: No run_meta.json means this is a legacy run from before readiness metadata.
+        // Do NOT assume interrupted - default to finalized (graceful degradation).
+        return RunReadinessFields {
+            compile_status: None, // Don't claim any status for old runs
+            facts_ready: true,    // Assume facts are ready (legacy runs completed)
+            facts_partial: false, // Don't claim partial
+            abandoned_reason: None,
+            last_activity_at: None,
+            metadata_unavailable: true, // Mark that we don't have metadata
+        };
+    }
+    
+    let content = match std::fs::read_to_string(meta_path) {
+        Ok(c) => c,
+        Err(_) => return RunReadinessFields {
+            metadata_unavailable: true,
+            facts_ready: true, // Default to ready for old runs
+            ..Default::default()
+        },
+    };
+    
+    let meta: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return RunReadinessFields {
+            metadata_unavailable: true,
+            facts_ready: true,
+            ..Default::default()
+        },
+    };
+    
+    let compile_status = meta.get("compile_status")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    
+    let status = meta.get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    
+    let abandoned_reason = meta.get("abandoned_reason")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    
+    // Determine facts_ready: true if finalized, false if compiling/interrupted/abandoned
+    let facts_ready = match compile_status.as_deref() {
+        Some("finalized") => true,
+        Some("compiling") => false,
+        Some("interrupted") => false, // Partial data may exist
+        _ => status != "running" && status != "abandoned", // Default based on status
+    };
+    
+    // facts_partial: true only if interrupted (has some data but incomplete)
+    let facts_partial = compile_status.as_deref() == Some("interrupted") || status == "abandoned";
+    
+    // Get last_activity_at from stopped_at or phase timestamp
+    let last_activity_at = meta.get("stopped_at")
+        .or_else(|| meta.get("last_activity"))
+        .or_else(|| meta.get("started_at"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    
+    RunReadinessFields {
+        compile_status,
+        facts_ready,
+        facts_partial,
+        abandoned_reason,
+        last_activity_at,
+        metadata_unavailable: false,
+    }
+}
+
+/// Read playbook_scope from run_meta.json
+/// Returns a default scope if not present (for backward compatibility with old runs)
+fn read_playbook_scope(meta_path: &std::path::Path) -> PlaybookScope {
+    if !meta_path.exists() {
+        // Old run without playbook_scope - default to general discovery for backward compat
+        return PlaybookScope::compute(None, Some("extended".to_string()), Some("preset".to_string()));
+    }
+    
+    let content = match std::fs::read_to_string(meta_path) {
+        Ok(c) => c,
+        Err(_) => return PlaybookScope::compute(None, Some("extended".to_string()), Some("preset".to_string())),
+    };
+    
+    let meta: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return PlaybookScope::compute(None, Some("extended".to_string()), Some("preset".to_string())),
+    };
+    
+    // Try to read playbook_scope directly
+    if let Some(scope_val) = meta.get("playbook_scope") {
+        if let Ok(scope) = serde_json::from_value::<PlaybookScope>(scope_val.clone()) {
+            return scope;
+        }
+    }
+    
+    // Fall back to legacy playbook_selection
+    if let Some(selection) = meta.get("playbook_selection") {
+        let selected = selection.get("selected_playbooks")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect());
+        let preset = selection.get("preset")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let mode = selection.get("mode")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        
+        return PlaybookScope::compute(selected, preset, mode);
+    }
+    
+    // Default fallback
+    PlaybookScope::compute(None, Some("extended".to_string()), Some("preset".to_string()))
+}
+
+/// Build visibility summary from run_meta readiness snapshot
+fn build_visibility_summary(meta_path: &std::path::Path) -> VisibilitySummary {
+    let capability = services::capability::get_capability_snapshot_from_meta(meta_path);
+    
+    let sysmon_installed = capability.get("sysmon_installed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let security_log_accessible = capability.get("security_log_accessible")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_admin = capability.get("is_admin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    
+    let mut sensors_present = vec!["etw".to_string()];
+    let mut sensors_missing = vec![];
+    
+    if sysmon_installed {
+        sensors_present.push("sysmon".to_string());
+    } else {
+        sensors_missing.push("sysmon".to_string());
+    }
+    
+    VisibilitySummary {
+        sensors_present,
+        sensors_missing,
+        permissions: PermissionState {
+            security_log: if security_log_accessible { "ok".to_string() } else { "denied".to_string() },
+            system_log: "ok".to_string(),
+            sysmon_log: if sysmon_installed { Some("ok".to_string()) } else { None },
+        },
+    }
+}
+
+/// Discover all playbook IDs from filesystem
+/// Returns normalized IDs (without "signal_" prefix) sorted alphabetically
+fn discover_all_playbook_ids(pb_dir: &std::path::Path) -> Vec<String> {
+    let mut ids = Vec::new();
+    
+    let windows_dir = pb_dir.join("windows");
+    let target_dir = if windows_dir.exists() { windows_dir } else { pb_dir.to_path_buf() };
+    let custom_dir = pb_dir.join("custom");
+    
+    for dir in [target_dir, custom_dir] {
+        if !dir.exists() {
+            continue;
+        }
+        
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.extension().map(|e| e == "yaml" || e == "yml").unwrap_or(false) {
+                    continue;
+                }
+                if path.to_string_lossy().contains("unsupported") {
+                    continue;
+                }
+                
+                let raw_id = path.file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                
+                // Normalize: strip "signal_" prefix
+                let id = raw_id.strip_prefix("signal_")
+                    .unwrap_or(&raw_id)
+                    .to_string();
+                
+                // Skip test playbooks
+                if id.ends_with("_test") {
+                    continue;
+                }
+                
+                ids.push(id);
+            }
+        }
+    }
+    
+    ids.sort();
+    ids
+}
+
+/// Legacy wrapper for backward compatibility
+fn read_run_meta_fields(meta_path: &std::path::Path) -> (Option<String>, Option<String>) {
+    let fields = read_run_readiness(meta_path);
+    (fields.compile_status, fields.abandoned_reason)
+}
+
 async fn run_coverage_handler(
     State(state): State<SharedState>,
     Path(run_id): Path<String>,
@@ -981,6 +1547,43 @@ async fn run_coverage_handler(
         }
     };
     
+    // Read run_meta.json to get status and persisted compile_status
+    let meta_path = run_dir.join("run_meta.json");
+    let (_, stopped_at, status) = services::run_control::read_run_meta(&meta_path, &run_id);
+    
+    // S6 FIX: Read persisted compile_status and abandoned_reason from run_meta.json
+    let (persisted_compile_status, abandoned_reason) = read_run_meta_fields(&meta_path);
+    
+    // Check if this run's processes are actually running
+    let current_supervisor_status = state.supervisor.status().await;
+    let is_this_run_active = current_supervisor_status.run_id.as_deref() == Some(&run_id) 
+        && current_supervisor_status.running;
+    
+    // S6 FIX: Derive compile_status with priority:
+    // 1) Use persisted compile_status from run_meta.json if present (most authoritative)
+    // 2) Else infer from status + process liveness
+    let compile_status = if let Some(ref persisted) = persisted_compile_status {
+        // Trust the persisted value - it was written at the time of the event
+        persisted.as_str()
+    } else {
+        // Infer from current state
+        match status.as_str() {
+            "running" => {
+                if is_this_run_active {
+                    "compiling"  // Actually still running
+                } else {
+                    "interrupted"  // Status says running but processes are dead
+                }
+            },
+            "stopped" => "finalized",
+            "abandoned" => "interrupted",
+            _ => if stopped_at.is_some() { "finalized" } else { "unknown" }
+        }
+    };
+    let facts_ready = compile_status == "finalized";
+    let facts_partial = compile_status == "interrupted";  // S6: Facts exist but incomplete
+    let last_compiled_at = stopped_at.map(|t| t.to_rfc3339());
+    
     let db_path = run_dir.join("workbench.db");
     if !db_path.exists() {
         return Json(serde_json::json!({
@@ -989,17 +1592,35 @@ async fn run_coverage_handler(
                 "available": false,
                 "reason": "MISSING_DB",
                 "reason_message": "workbench.db not found",
-                "run_id": run_id
+                "run_id": run_id,
+                "compile_status": compile_status,
+                "facts_ready": facts_ready
             }
         }));
     }
     
     // Use the full load_run_coverage function which includes pipeline_diagnostics
     match run_coverage::load_run_coverage(&run_dir, &run_id) {
-        Ok(coverage) => Json(serde_json::json!({
-            "success": true,
-            "data": coverage
-        })),
+        Ok(coverage) => {
+            // Merge compile status into coverage response
+            let mut data = serde_json::to_value(&coverage).unwrap_or_default();
+            if let Some(obj) = data.as_object_mut() {
+                obj.insert("compile_status".to_string(), serde_json::json!(compile_status));
+                obj.insert("facts_ready".to_string(), serde_json::json!(facts_ready));
+                obj.insert("facts_partial".to_string(), serde_json::json!(facts_partial));  // S6 FIX
+                if let Some(ts) = &last_compiled_at {
+                    obj.insert("last_compiled_at".to_string(), serde_json::json!(ts));
+                }
+                // S6 FIX: Include abandoned_reason if present
+                if let Some(reason) = &abandoned_reason {
+                    obj.insert("abandoned_reason".to_string(), serde_json::json!(reason));
+                }
+            }
+            Json(serde_json::json!({
+                "success": true,
+                "data": data
+            }))
+        }
         Err(e) => {
             // Fall back to minimal response on error
             let (events, segments, facts, signals, earliest_ts, latest_ts, _) = 
@@ -1016,6 +1637,9 @@ async fn run_coverage_handler(
                 "data": {
                     "available": true,
                     "run_id": run_id,
+                    "compile_status": compile_status,
+                    "facts_ready": facts_ready,
+                    "last_compiled_at": last_compiled_at,
                     "events_total": events,
                     "segments_count": segments,
                     "facts_total": facts,
@@ -1067,13 +1691,23 @@ async fn run_facts_handler(
                     "data": {
                         "available": false,
                         "reason": "RUN_NOT_FOUND",
-                        "run_id": run_id
+                        "run_id": run_id,
+                        // Readiness fields for unavailable runs
+                        "compile_status": null,
+                        "facts_ready": false,
+                        "facts_partial": false,
+                        "abandoned_reason": null,
+                        "last_activity_at": null
                     }
                 }));
             }
             fallback_dir
         }
     };
+    
+    // Read run readiness fields from run_meta.json
+    let meta_path = run_dir.join("run_meta.json");
+    let readiness = read_run_readiness(&meta_path);
     
     let db_path = run_dir.join("workbench.db");
     if !db_path.exists() {
@@ -1082,7 +1716,14 @@ async fn run_facts_handler(
             "data": {
                 "available": false,
                 "reason": "MISSING_DB",
-                "run_id": run_id
+                "run_id": run_id,
+                // Readiness fields (A: endpoint consistency)
+                "compile_status": readiness.compile_status,
+                "facts_ready": readiness.facts_ready,
+                "facts_partial": readiness.facts_partial,
+                "abandoned_reason": readiness.abandoned_reason,
+                "last_activity_at": readiness.last_activity_at,
+                "metadata_unavailable": readiness.metadata_unavailable
             }
         }));
     }
@@ -1160,7 +1801,14 @@ async fn run_facts_handler(
                 "coverage_summary": coverage_summary.iter().map(|(ft, count)| {
                     serde_json::json!({"fact_type": ft, "count": count})
                 }).collect::<Vec<_>>(),
-                "pagination": { "total": 0, "limit": limit, "offset": offset, "has_more": false }
+                "pagination": { "total": 0, "limit": limit, "offset": offset, "has_more": false },
+                // Readiness fields for old runs (A: endpoint consistency, C: old run degradation)
+                "compile_status": readiness.compile_status,
+                "facts_ready": readiness.facts_ready, // Still true for old runs - they completed
+                "facts_partial": readiness.facts_partial,
+                "abandoned_reason": readiness.abandoned_reason,
+                "last_activity_at": readiness.last_activity_at,
+                "metadata_unavailable": readiness.metadata_unavailable // C: show note for old runs
             }
         }));
     }
@@ -1308,7 +1956,1465 @@ async fn run_facts_handler(
                 "hosts": hosts,
                 "categories": categories
             },
-            "_debug_tables": tables
+            "_debug_tables": tables,
+            // Readiness fields (A: endpoint consistency)
+            "compile_status": readiness.compile_status,
+            "facts_ready": readiness.facts_ready,
+            "facts_partial": readiness.facts_partial,
+            "abandoned_reason": readiness.abandoned_reason,
+            "last_activity_at": readiness.last_activity_at,
+            "metadata_unavailable": readiness.metadata_unavailable
+        }
+    }))
+}
+
+/// POST /api/runs/:run_id/facts/resolve
+/// Resolves EvidenceRef pointers to actual facts
+/// 
+/// # Request Body
+/// ```json
+/// { "refs": [EvidenceRef, ...] }
+/// ```
+/// 
+/// # Response (success)
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "run_id": "...",
+///     "facts": [...],
+///     "resolved_count": N,
+///     "unresolved": [{ "index": N, "ref": {...}, "reason": "ERROR_CODE" }],
+///     "unresolved_count": N,
+///     "total_requested": N,
+///     "deduplicated_count": N  // if dedup removed any refs
+///   }
+/// }
+/// ```
+/// 
+/// # Error Reasons (for unresolved refs)
+/// - `NOT_FOUND` - Ref had valid fields but no matching fact in DB
+/// - `INSUFFICIENT_FIELDS` - Ref missing required fields (need fact_id OR segment_id+record_index OR fact_type+ts)
+/// 
+/// # Error Responses (for request-level failures)
+/// - `RUN_NOT_FOUND` - Run ID does not exist
+/// - `MISSING_DB` - Run exists but workbench.db is missing
+/// - `NO_FACTS_SAMPLE_TABLE` - DB exists but facts_sample table missing
+/// - `TOO_MANY_REFS` - More than 200 refs requested
+/// - `EMPTY_REFS` - No refs provided
+/// 
+/// # Resolution Priority
+/// 1. `fact_id` alone (fastest, primary key lookup)
+/// 2. `segment_id` + `record_index` (raw log pointer)
+/// 3. `fact_type` + `ts` (fallback, approximate ±1s)
+#[derive(Debug, Deserialize)]
+struct FactsResolveRequest {
+    refs: Vec<EvidenceRef>,
+}
+
+/// Maximum number of refs allowed in a single resolve request
+const MAX_RESOLVE_REFS: usize = 200;
+
+async fn facts_resolve_handler(
+    State(state): State<SharedState>,
+    Path(run_id): Path<String>,
+    Json(payload): Json<FactsResolveRequest>,
+) -> Json<serde_json::Value> {
+    // Hardening: reject empty requests
+    if payload.refs.is_empty() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "EMPTY_REFS",
+            "message": "No evidence refs provided"
+        }));
+    }
+    
+    // Hardening: cap request size to prevent abuse
+    if payload.refs.len() > MAX_RESOLVE_REFS {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "TOO_MANY_REFS",
+            "message": format!("Maximum {} refs allowed per request, got {}", MAX_RESOLVE_REFS, payload.refs.len()),
+            "max_allowed": MAX_RESOLVE_REFS,
+            "requested": payload.refs.len()
+        }));
+    }
+    
+    // Hardening: deduplicate refs by creating a stable key
+    // Key priority: fact_id > segment+record > type+ts
+    let mut seen_keys = std::collections::HashSet::new();
+    let mut deduped_refs: Vec<(usize, &EvidenceRef)> = Vec::new();
+    let mut deduplicated_count = 0;
+    
+    for (idx, ref_item) in payload.refs.iter().enumerate() {
+        let key = if let Some(ref fact_id) = ref_item.fact_id {
+            format!("fid:{}", fact_id)
+        } else if let (Some(ref seg), Some(rec)) = (&ref_item.segment_id, ref_item.record_index) {
+            format!("seg:{}:{}", seg, rec)
+        } else if let (Some(ref ft), Some(ts)) = (&ref_item.fact_type, ref_item.ts) {
+            format!("ts:{}:{}", ft, ts)
+        } else {
+            // No resolvable key - include anyway (will be marked unresolved)
+            format!("unresolvable:{}", idx)
+        };
+        
+        if seen_keys.insert(key) {
+            deduped_refs.push((idx, ref_item));
+        } else {
+            deduplicated_count += 1;
+        }
+    }
+    
+    // Resolve run directory
+    let run_dir = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+        Ok((dir, _)) => dir,
+        Err(_) => {
+            let fallback_dir = state.data_dir.join("runs").join(&run_id);
+            if !fallback_dir.exists() {
+                return Json(serde_json::json!({
+                    "success": false,
+                    "error": "RUN_NOT_FOUND",
+                    "run_id": run_id
+                }));
+            }
+            fallback_dir
+        }
+    };
+    
+    let db_path = run_dir.join("workbench.db");
+    if !db_path.exists() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "MISSING_DB",
+            "run_id": run_id
+        }));
+    }
+    
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to open database: {}", e)
+            }));
+        }
+    };
+    
+    // Check if facts_sample table exists
+    let has_facts_sample: bool = conn
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='facts_sample'")
+        .and_then(|mut stmt| stmt.query_row([], |_| Ok(true)))
+        .unwrap_or(false);
+    
+    if !has_facts_sample {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "NO_FACTS_SAMPLE_TABLE",
+            "run_id": run_id
+        }));
+    }
+    
+    let mut resolved_facts: Vec<serde_json::Value> = Vec::new();
+    let mut unresolved_refs: Vec<serde_json::Value> = Vec::new();
+    
+    // Use deduped refs instead of original payload
+    for (original_idx, ref_item) in deduped_refs.iter() {
+        // Priority 1: Resolve by fact_id (fastest, most reliable)
+        if let Some(ref fact_id) = ref_item.fact_id {
+            if let Ok(fact) = resolve_fact_by_id(&conn, fact_id) {
+                resolved_facts.push(fact);
+                continue;
+            }
+        }
+        
+        // Priority 2: Resolve by segment_id + record_index (raw log pointer)
+        if let (Some(ref segment_id), Some(record_idx)) = (&ref_item.segment_id, ref_item.record_index) {
+            if let Ok(fact) = resolve_fact_by_segment(&conn, segment_id, record_idx) {
+                resolved_facts.push(fact);
+                continue;
+            }
+        }
+        
+        // Priority 3: Resolve by fact_type + ts (fallback, may match multiple)
+        if let (Some(ref fact_type), Some(ts)) = (&ref_item.fact_type, ref_item.ts) {
+            if let Ok(fact) = resolve_fact_by_type_ts(&conn, fact_type, ts) {
+                resolved_facts.push(fact);
+                continue;
+            }
+        }
+        
+        // Could not resolve - add to unresolved list (with original index for client correlation)
+        unresolved_refs.push(serde_json::json!({
+            "index": original_idx,
+            "ref": ref_item,
+            "reason": if ref_item.is_resolvable() { "NOT_FOUND" } else { "INSUFFICIENT_FIELDS" }
+        }));
+    }
+    
+    let mut response_data = serde_json::json!({
+        "run_id": run_id,
+        "facts": resolved_facts,
+        "resolved_count": resolved_facts.len(),
+        "unresolved": unresolved_refs,
+        "unresolved_count": unresolved_refs.len(),
+        "total_requested": payload.refs.len()
+    });
+    
+    // Only include deduplicated_count if dedup actually removed refs
+    if deduplicated_count > 0 {
+        response_data["deduplicated_count"] = serde_json::json!(deduplicated_count);
+    }
+    
+    Json(serde_json::json!({
+        "success": true,
+        "data": response_data
+    }))
+}
+
+/// Resolve a fact by its fact_id (primary key lookup)
+fn resolve_fact_by_id(conn: &rusqlite::Connection, fact_id: &str) -> Result<serde_json::Value, rusqlite::Error> {
+    conn.query_row(
+        "SELECT fact_id, fact_type, category, ts, host, entity_key, details_json, fact_json
+         FROM facts_sample WHERE fact_id = ?",
+        [fact_id],
+        |row| {
+            let details_json_str: String = row.get(6)?;
+            let fact_json_str: Option<String> = row.get(7)?;
+            
+            let details: serde_json::Value = serde_json::from_str(&details_json_str)
+                .unwrap_or(serde_json::json!({}));
+            let fact_full: serde_json::Value = fact_json_str
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!(null));
+            
+            Ok(serde_json::json!({
+                "fact_id": row.get::<_, String>(0)?,
+                "fact_type": row.get::<_, String>(1)?,
+                "category": row.get::<_, String>(2)?,
+                "ts": row.get::<_, i64>(3)?,
+                "host": row.get::<_, String>(4)?,
+                "entity_key": row.get::<_, Option<String>>(5)?,
+                "details": details,
+                "fact_full": fact_full,
+                "resolution_method": "fact_id"
+            }))
+        }
+    )
+}
+
+/// Resolve a fact by segment_id and record_index (raw log pointer)
+fn resolve_fact_by_segment(conn: &rusqlite::Connection, segment_id: &str, record_index: u32) -> Result<serde_json::Value, rusqlite::Error> {
+    // Segment pointers stored in evidence_ptrs JSON array
+    conn.query_row(
+        r#"SELECT fact_id, fact_type, category, ts, host, entity_key, details_json, fact_json
+           FROM facts_sample 
+           WHERE evidence_ptrs LIKE ?
+           LIMIT 1"#,
+        [format!("%\"segment_id\":\"{}%\"record_index\":{}%", segment_id, record_index)],
+        |row| {
+            let details_json_str: String = row.get(6)?;
+            let fact_json_str: Option<String> = row.get(7)?;
+            
+            let details: serde_json::Value = serde_json::from_str(&details_json_str)
+                .unwrap_or(serde_json::json!({}));
+            let fact_full: serde_json::Value = fact_json_str
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!(null));
+            
+            Ok(serde_json::json!({
+                "fact_id": row.get::<_, String>(0)?,
+                "fact_type": row.get::<_, String>(1)?,
+                "category": row.get::<_, String>(2)?,
+                "ts": row.get::<_, i64>(3)?,
+                "host": row.get::<_, String>(4)?,
+                "entity_key": row.get::<_, Option<String>>(5)?,
+                "details": details,
+                "fact_full": fact_full,
+                "resolution_method": "segment_pointer"
+            }))
+        }
+    )
+}
+
+/// Resolve a fact by fact_type and timestamp (fallback, approximate match)
+fn resolve_fact_by_type_ts(conn: &rusqlite::Connection, fact_type: &str, ts: i64) -> Result<serde_json::Value, rusqlite::Error> {
+    // Allow small timestamp variance (±1000ms) for approximate matching
+    conn.query_row(
+        "SELECT fact_id, fact_type, category, ts, host, entity_key, details_json, fact_json
+         FROM facts_sample 
+         WHERE fact_type = ? AND ts BETWEEN ? AND ?
+         ORDER BY ABS(ts - ?)
+         LIMIT 1",
+        rusqlite::params![fact_type, ts - 1000, ts + 1000, ts],
+        |row| {
+            let details_json_str: String = row.get(6)?;
+            let fact_json_str: Option<String> = row.get(7)?;
+            
+            let details: serde_json::Value = serde_json::from_str(&details_json_str)
+                .unwrap_or(serde_json::json!({}));
+            let fact_full: serde_json::Value = fact_json_str
+                .as_ref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!(null));
+            
+            Ok(serde_json::json!({
+                "fact_id": row.get::<_, String>(0)?,
+                "fact_type": row.get::<_, String>(1)?,
+                "category": row.get::<_, String>(2)?,
+                "ts": row.get::<_, i64>(3)?,
+                "host": row.get::<_, String>(4)?,
+                "entity_key": row.get::<_, Option<String>>(5)?,
+                "details": details,
+                "fact_full": fact_full,
+                "resolution_method": "type_ts_fallback"
+            }))
+        }
+    )
+}
+
+/// GET /api/runs/:run_id/evidence_summary
+/// Returns aggregated summary for Evidence Summary mode:
+/// - Top entities by category (processes, scripts, destinations, registry)
+/// - Timeline buckets for mini-chart
+/// - First/last seen timestamps per fact type
+/// 
+/// EVIDENCE_GRANULARITY-1: This endpoint powers the Evidence Summary view
+/// and is truthful (derives from full facts_sample, not sampling)
+async fn run_evidence_summary_handler(
+    State(state): State<SharedState>,
+    Path(run_id): Path<String>,
+) -> Json<serde_json::Value> {
+    // Resolve run directory
+    let run_dir = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+        Ok((dir, _)) => dir,
+        Err(_) => {
+            let fallback_dir = state.data_dir.join("runs").join(&run_id);
+            if !fallback_dir.exists() {
+                return Json(serde_json::json!({
+                    "success": true,
+                    "data": {
+                        "available": false,
+                        "reason": "RUN_NOT_FOUND",
+                        "run_id": run_id
+                    }
+                }));
+            }
+            fallback_dir
+        }
+    };
+    
+    let db_path = run_dir.join("workbench.db");
+    if !db_path.exists() {
+        return Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "available": false,
+                "reason": "MISSING_DB",
+                "run_id": run_id
+            }
+        }));
+    }
+    
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to open database: {}", e)
+            }));
+        }
+    };
+    
+    // Check if facts_sample table exists
+    let has_facts_sample: bool = conn
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='facts_sample'")
+        .and_then(|mut stmt| stmt.query_row([], |_| Ok(true)))
+        .unwrap_or(false);
+    
+    if !has_facts_sample {
+        return Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "available": false,
+                "reason": "NO_FACTS_SAMPLE_TABLE",
+                "run_id": run_id
+            }
+        }));
+    }
+    
+    // Get run time bounds for timeline bucketing
+    let (min_ts, max_ts): (i64, i64) = conn
+        .query_row("SELECT COALESCE(MIN(ts), 0), COALESCE(MAX(ts), 0) FROM facts_sample", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .unwrap_or((0, 0));
+    
+    // Get total facts count
+    let total_facts: i64 = conn
+        .query_row("SELECT COUNT(*) FROM facts_sample", [], |row| row.get(0))
+        .unwrap_or(0);
+    
+    // === Top Entities by Category ===
+    
+    // Top Processes (Exec fact type)
+    let top_processes: Vec<serde_json::Value> = conn
+        .prepare(r#"
+            SELECT entity_key, COUNT(*) as cnt 
+            FROM facts_sample 
+            WHERE fact_type IN ('Exec', 'ProcessCreate', 'ProcessStart')
+              AND entity_key IS NOT NULL AND entity_key != ''
+            GROUP BY entity_key 
+            ORDER BY cnt DESC 
+            LIMIT 5
+        "#)
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(serde_json::json!({
+                    "entity": row.get::<_, String>(0)?,
+                    "count": row.get::<_, i64>(1)?
+                }))
+            }).map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    
+    // Top Scripts (ScriptExec, ScriptBlock fact types)
+    let top_scripts: Vec<serde_json::Value> = conn
+        .prepare(r#"
+            SELECT entity_key, COUNT(*) as cnt 
+            FROM facts_sample 
+            WHERE fact_type IN ('ScriptExec', 'ScriptBlock', 'ScriptContent')
+              AND entity_key IS NOT NULL AND entity_key != ''
+            GROUP BY entity_key 
+            ORDER BY cnt DESC 
+            LIMIT 5
+        "#)
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(serde_json::json!({
+                    "entity": row.get::<_, String>(0)?,
+                    "count": row.get::<_, i64>(1)?
+                }))
+            }).map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    
+    // Top Destinations (OutboundConnect, NetworkConnect fact types)
+    let top_destinations: Vec<serde_json::Value> = conn
+        .prepare(r#"
+            SELECT entity_key, COUNT(*) as cnt 
+            FROM facts_sample 
+            WHERE fact_type IN ('OutboundConnect', 'NetworkConnect', 'DnsQuery')
+              AND entity_key IS NOT NULL AND entity_key != ''
+            GROUP BY entity_key 
+            ORDER BY cnt DESC 
+            LIMIT 5
+        "#)
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(serde_json::json!({
+                    "entity": row.get::<_, String>(0)?,
+                    "count": row.get::<_, i64>(1)?
+                }))
+            }).map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    
+    // Top Registry Paths (RegistryMod, RegistryChange fact types)
+    let top_registry: Vec<serde_json::Value> = conn
+        .prepare(r#"
+            SELECT entity_key, COUNT(*) as cnt 
+            FROM facts_sample 
+            WHERE fact_type IN ('RegistryMod', 'RegistryChange', 'RegistrySet')
+              AND entity_key IS NOT NULL AND entity_key != ''
+            GROUP BY entity_key 
+            ORDER BY cnt DESC 
+            LIMIT 5
+        "#)
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(serde_json::json!({
+                    "entity": row.get::<_, String>(0)?,
+                    "count": row.get::<_, i64>(1)?
+                }))
+            }).map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    
+    // Top Files (FileCreate, FileWrite, FileDelete fact types)
+    let top_files: Vec<serde_json::Value> = conn
+        .prepare(r#"
+            SELECT entity_key, COUNT(*) as cnt 
+            FROM facts_sample 
+            WHERE fact_type IN ('FileCreate', 'FileWrite', 'FileDelete', 'FileMod')
+              AND entity_key IS NOT NULL AND entity_key != ''
+            GROUP BY entity_key 
+            ORDER BY cnt DESC 
+            LIMIT 5
+        "#)
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(serde_json::json!({
+                    "entity": row.get::<_, String>(0)?,
+                    "count": row.get::<_, i64>(1)?
+                }))
+            }).map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    
+    // === Timeline Buckets ===
+    // Create 20 time buckets across the run duration
+    let bucket_count = 20;
+    let duration = if max_ts > min_ts { max_ts - min_ts } else { 1 };
+    let bucket_width = duration / bucket_count;
+    
+    let timeline_buckets: Vec<serde_json::Value> = if bucket_width > 0 {
+        conn.prepare(&format!(r#"
+            SELECT 
+                (ts - {min_ts}) / {bucket_width} as bucket_idx,
+                COUNT(*) as cnt,
+                MIN(ts) as bucket_start,
+                MAX(ts) as bucket_end
+            FROM facts_sample 
+            GROUP BY bucket_idx
+            ORDER BY bucket_idx
+        "#, min_ts = min_ts, bucket_width = bucket_width))
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(serde_json::json!({
+                    "bucket": row.get::<_, i64>(0)?,
+                    "count": row.get::<_, i64>(1)?,
+                    "start_ts": row.get::<_, i64>(2)?,
+                    "end_ts": row.get::<_, i64>(3)?
+                }))
+            }).map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default()
+    } else {
+        vec![]
+    };
+    
+    // === Fact Type Summary with first/last seen ===
+    let fact_type_summary: Vec<serde_json::Value> = conn
+        .prepare(r#"
+            SELECT 
+                fact_type,
+                COUNT(*) as cnt,
+                MIN(ts) as first_seen,
+                MAX(ts) as last_seen,
+                (SELECT entity_key FROM facts_sample f2 
+                 WHERE f2.fact_type = facts_sample.fact_type 
+                   AND f2.entity_key IS NOT NULL 
+                 GROUP BY entity_key 
+                 ORDER BY COUNT(*) DESC 
+                 LIMIT 1) as top_entity
+            FROM facts_sample
+            GROUP BY fact_type
+            ORDER BY cnt DESC
+        "#)
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                Ok(serde_json::json!({
+                    "fact_type": row.get::<_, String>(0)?,
+                    "count": row.get::<_, i64>(1)?,
+                    "first_seen": row.get::<_, i64>(2)?,
+                    "last_seen": row.get::<_, i64>(3)?,
+                    "top_entity": row.get::<_, Option<String>>(4)?
+                }))
+            }).map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    
+    Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "available": true,
+            "run_id": run_id,
+            "total_facts": total_facts,
+            "time_range": {
+                "min_ts": min_ts,
+                "max_ts": max_ts,
+                "duration_ms": duration
+            },
+            "top_entities": {
+                "processes": top_processes,
+                "scripts": top_scripts,
+                "destinations": top_destinations,
+                "registry": top_registry,
+                "files": top_files
+            },
+            "timeline_buckets": timeline_buckets,
+            "bucket_width_ms": bucket_width,
+            "fact_type_summary": fact_type_summary
+        }
+    }))
+}
+
+// ============================================================================
+// RUN BRIEF: Observed Lens (chain-independent run summary)
+// BUILD: 2026-01-27-RUN_BRIEF-1
+// ============================================================================
+
+/// GET /api/runs/:run_id/brief
+/// 
+/// Returns a comprehensive "Observed Lens" summary of what happened during the run,
+/// independent of any micro chain or playbook selection. This is derived entirely
+/// from workbench.db (per-run DB) and run_meta.json, NOT from UI state.
+/// 
+/// # Data Sources (per RUN_PIPELINE_TRUTH_REPORT.md):
+/// - `totals`: coverage_rollup (event_count, fact_count sums), signals count, segments count
+/// - `coverage`: run_meta.json capability snapshot (AT run time, not current system)
+/// - `timeline`: coverage_rollup bucketed by ts_minute
+/// - `top_entities`: entity_rollup table (if populated), fallback to facts_sample
+/// - `notable_findings`: signals table with evidence_ptrs
+/// - `episodes`: deterministic clustering from signals + time windows
+/// - `unmapped_activity`: fact types not associated with any fired signal
+/// 
+/// # Constraint: facts_sample is sampled (200/type cap) - totals come from coverage_rollup
+/// 
+/// # Response
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "available": true,
+///     "run_id": "...",
+///     "totals": { events_total, facts_total, signals_fired, segments_count },
+///     "coverage": { snapshot_present, sysmon, is_admin, security_log_accessible, gaps[] },
+///     "timeline": [{ start_ts, end_ts, count }],
+///     "top_entities": { processes: [...], destinations: [...], registry: [...], files: [...] },
+///     "notable_findings": [{ signal_id, playbook_id, severity, ts_start, ts_end, evidence_refs_count, evidence_ptrs }],
+///     "episodes": [{ episode_id, start_ts, end_ts, primary_entity, labels[], key_fact_types[], evidence_ptrs }],
+///     "unmapped_activity": { fact_type_counts: [...] }
+///   }
+/// }
+/// ```
+async fn run_brief_handler(
+    State(state): State<SharedState>,
+    Path(run_id): Path<String>,
+) -> Json<serde_json::Value> {
+    // Resolve run directory (Constraint 1: Per-Run DB Isolation)
+    let (run_dir, _run_record) = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+        Ok(r) => r,
+        Err(_) => {
+            let fallback_dir = state.data_dir.join("runs").join(&run_id);
+            if !fallback_dir.exists() {
+                return Json(serde_json::json!({
+                    "success": true,
+                    "data": services::run_brief::RunBriefUnavailable::not_found(&run_id).to_json()
+                }));
+            }
+            // Construct a minimal run_record for fallback
+            (fallback_dir, crate::db::RunRecord {
+                run_id: run_id.clone(),
+                name: None,
+                profile: None,
+                started_at: String::new(),
+                stopped_at: None,
+                run_dir: None,
+                events_total: 0,
+                segments_count: 0,
+                facts_extracted: 0,
+                signals_fired: 0,
+                bytes_written: 0,
+                status: "unknown".to_string(),
+                baseline_scope: None,
+                baseline_enabled: false,
+                baseline_set_at: None,
+                chain_ids: None,
+            })
+        }
+    };
+    
+    // Call the refactored service (RUN_BRIEF-1)
+    match services::run_brief::build_run_brief(&run_id, &run_dir) {
+        Ok(brief) => Json(serde_json::json!({
+            "success": true,
+            "data": brief.to_json()
+        })),
+        Err(services::run_brief::RunBriefError::MissingDb(_)) => Json(serde_json::json!({
+            "success": true,
+            "data": services::run_brief::RunBriefUnavailable::missing_db(&run_id).to_json()
+        })),
+        Err(services::run_brief::RunBriefError::DbOpenError(msg)) => Json(serde_json::json!({
+            "success": false,
+            "error": format!("Failed to open database: {}", msg)
+        })),
+        Err(services::run_brief::RunBriefError::RunNotFound(_)) => Json(serde_json::json!({
+            "success": true,
+            "data": services::run_brief::RunBriefUnavailable::not_found(&run_id).to_json()
+        })),
+    }
+}
+
+// ============================================================================
+// LEGACY_RUN_BRIEF_INLINE (kept for safety; remove later)
+// ============================================================================
+// The original inline implementation has been refactored into:
+// - services/run_brief.rs (orchestrator)
+// - services/run_brief_repo.rs (DB queries)
+// - services/episodes.rs (clustering logic)
+// - services/evidence_ptrs.rs (parsing utilities)
+//
+// Original code preserved below for reference during validation:
+/*
+async fn run_brief_handler_legacy(
+    State(state): State<SharedState>,
+    Path(run_id): Path<String>,
+) -> Json<serde_json::Value> {
+    // Resolve run directory (Constraint 1: Per-Run DB Isolation)
+    let (run_dir, _run_record) = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+        Ok(r) => r,
+        Err(_) => {
+            let fallback_dir = state.data_dir.join("runs").join(&run_id);
+            if !fallback_dir.exists() {
+                return Json(serde_json::json!({
+                    "success": true,
+                    "data": {
+                        "available": false,
+                        "reason": "RUN_NOT_FOUND",
+                        "run_id": run_id
+                    }
+                }));
+            }
+            // Construct a minimal run_record for fallback
+            (fallback_dir, crate::db::RunRecord {
+                run_id: run_id.clone(),
+                name: None,
+                profile: None,
+                started_at: String::new(),
+                stopped_at: None,
+                run_dir: None,
+                events_total: 0,
+                segments_count: 0,
+                facts_extracted: 0,
+                signals_fired: 0,
+                bytes_written: 0,
+                status: "unknown".to_string(),
+                baseline_scope: None,
+                baseline_enabled: false,
+                baseline_set_at: None,
+                chain_ids: None,
+            })
+        }
+    };
+    
+    let db_path = run_dir.join("workbench.db");
+    if !db_path.exists() {
+        return Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "available": false,
+                "reason": "MISSING_DB",
+                "run_id": run_id
+            }
+        }));
+    }
+    
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to open database: {}", e)
+            }));
+        }
+    };
+    
+    // === COVERAGE: Capability snapshot from run_meta.json (Constraint 4) ===
+    let meta_path = run_dir.join("run_meta.json");
+    let capability = services::capability::get_capability_snapshot_from_meta(&meta_path);
+    let snapshot_present = capability.get("is_admin").is_some() 
+        || capability.get("sysmon_installed").is_some();
+    
+    let is_admin = capability.get("is_admin").and_then(|v| v.as_bool());
+    let sysmon_installed = capability.get("sysmon_installed").and_then(|v| v.as_bool());
+    let security_log_accessible = capability.get("security_log_accessible").and_then(|v| v.as_bool());
+    
+    // Build coverage gaps
+    let mut gaps: Vec<serde_json::Value> = Vec::new();
+    if is_admin == Some(false) {
+        gaps.push(serde_json::json!({
+            "gap": "NOT_ADMIN",
+            "impact": "Limited access to Security event log"
+        }));
+    }
+    if sysmon_installed == Some(false) {
+        gaps.push(serde_json::json!({
+            "gap": "NO_SYSMON",
+            "impact": "No process command lines, network connections"
+        }));
+    }
+    if security_log_accessible == Some(false) {
+        gaps.push(serde_json::json!({
+            "gap": "NO_SECURITY_LOG",
+            "impact": "No authentication events"
+        }));
+    }
+    
+    // === TOTALS: From coverage_rollup (NOT facts_sample which is sampled) ===
+    let events_total: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(event_count), 0) FROM coverage_rollup WHERE event_count IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+        .filter(|&v| v > 0)
+        .or_else(|| {
+            // Fallback to segments.records if coverage_rollup empty
+            conn.query_row("SELECT COALESCE(SUM(records), 0) FROM segments", [], |row| row.get(0)).ok()
+        })
+        .unwrap_or(0);
+    
+    let facts_total: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(fact_count), 0) FROM coverage_rollup WHERE fact_count IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .ok()
+        .filter(|&v| v > 0)
+        .or_else(|| {
+            // Fallback to segments.facts if coverage_rollup empty
+            conn.query_row("SELECT COALESCE(SUM(facts), 0) FROM segments", [], |row| row.get(0)).ok()
+        })
+        .unwrap_or(0);
+    
+    let signals_fired: i64 = conn
+        .query_row("SELECT COUNT(*) FROM signals", [], |row| row.get(0))
+        .unwrap_or(0);
+    
+    let segments_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM segments", [], |row| row.get(0))
+        .unwrap_or(0);
+    
+    // ... (remaining ~400 lines of original inline code omitted for brevity)
+    // ... Full original code can be found in git history or run_brief_repo.rs
+    
+    Json(serde_json::json!({"success": false, "error": "Legacy handler - should not be called"}))
+}
+*/
+
+// ============================================================================
+// EVIDENCE BROWSE MODES: Events, Signals, Segments
+// ============================================================================
+
+/// Query params for events endpoint
+#[derive(Debug, Deserialize)]
+struct EventsQuery {
+    limit: Option<usize>,
+    offset: Option<usize>,
+    segment_id: Option<String>,
+    event_type: Option<String>,
+    query: Option<String>,
+}
+
+/// GET /api/runs/:run_id/events - Browse raw events
+/// 
+/// Returns paginated raw events from segments for the "Events" browse mode.
+/// These map to the "705 events" count shown in Overview.
+/// 
+/// # Query Params
+/// - `limit` (default 100, max 500)
+/// - `offset` (default 0)
+/// - `segment_id` (optional, filter by segment)
+/// - `event_type` (optional, filter by type)
+/// - `query` (optional, search in summary)
+/// 
+/// # Response
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "events": [{ ts, event_type, summary, segment_id, record_index, host, raw_preview }],
+///     "total": 705,
+///     "pagination": { limit, offset, has_more }
+///   }
+/// }
+/// ```
+async fn run_events_handler(
+    State(state): State<SharedState>,
+    Path(run_id): Path<String>,
+    Query(params): Query<EventsQuery>,
+) -> Json<serde_json::Value> {
+    let run_dir = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+        Ok((dir, _)) => dir,
+        Err(_) => {
+            let fallback_dir = state.data_dir.join("runs").join(&run_id);
+            if !fallback_dir.exists() {
+                return Json(serde_json::json!({
+                    "success": false,
+                    "error": "RUN_NOT_FOUND",
+                    "run_id": run_id
+                }));
+            }
+            fallback_dir
+        }
+    };
+    
+    let db_path = run_dir.join("workbench.db");
+    if !db_path.exists() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "MISSING_DB",
+            "run_id": run_id
+        }));
+    }
+    
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("DB_OPEN_ERROR: {}", e)
+            }));
+        }
+    };
+    
+    let limit = params.limit.unwrap_or(100).min(500);
+    let offset = params.offset.unwrap_or(0);
+    
+    // Get total events count (same source as Overview: coverage_rollup.event_count OR segments.records)
+    let total_events: i64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(event_count), 0) FROM coverage_rollup WHERE event_count IS NOT NULL",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok()
+        .filter(|&v| v > 0)
+        .or_else(|| {
+            conn.query_row("SELECT COALESCE(SUM(records), 0) FROM segments", [], |row| row.get(0)).ok()
+        })
+        .unwrap_or(0);
+    
+    // Check if we have canonical_events table (newer runs)
+    let has_canonical_events: bool = conn
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='canonical_events'")
+        .and_then(|mut stmt| stmt.query_row([], |_| Ok(true)))
+        .unwrap_or(false);
+    
+    let events: Vec<serde_json::Value> = if has_canonical_events {
+        // Newer run: query canonical_events
+        let mut sql = String::from(
+            "SELECT event_id, ts, event_type, segment_id, record_index, host_id,
+                    proc_scope_key, exe_scope_key
+             FROM canonical_events WHERE 1=1"
+        );
+        let mut query_params: Vec<String> = Vec::new();
+        
+        if let Some(ref seg_id) = params.segment_id {
+            sql.push_str(" AND segment_id = ?");
+            query_params.push(seg_id.clone());
+        }
+        if let Some(ref evt_type) = params.event_type {
+            sql.push_str(" AND event_type = ?");
+            query_params.push(evt_type.clone());
+        }
+        if let Some(ref q) = params.query {
+            sql.push_str(" AND (proc_scope_key LIKE ? OR exe_scope_key LIKE ? OR event_type LIKE ?)");
+            query_params.push(format!("%{}%", q));
+            query_params.push(format!("%{}%", q));
+            query_params.push(format!("%{}%", q));
+        }
+        
+        sql.push_str(" ORDER BY ts DESC LIMIT ? OFFSET ?");
+        query_params.push(limit.to_string());
+        query_params.push(offset.to_string());
+        
+        let refs: Vec<&dyn rusqlite::ToSql> = query_params.iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
+        
+        conn.prepare(&sql)
+            .and_then(|mut stmt| {
+                stmt.query_map(refs.as_slice(), |row| {
+                    Ok(serde_json::json!({
+                        "event_id": row.get::<_, String>(0)?,
+                        "ts": row.get::<_, i64>(1)?,
+                        "event_type": row.get::<_, String>(2)?,
+                        "segment_id": row.get::<_, String>(3)?,
+                        "record_index": row.get::<_, i64>(4)?,
+                        "host": row.get::<_, String>(5)?,
+                        "summary": format!("{} | {}", 
+                            row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                            row.get::<_, Option<String>>(7)?.unwrap_or_default()
+                        ),
+                        "raw_preview": null // Would need segment file access
+                    }))
+                })
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            })
+            .unwrap_or_default()
+    } else {
+        // Older run or no canonical_events: use facts_sample as proxy for browsable events
+        // Each fact corresponds to one or more underlying events
+        // Also include segment-level summary
+        let mut events_proxy: Vec<serde_json::Value> = Vec::new();
+        
+        // First, add segment summaries (these represent the raw event batches)
+        let segments_summary: Vec<serde_json::Value> = conn
+            .prepare("SELECT segment_id, stream_id, host_id, 
+                             COALESCE(record_count, records, 0) as record_count,
+                             start_ts, end_ts
+                      FROM segments ORDER BY start_ts DESC")
+            .and_then(|mut stmt| {
+                stmt.query_map([], |row| {
+                    let seg_id: String = row.get(0)?;
+                    let stream_id: String = row.get(1)?;
+                    let host: String = row.get(2)?;
+                    let record_count: i64 = row.get(3)?;
+                    let start_ts: i64 = row.get(4)?;
+                    let _end_ts: i64 = row.get(5)?;
+                    Ok(serde_json::json!({
+                        "event_type": format!("Segment: {}", stream_id),
+                        "host": host,
+                        "ts": start_ts,
+                        "segment_id": seg_id,
+                        "record_index": null,
+                        "count": record_count,
+                        "summary": format!("{} events in segment {} from {}", record_count, seg_id, stream_id),
+                        "is_summary": true,
+                        "is_segment": true
+                    }))
+                })
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            })
+            .unwrap_or_default();
+        
+        events_proxy.extend(segments_summary);
+        
+        // Then add recent facts as event proxies (paginated)
+        if events_proxy.len() < limit {
+            let remaining = limit - events_proxy.len();
+            let facts_as_events: Vec<serde_json::Value> = conn
+                .prepare("SELECT fact_id, fact_type, host, ts, entity_key, details_json
+                          FROM facts_sample 
+                          ORDER BY ts DESC 
+                          LIMIT ? OFFSET ?")
+                .and_then(|mut stmt| {
+                    stmt.query_map(rusqlite::params![remaining as i64, offset as i64], |row| {
+                        let details_str: String = row.get(5)?;
+                        let details: serde_json::Value = serde_json::from_str(&details_str).unwrap_or(serde_json::json!({}));
+                        Ok(serde_json::json!({
+                            "event_type": row.get::<_, String>(1)?,
+                            "host": row.get::<_, String>(2)?,
+                            "ts": row.get::<_, i64>(3)?,
+                            "segment_id": null,
+                            "record_index": null,
+                            "summary": format!("{} on {}", row.get::<_, String>(1)?, row.get::<_, Option<String>>(4)?.unwrap_or_default()),
+                            "details": details,
+                            "fact_id": row.get::<_, String>(0)?,
+                            "is_fact_proxy": true
+                        }))
+                    })
+                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                })
+                .unwrap_or_default();
+            
+            events_proxy.extend(facts_as_events);
+        }
+        
+        events_proxy
+    };
+    
+    Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "run_id": run_id,
+            "events": events,
+            "total": total_events,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "has_more": (offset + events.len()) < total_events as usize
+            },
+            "has_individual_events": has_canonical_events
+        }
+    }))
+}
+
+/// Query params for signals endpoint  
+#[derive(Debug, Deserialize)]
+struct SignalsQuery {
+    severity: Option<String>,
+    playbook_id: Option<String>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+}
+
+/// GET /api/runs/:run_id/signals - Browse signals
+/// 
+/// Returns signals for the "Signals" browse mode.
+/// These map to the "1 signal" count shown in Overview.
+/// 
+/// # Response
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "signals": [{ signal_id, signal_type, severity, title, playbook_id, ts, evidence_ptrs, summary }],
+///     "total": 1
+///   }
+/// }
+/// ```
+async fn run_signals_handler(
+    State(state): State<SharedState>,
+    Path(run_id): Path<String>,
+    Query(params): Query<SignalsQuery>,
+) -> Json<serde_json::Value> {
+    let run_dir = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+        Ok((dir, _)) => dir,
+        Err(_) => {
+            let fallback_dir = state.data_dir.join("runs").join(&run_id);
+            if !fallback_dir.exists() {
+                return Json(serde_json::json!({
+                    "success": false,
+                    "error": "RUN_NOT_FOUND",
+                    "run_id": run_id
+                }));
+            }
+            fallback_dir
+        }
+    };
+    
+    let db_path = run_dir.join("workbench.db");
+    if !db_path.exists() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "MISSING_DB",
+            "run_id": run_id
+        }));
+    }
+    
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("DB_OPEN_ERROR: {}", e)
+            }));
+        }
+    };
+    
+    let limit = params.limit.unwrap_or(100).min(500);
+    let offset = params.offset.unwrap_or(0);
+    
+    // Check if signals table exists
+    let has_signals: bool = conn
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='signals'")
+        .and_then(|mut stmt| stmt.query_row([], |_| Ok(true)))
+        .unwrap_or(false);
+    
+    if !has_signals {
+        return Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "run_id": run_id,
+                "signals": [],
+                "total": 0,
+                "reason": "NO_SIGNALS_TABLE"
+            }
+        }));
+    }
+    
+    // Get total signals count
+    let total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM signals", [], |row| row.get(0))
+        .unwrap_or(0);
+    
+    // Build query - note: playbook_id may not exist, extract from signal_type (format: "playbook:xxx")
+    let mut sql = String::from(
+        "SELECT signal_id, signal_type, severity, host, ts,
+                evidence_ptrs, metadata
+         FROM signals WHERE 1=1"
+    );
+    let mut query_params: Vec<String> = Vec::new();
+    
+    if let Some(ref sev) = params.severity {
+        sql.push_str(" AND severity = ?");
+        query_params.push(sev.clone());
+    }
+    if let Some(ref pb_id) = params.playbook_id {
+        sql.push_str(" AND signal_type LIKE ?");
+        query_params.push(format!("%{}%", pb_id));
+    }
+    
+    sql.push_str(" ORDER BY ts DESC LIMIT ? OFFSET ?");
+    query_params.push(limit.to_string());
+    query_params.push(offset.to_string());
+    
+    let refs: Vec<&dyn rusqlite::ToSql> = query_params.iter()
+        .map(|s| s as &dyn rusqlite::ToSql)
+        .collect();
+    
+    let signals: Vec<serde_json::Value> = conn
+        .prepare(&sql)
+        .and_then(|mut stmt| {
+            stmt.query_map(refs.as_slice(), |row| {
+                let evidence_ptrs_json: Option<String> = row.get(5)?;
+                let metadata_json: Option<String> = row.get(6)?;
+                
+                let evidence_ptrs: serde_json::Value = evidence_ptrs_json
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .unwrap_or(serde_json::json!([]));
+                
+                let metadata: serde_json::Value = metadata_json
+                    .as_ref()
+                    .and_then(|s| serde_json::from_str(s).ok())
+                    .unwrap_or(serde_json::json!({}));
+                
+                let signal_type: String = row.get(1)?;
+                // Extract playbook_id from signal_type (format: "playbook:xxx" or just type)
+                let playbook_id = signal_type.strip_prefix("playbook:")
+                    .unwrap_or(&signal_type)
+                    .to_string();
+                
+                // Generate title from signal_type/playbook_id
+                let title = playbook_id.replace('_', " ")
+                    .split_whitespace()
+                    .map(|w| {
+                        let mut chars = w.chars();
+                        match chars.next() {
+                            Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                            None => String::new()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                
+                let evidence_count = evidence_ptrs.as_array().map(|a| a.len()).unwrap_or(0);
+                
+                Ok(serde_json::json!({
+                    "signal_id": row.get::<_, String>(0)?,
+                    "signal_type": signal_type,
+                    "severity": row.get::<_, String>(2)?,
+                    "host": row.get::<_, String>(3)?,
+                    "ts": row.get::<_, i64>(4)?,
+                    "playbook_id": playbook_id,
+                    "title": title,
+                    "evidence_ptrs": evidence_ptrs,
+                    "evidence_count": evidence_count,
+                    "metadata": metadata,
+                    "summary": format!("{} detection on {}", title, row.get::<_, String>(3)?)
+                }))
+            })
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
+    
+    Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "run_id": run_id,
+            "signals": signals,
+            "total": total,
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "has_more": (offset + signals.len()) < total as usize
+            }
+        }
+    }))
+}
+
+/// Query params for segments endpoint
+#[derive(Debug, Deserialize)]
+struct SegmentsQuery {
+    stream_id: Option<String>,
+}
+
+/// GET /api/runs/:run_id/segments - Browse segments
+/// 
+/// Returns segment metadata for the "Segments" browse mode.
+/// These map to the "1 segment" count shown in Overview.
+/// 
+/// # Response
+/// ```json
+/// {
+///   "success": true,
+///   "data": {
+///     "segments": [{ segment_id, stream_id, start_ts, end_ts, record_count, size_bytes, path, sha256 }],
+///     "total": 1
+///   }
+/// }
+/// ```
+async fn run_segments_handler(
+    State(state): State<SharedState>,
+    Path(run_id): Path<String>,
+    Query(params): Query<SegmentsQuery>,
+) -> Json<serde_json::Value> {
+    let run_dir = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+        Ok((dir, _)) => dir,
+        Err(_) => {
+            let fallback_dir = state.data_dir.join("runs").join(&run_id);
+            if !fallback_dir.exists() {
+                return Json(serde_json::json!({
+                    "success": false,
+                    "error": "RUN_NOT_FOUND",
+                    "run_id": run_id
+                }));
+            }
+            fallback_dir
+        }
+    };
+    
+    let db_path = run_dir.join("workbench.db");
+    if !db_path.exists() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "MISSING_DB",
+            "run_id": run_id
+        }));
+    }
+    
+    let conn = match rusqlite::Connection::open(&db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("DB_OPEN_ERROR: {}", e)
+            }));
+        }
+    };
+    
+    // Check if segments table exists
+    let has_segments: bool = conn
+        .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='segments'")
+        .and_then(|mut stmt| stmt.query_row([], |_| Ok(true)))
+        .unwrap_or(false);
+    
+    if !has_segments {
+        return Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "run_id": run_id,
+                "segments": [],
+                "total": 0,
+                "reason": "NO_SEGMENTS_TABLE"
+            }
+        }));
+    }
+    
+    // Get total segments count
+    let total: i64 = conn
+        .query_row("SELECT COUNT(*) FROM segments", [], |row| row.get(0))
+        .unwrap_or(0);
+    
+    // Try to detect segment table schema (older runs have different columns)
+    // New schema: segment_id, stream_id, host_id, path, sha256, start_ts, end_ts, record_count, size_bytes
+    // Old schema: segment_id, segment_path, records, facts, signals, size_bytes, processed_at
+    let has_stream_id: bool = conn
+        .prepare("SELECT 1 FROM pragma_table_info('segments') WHERE name = 'stream_id'")
+        .and_then(|mut stmt| stmt.query_row([], |_| Ok(true)))
+        .unwrap_or(false);
+    
+    let segments: Vec<serde_json::Value> = if has_stream_id {
+        // New schema
+        let mut sql = String::from(
+            "SELECT segment_id, stream_id, host_id, path, sha256, 
+                    start_ts, end_ts, 
+                    COALESCE(record_count, records, 0) as record_count,
+                    COALESCE(size_bytes, 0) as size_bytes,
+                    created_at
+             FROM segments WHERE 1=1"
+        );
+        let mut query_params: Vec<String> = Vec::new();
+        
+        if let Some(ref stream) = params.stream_id {
+            sql.push_str(" AND stream_id = ?");
+            query_params.push(stream.clone());
+        }
+        
+        sql.push_str(" ORDER BY start_ts DESC");
+        
+        let refs: Vec<&dyn rusqlite::ToSql> = query_params.iter()
+            .map(|s| s as &dyn rusqlite::ToSql)
+            .collect();
+        
+        conn.prepare(&sql)
+            .and_then(|mut stmt| {
+                stmt.query_map(refs.as_slice(), |row| {
+                    Ok(serde_json::json!({
+                        "segment_id": row.get::<_, String>(0)?,
+                        "stream_id": row.get::<_, String>(1)?,
+                        "host_id": row.get::<_, String>(2)?,
+                        "path": row.get::<_, Option<String>>(3)?,
+                        "sha256": row.get::<_, Option<String>>(4)?,
+                        "start_ts": row.get::<_, i64>(5)?,
+                        "end_ts": row.get::<_, i64>(6)?,
+                        "record_count": row.get::<_, i64>(7)?,
+                        "size_bytes": row.get::<_, i64>(8)?,
+                        "created_at": row.get::<_, Option<i64>>(9)?
+                    }))
+                })
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            })
+            .unwrap_or_default()
+    } else {
+        // Old schema (locald)
+        conn.prepare("SELECT segment_id, segment_path, records, size_bytes, processed_at
+                      FROM segments ORDER BY processed_at DESC")
+            .and_then(|mut stmt| {
+                stmt.query_map([], |row| {
+                    let segment_id: String = row.get(0)?;
+                    let path: String = row.get(1)?;
+                    let records: i64 = row.get(2)?;
+                    let size_bytes: i64 = row.get(3)?;
+                    let processed_at: Option<String> = row.get(4)?;
+                    
+                    // Extract stream_id from path (e.g. "segments/Microsoft-Windows-Sysmon%2FOperational_0.jsonl")
+                    let stream_id = path.split('/')
+                        .last()
+                        .and_then(|f| f.split('_').next())
+                        .map(|s| s.replace("%2F", "/"))
+                        .unwrap_or_else(|| "unknown".to_string());
+                    
+                    Ok(serde_json::json!({
+                        "segment_id": segment_id,
+                        "stream_id": stream_id,
+                        "host_id": null,
+                        "path": path,
+                        "sha256": null,
+                        "start_ts": null,
+                        "end_ts": null,
+                        "record_count": records,
+                        "size_bytes": size_bytes,
+                        "processed_at": processed_at
+                    }))
+                })
+                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            })
+            .unwrap_or_default()
+    };
+    
+    // Get unique stream types
+    let streams: Vec<String> = if has_stream_id {
+        conn.prepare("SELECT DISTINCT stream_id FROM segments ORDER BY stream_id")
+            .and_then(|mut stmt| {
+                stmt.query_map([], |row| row.get(0))
+                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            })
+            .unwrap_or_default()
+    } else {
+        // Extract from paths in old schema
+        segments.iter()
+            .filter_map(|s| s.get("stream_id").and_then(|v| v.as_str()).map(String::from))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect()
+    };
+    
+    Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "run_id": run_id,
+            "segments": segments,
+            "total": total,
+            "streams": streams
         }
     }))
 }
@@ -1571,6 +3677,12 @@ async fn run_next_steps_handler(
     let security_log_accessible = capability.get("security_log_accessible").and_then(|v| v.as_bool()).unwrap_or(false);
     let is_admin = capability.get("is_admin").and_then(|v| v.as_bool()).unwrap_or(false);
     
+    // Check for interrupted/abandoned run state from run_meta.json
+    let run_status = capability.get("status").and_then(|v| v.as_str()).unwrap_or("");
+    let compile_status = capability.get("compile_status").and_then(|v| v.as_str()).unwrap_or("");
+    let abandoned_reason = capability.get("abandoned_reason").and_then(|v| v.as_str());
+    let is_interrupted = run_status == "abandoned" || compile_status == "interrupted";
+    
     // Check PowerShell logging channel from snapshot
     let powershell_accessible = capability.get("channels").and_then(|v| v.as_array()).map(|chs| {
         chs.iter().any(|c| {
@@ -1583,6 +3695,43 @@ async fn run_next_steps_handler(
     let mut actions: Vec<serde_json::Value> = Vec::new();
     let mut gaps: Vec<String> = Vec::new();
     let mut severity = "info";
+    
+    // ========================================================================
+    // STEP -1: INTERRUPTED RUN RECOVERY ACTION (highest priority)
+    // If the run was interrupted/abandoned, always show recovery guidance first
+    // ========================================================================
+    if is_interrupted {
+        severity = "high";
+        gaps.push("run_interrupted".to_string());
+        
+        let reason_text = abandoned_reason.unwrap_or("Server process was terminated unexpectedly");
+        let facts_available = if facts > 0 {
+            format!("{} facts were extracted before interruption. Pivots and exploration still work.", facts)
+        } else {
+            "No facts were extracted before the interruption.".to_string()
+        };
+        
+        actions.push(serde_json::json!({
+            "action_id": "recover_interrupted_run",
+            "title": "🔄 Recover from Interrupted Run",
+            "rationale": format!("This run was interrupted: {}. {}", reason_text, facts_available),
+            "why": "Incomplete runs may have missing facts and cannot produce accurate detection results.",
+            "how": [
+                "Go to the Mission tab",
+                "Click 'Start Run' to begin a new capture",
+                "Let the run complete for at least 2-5 minutes",
+                "Click 'Stop Run' to finalize the results"
+            ],
+            "verify": [
+                "New run shows 'FINALIZED' status",
+                "Facts count is non-zero",
+                "Coverage data is complete"
+            ],
+            "requires": {},
+            "priority": "high",
+            "deep_link": { "tab": "mission" }
+        }));
+    }
     
     // Build Coverage Checklist
     let mut coverage_checklist: Vec<serde_json::Value> = Vec::new();
@@ -2267,6 +4416,13 @@ async fn run_next_steps_handler(
                 "sysmon_installed": sysmon_installed,
                 "powershell_accessible": powershell_accessible
             },
+            // Run readiness fields for crash/interrupt handling (A: endpoint consistency)
+            "compile_status": if is_interrupted { "interrupted" } else if compile_status.is_empty() { "finalized" } else { compile_status },
+            "facts_ready": !is_interrupted && !compile_status.is_empty() && compile_status != "compiling",
+            "facts_partial": is_interrupted,
+            "abandoned_reason": abandoned_reason,
+            "last_activity_at": capability.get("stopped_at").or_else(|| capability.get("started_at")).and_then(|v| v.as_str()),
+            "metadata_unavailable": !meta_path.exists(),
             "discovery_pivots": discovery_pivots,
             "pivots_unavailable_reason": pivots_unavailable_reason,
             "actions": actions
@@ -2309,8 +4465,8 @@ async fn set_baseline_handler(
         return Err(feature_locked_403("Baselines", services::types::ProductTier::Pro));
     }
     
-    // Use canonical helper to resolve run_dir from DB
-    let (run_dir, _) = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+    // Use SSoT resolver with filesystem fallback and backfill
+    let run_ref = match services::run_control::resolve_run_ref(&state.db, &run_id, &state.data_dir, true) {
         Ok(r) => r,
         Err(e) => return Ok(Json(e.to_json())),
     };
@@ -2319,8 +4475,8 @@ async fn set_baseline_handler(
     let is_default = body.is_default.unwrap_or(true);
     
     // Get metrics snapshot
-    let db_path = run_dir.join("workbench.db");
-    let metrics = services::baseline::get_run_metrics_snapshot(&run_dir);
+    let db_path = run_ref.run_dir.join("workbench.db");
+    let metrics = services::baseline::get_run_metrics_snapshot(&run_ref.run_dir);
     
     // Update database
     if let Err(e) = state.db.set_baseline(&run_id, &scope, is_default) {
@@ -2401,14 +4557,15 @@ async fn case_summary_handler(
         return Err(feature_locked_403("Case Summary Export", services::types::ProductTier::Pro));
     }
     
-    // Use canonical helper to resolve run_dir from DB
-    let (run_dir, run_record) = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+    // Use SSoT resolver with filesystem fallback and backfill
+    let run_ref = match services::run_control::resolve_run_ref(&state.db, &run_id, &state.data_dir, true) {
         Ok(r) => r,
         Err(e) => return Ok(Json(e.to_json())),
     };
     
-    let db_path = run_dir.join("workbench.db");
-    let meta_path = run_dir.join("run_meta.json");
+    let db_path = run_ref.workbench_db_path.clone();
+    let meta_path = run_ref.run_meta_path.clone();
+    let run_name = run_ref.run_record.as_ref().and_then(|r| r.name.clone());
     
     let (started_at, stopped_at, status) = services::run_control::read_run_meta(&meta_path, &run_id);
     let (events, segments, facts, signals, earliest_ts, latest_ts, _) = 
@@ -2425,7 +4582,7 @@ async fn case_summary_handler(
             "schema_version": "1.1.0",
             "generated_at": chrono::Utc::now().to_rfc3339(),
             "run_id": run_id,
-            "name": run_record.name,
+            "name": run_name,
             "summary": {
                 "started_at": started_at.map(|t| t.to_rfc3339()),
                 "stopped_at": stopped_at.map(|t| t.to_rfc3339()),
@@ -2538,12 +4695,24 @@ async fn run_discovery_summary_handler(
                 Ok((conn, run_dir)) => (conn, run_dir),
                 Err(e2) => {
                     if e2.code == services::run_control::RunDbErrorCode::MissingDb {
+                        // Read readiness even for unavailable runs
+                        let fallback_dir = state.data_dir.join("runs").join(&run_id);
+                        let meta_path = fallback_dir.join("run_meta.json");
+                        let readiness = read_run_readiness(&meta_path);
+                        
                         return Json(serde_json::json!({
                             "success": true,
                             "data": {
                                 "available": false,
                                 "reason": "MISSING_DB",
-                                "run_id": run_id
+                                "run_id": run_id,
+                                // Readiness fields (A: endpoint consistency)
+                                "compile_status": readiness.compile_status,
+                                "facts_ready": readiness.facts_ready,
+                                "facts_partial": readiness.facts_partial,
+                                "abandoned_reason": readiness.abandoned_reason,
+                                "last_activity_at": readiness.last_activity_at,
+                                "metadata_unavailable": readiness.metadata_unavailable
                             }
                         }));
                     }
@@ -2552,6 +4721,10 @@ async fn run_discovery_summary_handler(
             }
         }
     };
+    
+    // Read run readiness fields from run_meta.json
+    let meta_path = run_dir.join("run_meta.json");
+    let readiness = read_run_readiness(&meta_path);
     
     // Get run-scoped capability snapshot from run_meta.json (SSoT: no live probes in run-scoped handlers)
     let meta_path = run_dir.join("run_meta.json");
@@ -3366,7 +5539,14 @@ async fn run_discovery_summary_handler(
             },
             // Drift summary: consolidated mismatch detection (hardening pass)
             // drift = observed_telemetry.X == true && capability.X == false
-            "drift_summary": drift_summary
+            "drift_summary": drift_summary,
+            // Readiness fields (A: endpoint consistency)
+            "compile_status": readiness.compile_status,
+            "facts_ready": readiness.facts_ready,
+            "facts_partial": readiness.facts_partial,
+            "abandoned_reason": readiness.abandoned_reason,
+            "last_activity_at": readiness.last_activity_at,
+            "metadata_unavailable": readiness.metadata_unavailable
         }
     }))
 }
@@ -3389,6 +5569,11 @@ async fn run_diff_v2_handler(
 ) -> Json<serde_json::Value> {
     let mode = query.mode.as_deref().unwrap_or("phase");
     
+    // Validate mode first (before tier gate for better UX)
+    if mode != "phase" && mode != "baseline" && mode != "marker" {
+        return Json(services::diff::DiffError::invalid_mode(mode).to_json());
+    }
+    
     // Tier gate: Advanced diff modes require Pro
     let is_advanced = mode == "baseline" || mode == "marker" || query.baseline_filter.unwrap_or(false);
     if is_advanced && !resolve_current_tier().has_access(services::types::ProductTier::Pro) {
@@ -3396,46 +5581,45 @@ async fn run_diff_v2_handler(
         return json;
     }
     
-    // Use canonical helper to open run DB
-    let handle = match services::run_control::open_run_db(&state.db, &run_id) {
-        Ok(h) => h,
-        Err(e) => {
-            // If DB missing, return available: false with reason code
-            if e.code == services::run_control::RunDbErrorCode::MissingDb {
-                return Json(serde_json::json!({
-                    "success": true,
-                    "data": {
-                        "available": false,
-                        "reason_code": "MISSING_DB",
-                        "message": e.message,
-                        "run_id": run_id,
-                        "mode": mode
-                    }
-                }));
-            }
-            return Json(e.to_json());
-        }
+    // Use SSoT resolver with filesystem fallback and backfill
+    let run_ref = match services::run_control::resolve_run_ref(&state.db, &run_id, &state.data_dir, true) {
+        Ok(r) => r,
+        Err(e) => return Json(e.to_json()),
     };
     
-    // Get basic stats from the run
-    let (events, segments, facts, signals, _, _, _) = services::run_control::read_run_stats(&handle.db_path);
-    
-    Json(serde_json::json!({
-        "success": true,
-        "data": {
-            "available": true,
-            "run_id": run_id,
-            "mode": mode,
-            "comparison": format!("Phase diff for {}", run_id),
-            "highlights": [],
-            "changes": [],
-            "stats": {
-                "total_changes": 0,
-                "events_total": events,
-                "facts_extracted": facts
+    let db_path = run_ref.workbench_db_path.clone();
+    if !db_path.exists() {
+        return Json(serde_json::json!({
+            "success": true,
+            "data": {
+                "available": false,
+                "reason_code": "MISSING_DB",
+                "message": format!("workbench.db not found for run '{}'", run_id),
+                "run_id": run_id,
+                "mode": mode
             }
-        }
-    }))
+        }));
+    }
+    
+    // Get basic stats from the run (SSoT: run_control::read_run_stats)
+    let (events, _segments, facts, _signals, _, _, _) = services::run_control::read_run_stats(&db_path);
+    
+    // Delegate to services::diff (SSoT for all diff logic)
+    let params = services::diff::DiffParams {
+        mode: mode.to_string(),
+        phase_minutes: query.phase_minutes,
+        baseline_run_id: query.baseline_run_id.clone(),
+        marker_ts: query.marker_ts,
+        baseline_filter: query.baseline_filter,
+    };
+    
+    match services::diff::run_diff(&db_path, &run_id, params, events, facts) {
+        Ok(result) => Json(serde_json::json!({
+            "success": true,
+            "data": result
+        })),
+        Err(e) => Json(e.to_json()),
+    }
 }
 
 // Playbooks/Packs handlers - TODO
@@ -4527,20 +6711,23 @@ async fn playbook_duplicate_handler(
     }))
 }
 
-/// GET /api/runs/:run_id/playbooks/eval - Per-run playbook evaluation with step trace
+/// GET /api/runs/:run_id/playbooks/eval - Per-run playbook evaluation with scope + reason codes
+///
+/// Returns ONLY playbooks in effective_playbook_ids (from playbook_scope).
+/// Each result includes:
+/// - in_scope: whether playbook was in run's scope
+/// - scope_mode: explicit|general_discovery|preset_default|none
+/// - status: fired|candidate|no_match|blocked|skipped
+/// - reason_codes: machine-readable explanations
+/// - slots: per-slot match results with reason_codes
 async fn run_playbooks_eval_handler(
     State(state): State<SharedState>,
     Path(run_id): Path<String>,
 ) -> Json<serde_json::Value> {
-    // Get run-scoped capability snapshot from run_meta.json (SSoT: no live probes)
     let run_dir = state.data_dir.join("runs").join(&run_id);
     let meta_path = run_dir.join("run_meta.json");
-    let capability = services::capability::get_capability_snapshot_from_meta(&meta_path);
-    let sysmon_installed = capability.get("sysmon_installed").and_then(|v| v.as_bool()).unwrap_or(false);
-    let security_log_accessible = capability.get("security_log_accessible").and_then(|v| v.as_bool()).unwrap_or(false);
-    let is_admin = capability.get("is_admin").and_then(|v| v.as_bool()).unwrap_or(false);
     
-    // Get playbook catalog data
+    // Get playbook catalog data FIRST (need this for scope expansion)
     let (playbooks_dir, _, _) = services::run_control::discover_playbooks_dir();
     if playbooks_dir.is_none() {
         return Json(serde_json::json!({
@@ -4553,13 +6740,40 @@ async fn run_playbooks_eval_handler(
             }
         }));
     }
+    let pb_dir = playbooks_dir.unwrap();
+    
+    // Discover ALL playbook IDs from filesystem
+    let all_playbook_ids = discover_all_playbook_ids(&pb_dir);
+    
+    // Read playbook_scope from run_meta.json (SSoT for what was evaluated)
+    let mut playbook_scope = read_playbook_scope(&meta_path);
+    
+    // SCOPE EXPANSION: If mode is GeneralDiscovery, replace effective_playbook_ids with ALL variants
+    // This ensures old runs with the 8-item set get expanded to all ~30 variants
+    if playbook_scope.mode == ScopeMode::GeneralDiscovery {
+        playbook_scope.effective_playbook_ids = all_playbook_ids.clone();
+        playbook_scope.rationale.note = format!(
+            "Evaluating all {} playbook variants (v2.0.0 - all variants mode)",
+            all_playbook_ids.len()
+        );
+    }
+    
+    let visibility = build_visibility_summary(&meta_path);
+    
+    // Get capability details
+    let capability = services::capability::get_capability_snapshot_from_meta(&meta_path);
+    let sysmon_installed = capability.get("sysmon_installed").and_then(|v| v.as_bool()).unwrap_or(false);
+    let security_log_accessible = capability.get("security_log_accessible").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_admin = capability.get("is_admin").and_then(|v| v.as_bool()).unwrap_or(false);
+    
+    // Build effective playbooks set for fast lookup
+    let effective_set = playbook_scope.effective_set();
     
     // Try to open run DB
     let conn = match services::run_control::open_run_db(&state.db, &run_id) {
         Ok(h) => h.conn,
         Err(_) => {
-            // Fallback path
-            let fallback_path = state.data_dir.join("runs").join(&run_id).join("workbench.db");
+            let fallback_path = run_dir.join("workbench.db");
             if fallback_path.exists() {
                 match services::run_control::open_db_with_wal(&fallback_path) {
                     Ok(c) => c,
@@ -4570,6 +6784,8 @@ async fn run_playbooks_eval_handler(
                                 "run_id": run_id,
                                 "available": false,
                                 "reason": "Run database not accessible",
+                                "playbook_scope": playbook_scope,
+                                "visibility": visibility,
                                 "evaluations": []
                             }
                         }));
@@ -4582,6 +6798,8 @@ async fn run_playbooks_eval_handler(
                         "run_id": run_id,
                         "available": false,
                         "reason": "Run not found",
+                        "playbook_scope": playbook_scope,
+                        "visibility": visibility,
                         "evaluations": []
                     }
                 }));
@@ -4591,9 +6809,8 @@ async fn run_playbooks_eval_handler(
     
     // Query signals to find fired playbooks
     let mut fired_playbooks: std::collections::HashMap<String, Vec<serde_json::Value>> = std::collections::HashMap::new();
-    
     if let Ok(mut stmt) = conn.prepare(
-        "SELECT signal_id, signal_type, severity, ts, metadata FROM signals ORDER BY ts DESC"
+        "SELECT signal_id, signal_type, severity, ts, evidence_ptrs FROM signals ORDER BY ts DESC"
     ) {
         if let Ok(rows) = stmt.query_map([], |row| {
             Ok((
@@ -4605,16 +6822,17 @@ async fn run_playbooks_eval_handler(
             ))
         }) {
             for row in rows.flatten() {
-                let (signal_id, signal_type, severity, ts, metadata) = row;
-                
-                // Parse metadata for evidence pointers
-                let evidence_ptrs: Vec<serde_json::Value> = metadata
-                    .and_then(|m| serde_json::from_str::<serde_json::Value>(&m).ok())
-                    .and_then(|v| v.get("evidence_ptrs").cloned())
-                    .and_then(|v| v.as_array().cloned())
+                let (signal_id, signal_type, severity, ts, evidence_ptrs_json) = row;
+                // evidence_ptrs is stored as JSON array in its own column
+                let evidence_ptrs: Vec<serde_json::Value> = evidence_ptrs_json
+                    .and_then(|json| serde_json::from_str::<Vec<serde_json::Value>>(&json).ok())
                     .unwrap_or_default();
                 
-                let entry = fired_playbooks.entry(signal_type.clone()).or_insert_with(Vec::new);
+                // Strip "playbook:" prefix from signal_type to match playbook_id
+                // Signal types are stored as "playbook:defense_evasion" but we match by "defense_evasion"
+                let playbook_key = signal_type.strip_prefix("playbook:").unwrap_or(&signal_type).to_string();
+                
+                let entry = fired_playbooks.entry(playbook_key).or_insert_with(Vec::new);
                 entry.push(serde_json::json!({
                     "signal_id": signal_id,
                     "severity": severity,
@@ -4625,7 +6843,7 @@ async fn run_playbooks_eval_handler(
         }
     }
     
-    // Query facts to determine what fact types are available
+    // Query available fact types
     let mut available_fact_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     if let Ok(mut stmt) = conn.prepare("SELECT DISTINCT fact_type FROM facts") {
         if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
@@ -4635,13 +6853,13 @@ async fn run_playbooks_eval_handler(
         }
     }
     
-    // Build evaluations for each playbook
-    let pb_dir = playbooks_dir.unwrap();
+    // Build evaluations - ONLY for in-scope playbooks
     let windows_dir = pb_dir.join("windows");
     let target_dir = if windows_dir.exists() { windows_dir } else { pb_dir.clone() };
     let custom_dir = pb_dir.join("custom");
     
-    let mut evaluations: Vec<serde_json::Value> = Vec::new();
+    let mut evaluations: Vec<PlaybookEvalResult> = Vec::new();
+    let mut out_of_scope: Vec<PlaybookEvalResult> = Vec::new();
     
     let dirs = vec![target_dir, custom_dir];
     for dir in dirs {
@@ -4659,20 +6877,36 @@ async fn run_playbooks_eval_handler(
                     continue;
                 }
                 
-                let playbook_id = path.file_stem()
+                let raw_playbook_id = path.file_stem()
                     .and_then(|n| n.to_str())
                     .unwrap_or("unknown")
                     .to_string();
                 
+                // Normalize playbook_id by stripping "signal_" prefix for scope matching
+                // Files are named signal_foo.yaml but scope uses just "foo"
+                let playbook_id = raw_playbook_id.strip_prefix("signal_")
+                    .unwrap_or(&raw_playbook_id)
+                    .to_string();
+                
+                // Check if playbook is in scope
+                let in_scope = effective_set.contains(&playbook_id);
+                
                 // Parse YAML for structure
                 let mut playbook_name = playbook_id.clone();
+                let mut playbook_family: Option<String> = None;
                 let mut requires: Vec<String> = Vec::new();
-                let mut steps: Vec<serde_json::Value> = Vec::new();
+                // Extended slot_defs to include evidence hints: (id, name, fact_types, required, expected_facts_rendered, evidence_hints)
+                let mut slot_defs: Vec<(String, String, Vec<String>, bool, Vec<String>, Option<serde_json::Value>)> = Vec::new();
                 
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
                         if let Some(n) = yaml.get("name").or(yaml.get("title")).and_then(|v| v.as_str()) {
                             playbook_name = n.to_string();
+                        }
+                        
+                        // Read family field from playbook YAML
+                        if let Some(f) = yaml.get("family").and_then(|v| v.as_str()) {
+                            playbook_family = Some(f.to_string());
                         }
                         
                         if let Some(reqs) = yaml.get("requires").and_then(|v| v.as_sequence()) {
@@ -4683,38 +6917,111 @@ async fn run_playbooks_eval_handler(
                             }
                         }
                         
-                        // Extract rules as steps
+                        // Extract rules as slots WITH expected facts and evidence hints
                         if let Some(rules) = yaml.get("rules").and_then(|v| v.as_sequence()) {
                             for (idx, rule) in rules.iter().enumerate() {
-                                let step_name = rule.get("name").and_then(|v| v.as_str())
-                                    .unwrap_or(&format!("Rule {}", idx + 1)).to_string();
-                                let mut expected_facts: Vec<String> = Vec::new();
-                                if let Some(conditions) = rule.get("conditions").and_then(|v| v.as_sequence()) {
-                                    for cond in conditions {
-                                        if let Some(tag) = cond.get("tag").and_then(|v| v.as_str()) {
-                                            expected_facts.push(tag.to_string());
+                                let default_name = format!("Rule {}", idx + 1);
+                                let slot_name = rule.get("name").and_then(|v| v.as_str())
+                                    .unwrap_or(&default_name).to_string();
+                                
+                                // Read expected facts from rule.expected.facts
+                                let mut expected_facts_rendered: Vec<String> = Vec::new();
+                                let mut evidence_hints: Option<serde_json::Value> = None;
+                                let mut fact_types: Vec<String> = Vec::new();
+                                
+                                // Try to access expected using mapping index with String key
+                                if let Some(mapping) = rule.as_mapping() {
+                                    let expected_key = serde_yaml::Value::String("expected".to_string());
+                                    if let Some(expected) = mapping.get(&expected_key) {
+                                        // Read human-readable facts
+                                        if let Some(facts) = expected.get("facts").and_then(|v| v.as_sequence()) {
+                                            for fact in facts {
+                                                if let Some(f) = fact.as_str() {
+                                                    expected_facts_rendered.push(f.to_string());
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Read variants if present
+                                        if let Some(variants) = expected.get("variants").and_then(|v| v.as_sequence()) {
+                                            for variant in variants {
+                                                if let Some(label) = variant.get("label").and_then(|v| v.as_str()) {
+                                                    if let Some(vfacts) = variant.get("facts").and_then(|v| v.as_sequence()) {
+                                                        for vf in vfacts {
+                                                            if let Some(f) = vf.as_str() {
+                                                                expected_facts_rendered.push(format!("[{}] {}", label, f));
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Read evidence hints
+                                        if let Some(evidence) = expected.get("evidence") {
+                                            let mut hints = serde_json::Map::new();
+                                            
+                                            if let Some(lens) = evidence.get("lens").and_then(|v| v.as_str()) {
+                                                hints.insert("lens".to_string(), serde_json::json!(lens));
+                                            }
+                                            if let Some(ft) = evidence.get("fact_types").and_then(|v| v.as_sequence()) {
+                                                let types: Vec<String> = ft.iter()
+                                                    .filter_map(|t| t.as_str().map(String::from))
+                                                    .collect();
+                                                fact_types = types.clone();
+                                                hints.insert("fact_types".to_string(), serde_json::json!(types));
+                                            }
+                                            if let Some(qt) = evidence.get("query_terms").and_then(|v| v.as_sequence()) {
+                                                let terms: Vec<String> = qt.iter()
+                                                    .filter_map(|t| t.as_str().map(String::from))
+                                                    .collect();
+                                                hints.insert("query_terms".to_string(), serde_json::json!(terms));
+                                            }
+                                            if let Some(eids) = evidence.get("event_ids").and_then(|v| v.as_sequence()) {
+                                                let ids: Vec<i64> = eids.iter()
+                                                    .filter_map(|e| e.as_i64())
+                                                    .collect();
+                                                hints.insert("event_ids".to_string(), serde_json::json!(ids));
+                                            }
+                                            
+                                            if !hints.is_empty() {
+                                                evidence_hints = Some(serde_json::Value::Object(hints));
+                                            }
                                         }
                                     }
                                 }
-                                steps.push(serde_json::json!({
-                                    "id": format!("rule_{}", idx),
-                                    "name": step_name,
-                                    "expected_fact_types": expected_facts
-                                }));
+                                
+                                // Fallback: extract fact_type from conditions if not in expected.evidence
+                                if fact_types.is_empty() {
+                                    if let Some(conditions) = rule.get("conditions").and_then(|v| v.as_sequence()) {
+                                        for cond in conditions {
+                                            if let Some(ft) = cond.get("fact_type").and_then(|v| v.as_str()) {
+                                                if !fact_types.contains(&ft.to_string()) {
+                                                    fact_types.push(ft.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                slot_defs.push((format!("rule_{}", idx), slot_name.clone(), fact_types, true, expected_facts_rendered.clone(), evidence_hints));
                             }
                         }
                         
                         // Derive from input_facts if no rules
-                        if steps.is_empty() {
+                        if slot_defs.is_empty() {
                             if let Some(input_facts) = yaml.get("input_facts") {
                                 if let Some(req_facts) = input_facts.get("required").and_then(|v| v.as_sequence()) {
                                     for fact in req_facts {
                                         if let Some(ft) = fact.as_str() {
-                                            steps.push(serde_json::json!({
-                                                "id": format!("fact_{}", ft.to_lowercase()),
-                                                "name": ft,
-                                                "expected_fact_types": [ft]
-                                            }));
+                                            slot_defs.push((
+                                                format!("fact_{}", ft.to_lowercase()),
+                                                ft.to_string(),
+                                                vec![ft.to_string()],
+                                                true,
+                                                vec![format!("{} fact required", ft)],
+                                                None
+                                            ));
                                         }
                                     }
                                 }
@@ -4723,23 +7030,42 @@ async fn run_playbooks_eval_handler(
                     }
                 }
                 
-                // Determine blocked status
+                // Determine scope reason code
+                let scope_reason = match playbook_scope.mode {
+                    ScopeMode::Explicit => EvalReasonCode::UserSelectedScope,
+                    ScopeMode::GeneralDiscovery => EvalReasonCode::NoSelectionDefaultedToDiscovery,
+                    ScopeMode::PresetDefault => EvalReasonCode::PresetDefaultScope,
+                    ScopeMode::None => EvalReasonCode::OutOfScopeSkipped,
+                };
+                
+                // If out of scope, create skipped result
+                if !in_scope {
+                    out_of_scope.push(PlaybookEvalResult::skipped(
+                        &run_id,
+                        &playbook_id,
+                        &playbook_name,
+                        visibility.clone(),
+                    ));
+                    continue;
+                }
+                
+                // Determine visibility-based blocking
                 let mut blocked = false;
-                let mut blocked_reason: Option<String> = None;
+                let mut block_reason: Option<EvalReasonCode> = None;
                 
                 for req in &requires {
                     match req.as_str() {
                         "sysmon" if !sysmon_installed => {
                             blocked = true;
-                            blocked_reason = Some("Sysmon not installed".to_string());
+                            block_reason = Some(EvalReasonCode::MissingSensorSysmon);
                         }
                         "security_log" | "security" if !security_log_accessible => {
                             blocked = true;
-                            blocked_reason = Some("Security log not accessible".to_string());
+                            block_reason = Some(EvalReasonCode::LogAccessDenied);
                         }
                         "admin" | "administrator" if !is_admin => {
                             blocked = true;
-                            blocked_reason = Some("Requires Administrator".to_string());
+                            block_reason = Some(EvalReasonCode::ProviderUnavailable);
                         }
                         _ => {}
                     }
@@ -4748,97 +7074,189 @@ async fn run_playbooks_eval_handler(
                     }
                 }
                 
-                // Determine eval status
-                let fired_signals = fired_playbooks.get(&playbook_id).cloned();
-                let is_fired = fired_signals.is_some() && !fired_signals.as_ref().unwrap().is_empty();
+                // Determine fired status
+                let fired_signals = fired_playbooks.get(&playbook_id);
+                let is_fired = fired_signals.map(|s| !s.is_empty()).unwrap_or(false);
                 
-                let status = if blocked {
-                    "blocked"
-                } else if is_fired {
-                    "fired"
-                } else {
-                    "no_match"
-                };
+                // Extract evidence pointers from fired signals for match_trace
+                let evidence_refs_from_signal: Vec<EvidenceRef> = fired_signals
+                    .and_then(|sigs| sigs.first())
+                    .and_then(|s| s.get("evidence_pointers"))
+                    .and_then(|v| v.as_array())
+                    .map(|ptrs| {
+                        ptrs.iter().filter_map(|ptr| {
+                            Some(EvidenceRef {
+                                fact_id: ptr.get("fact_id").and_then(|v| v.as_str()).map(String::from),
+                                segment_id: ptr.get("segment_id").and_then(|v| v.as_str()).map(String::from),
+                                record_index: ptr.get("record_index").and_then(|v| v.as_u64()).map(|n| n as u32),
+                                fact_type: ptr.get("fact_type").and_then(|v| v.as_str()).map(String::from),
+                                ts: ptr.get("ts").and_then(|v| v.as_i64()),
+                            })
+                        }).collect()
+                    })
+                    .unwrap_or_default();
                 
-                // Build step statuses
-                let mut step_statuses: Vec<serde_json::Value> = Vec::new();
+                // Build slot results
+                let mut slots: Vec<SlotEvalResult> = Vec::new();
+                let mut slots_matched = 0u32;
                 
-                for step in &steps {
-                    let step_id = step.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    let step_name = step.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let expected_facts = step.get("expected_fact_types")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>())
-                        .unwrap_or_default();
+                for (slot_id, slot_name, fact_types, required, expected_facts_rendered, evidence_hints) in &slot_defs {
+                    let has_matching_facts = fact_types.iter()
+                        .any(|ft| available_fact_types.contains(ft));
                     
-                    let step_status = if blocked {
-                        serde_json::json!({
-                            "step_id": step_id,
-                            "step_name": step_name,
-                            "status": "blocked",
-                            "reason": blocked_reason.clone(),
-                            "expected_fact_types": expected_facts
-                        })
+                    // IMPORTANT: is_fired takes precedence over blocked
+                    // If a signal fired, the playbook detected something regardless of current visibility
+                    let (slot_status, slot_reason, match_count) = if is_fired {
+                        slots_matched += 1;
+                        // Use evidence count from signal, default to 1 if fired
+                        let count = evidence_refs_from_signal.len().max(1) as u32;
+                        (SlotEvalStatus::Matched, EvalReasonCode::AllSlotsSatisfied, count)
+                    } else if blocked {
+                        (SlotEvalStatus::Blocked, block_reason.clone().unwrap_or(EvalReasonCode::ProviderUnavailable), 0)
+                    } else if has_matching_facts {
+                        // Facts exist but playbook didn't fire - partial
+                        (SlotEvalStatus::Missing, EvalReasonCode::NoMatchingFacts, 0)
                     } else {
-                        // Check if any expected facts are available
-                        let has_matching_facts = expected_facts.iter()
-                            .any(|ft| available_fact_types.contains(*ft));
-                        
-                        if is_fired {
-                            serde_json::json!({
-                                "step_id": step_id,
-                                "step_name": step_name,
-                                "status": "matched",
-                                "expected_fact_types": expected_facts,
-                                "note": "Trace unavailable: detailed linkage not yet implemented"
-                            })
-                        } else if has_matching_facts {
-                            serde_json::json!({
-                                "step_id": step_id,
-                                "step_name": step_name,
-                                "status": "partial",
-                                "expected_fact_types": expected_facts,
-                                "reason": "Facts exist but conditions not fully met"
-                            })
-                        } else {
-                            serde_json::json!({
-                                "step_id": step_id,
-                                "step_name": step_name,
-                                "status": "unmatched",
-                                "expected_fact_types": expected_facts,
-                                "reason": "No matching facts observed"
-                            })
+                        (SlotEvalStatus::Missing, EvalReasonCode::NoMatchingFacts, 0)
+                    };
+                    
+                    // Build search hints from evidence_hints if available
+                    // IMPORTANT: Always provide search_hints (not Option) to eliminate UI inference
+                    // EVIDENCE TAB UPGRADE: Populate query_terms for reliable tokenized search
+                    let search_hints = if let Some(hints) = evidence_hints {
+                        let raw_terms: Vec<String> = hints.get("query_terms").and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+                            .unwrap_or_default();
+                        SlotSearchHints {
+                            lens: hints.get("lens").and_then(|v| v.as_str()).map(String::from),
+                            query: if raw_terms.is_empty() { 
+                                Some(slot_name.replace('_', " "))
+                            } else {
+                                Some(raw_terms.join(" "))
+                            },
+                            query_terms: if raw_terms.is_empty() {
+                                // Fallback: tokenize slot_name 
+                                slot_name.split('_').map(String::from).collect()
+                            } else {
+                                raw_terms
+                            },
+                            fact_types: hints.get("fact_types").and_then(|v| v.as_array())
+                                .map(|arr| arr.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+                                .unwrap_or_else(|| fact_types.clone()),
+                            host: hints.get("host").and_then(|v| v.as_str()).map(String::from),
+                            time_range: None, // TODO: Extract from hints if present
+                        }
+                    } else {
+                        // No explicit evidence hints - synthesize from slot_name + fact_types
+                        // This ensures UI NEVER has to infer
+                        SlotSearchHints {
+                            lens: None,
+                            query: Some(slot_name.replace('_', " ")), // Convert snake_case to words
+                            query_terms: slot_name.split('_').map(String::from).collect(),
+                            fact_types: if fact_types.is_empty() && !expected_facts_rendered.is_empty() {
+                                // Use expected_facts as hint if no fact_types available
+                                expected_facts_rendered.iter().take(3).cloned().collect()
+                            } else {
+                                fact_types.clone()
+                            },
+                            host: None,
+                            time_range: None,
                         }
                     };
                     
-                    step_statuses.push(step_status);
+                    // Build match_trace - backend-authored proof of evidence
+                    let match_trace = if slot_status == SlotEvalStatus::Matched {
+                        MatchTrace::matched_with_count(match_count, evidence_refs_from_signal.clone())
+                    } else {
+                        MatchTrace::unmatched()
+                    };
+                    
+                    slots.push(SlotEvalResult {
+                        slot_id: slot_id.clone(),
+                        slot_name: slot_name.clone(),
+                        required: *required,
+                        status: slot_status,
+                        match_count,
+                        reason_code: slot_reason,
+                        search_hints,
+                        expected_fact_types: expected_facts_rendered.clone(),
+                        match_trace,
+                    });
                 }
                 
-                evaluations.push(serde_json::json!({
-                    "playbook_id": playbook_id,
-                    "playbook_name": playbook_name,
-                    "status": status,
-                    "blocked": blocked,
-                    "blocked_reason": blocked_reason,
-                    "fired_signals": fired_signals,
-                    "step_statuses": step_statuses,
-                    "trace_available": !steps.is_empty(),
-                    "trace_note": if steps.is_empty() { 
-                        Some("Trace unavailable: playbook lacks explicit step structure") 
-                    } else { 
-                        None 
-                    }
-                }));
+                // Determine overall status
+                // IMPORTANT: is_fired takes precedence - if signal exists, playbook fired
+                let (status, reason_codes) = if is_fired {
+                    (PlaybookEvalStatus::Fired, vec![scope_reason, EvalReasonCode::AllSlotsSatisfied])
+                } else if blocked {
+                    (PlaybookEvalStatus::Blocked, vec![block_reason.unwrap()])
+                } else if slots_matched > 0 {
+                    (PlaybookEvalStatus::Candidate, vec![scope_reason, EvalReasonCode::PartialSlotsSatisfied])
+                } else {
+                    (PlaybookEvalStatus::NoMatch, vec![scope_reason, EvalReasonCode::NoMatchingFacts])
+                };
+                
+                // Get severity from fired signals
+                let severity = fired_signals
+                    .and_then(|sigs| sigs.first())
+                    .and_then(|s| s.get("severity"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                
+                // Generate backend-authored narrative (explainability contract)
+                let narrative = generate_narrative(
+                    &playbook_name,
+                    &status,
+                    &reason_codes,
+                    &visibility,
+                    &slots,
+                    slots_matched,
+                    slot_defs.len() as u32,
+                );
+                
+                evaluations.push(PlaybookEvalResult {
+                    run_id: run_id.clone(),
+                    playbook_id,
+                    playbook_name,
+                    family: playbook_family,
+                    in_scope: true,
+                    scope_mode: playbook_scope.mode.clone(),
+                    status,
+                    severity,
+                    slots_matched,
+                    total_slots: slot_defs.len() as u32,
+                    window_remark: None,
+                    visibility: visibility.clone(),
+                    reason_codes,
+                    slots,
+                    narrative: Some(narrative),
+                });
             }
         }
     }
     
+    // Build response with new format
+    let response = PlaybooksEvalResponse {
+        run_id: run_id.clone(),
+        available: true,
+        reason: None,
+        playbook_scope,
+        visibility: visibility.clone(),
+        evaluations: evaluations.clone(),
+        out_of_scope: if out_of_scope.is_empty() { None } else { Some(out_of_scope.clone()) },
+    };
+    
+    // Return in backward-compatible wrapper format
     Json(serde_json::json!({
         "success": true,
         "data": {
             "run_id": run_id,
             "available": true,
-            "evaluations": evaluations,
+            "playbook_scope": response.playbook_scope,
+            "visibility": response.visibility,
+            "evaluations": response.evaluations,
+            "out_of_scope_count": out_of_scope.len(),
+            // Legacy fields for backward compatibility
             "capability": {
                 "sysmon_installed": sysmon_installed,
                 "security_log_accessible": security_log_accessible,
@@ -4899,7 +7317,7 @@ async fn get_pack_handler(
     State(state): State<SharedState>,
     Path(pack_name): Path<String>,
 ) -> Json<serde_json::Value> {
-    // Handle built-in pack
+    // Handle built-in pack (always allowed)
     if pack_name == "builtin" {
         let (playbooks_dir, _, _) = services::run_control::discover_playbooks_dir();
         let (count, hash) = if let Some(pb_dir) = playbooks_dir {
@@ -4928,6 +7346,12 @@ async fn get_pack_handler(
         }));
     }
     
+    // Tier gate: Custom packs require Pro
+    if !resolve_current_tier().has_access(services::types::ProductTier::Pro) {
+        let (_, json) = feature_locked_403("Custom Content Packs", services::types::ProductTier::Pro);
+        return json;
+    }
+    
     let packs_dir = state.data_dir.join("packs");
     match services::packs::get_pack_details(&packs_dir, &pack_name) {
         Some(pack) => Json(serde_json::json!({
@@ -4937,7 +7361,7 @@ async fn get_pack_handler(
         None => Json(serde_json::json!({
             "success": false,
             "error": format!("Pack '{}' not found", pack_name),
-            "reason_code": "PACK_NOT_FOUND"
+            "code": "PACK_NOT_FOUND"
         })),
     }
 }
@@ -5427,6 +7851,393 @@ async fn capability_gaps_handler(
             "recommendations": []
         }
     })))
+}
+
+// ============================================================================
+// MICRO CHAINS - Canonical backend source of truth
+// ============================================================================
+
+/// GET /api/chains - List all chain definitions
+async fn chains_list_handler() -> Json<serde_json::Value> {
+    let chains = services::chains::get_all_chains();
+    
+    // Convert to JSON-friendly format
+    let chains_json: Vec<serde_json::Value> = chains.iter().map(|c| {
+        serde_json::json!({
+            "id": c.id,
+            "title": c.title,
+            "description": c.description,
+            "icon": c.icon,
+            "category": c.category,
+            "steps": c.steps.iter().map(|s| serde_json::json!({
+                "id": s.id,
+                "title": s.title,
+                "description": s.description,
+                "icon": s.icon
+            })).collect::<Vec<_>>(),
+            "match_rules": {
+                "include_patterns": c.match_rules.include_patterns,
+                "include_ids": c.match_rules.include_ids,
+                "exclude_patterns": c.match_rules.exclude_patterns
+            },
+            "requirements": c.requirements
+        })
+    }).collect();
+    
+    Json(serde_json::json!({
+        "success": true,
+        "data": {
+            "chains": chains_json,
+            "count": chains.len()
+        }
+    }))
+}
+
+/// POST /api/chains/compile - Compile chain stack to playbook selections
+/// Body: { "chain_ids": ["process-injection", "credential-dump"], "preset_id": null }
+async fn chains_compile_handler(
+    Json(req): Json<services::chains::CompileRequest>,
+) -> Json<serde_json::Value> {
+    // Get playbook catalog for pattern matching
+    let playbooks = get_playbook_catalog_for_chains();
+    
+    // Compile chain stack
+    let result = services::chains::compile_chain_stack(&req.chain_ids, &playbooks);
+    
+    // Convert to JSON format expected by frontend
+    let chains_json: Vec<serde_json::Value> = result.baseline.chains.iter().map(|c| {
+        let step_to_playbooks: HashMap<String, serde_json::Value> = c.step_to_playbooks.iter()
+            .map(|(k, v)| (k.clone(), serde_json::json!({
+                "stepId": v.step_id,
+                "chainId": v.chain_id,
+                "title": v.title,
+                "icon": v.icon,
+                "description": v.description,
+                "playbookIds": v.playbook_ids
+            })))
+            .collect();
+        
+        serde_json::json!({
+            "chainId": c.chain_id,
+            "title": c.title,
+            "icon": c.icon,
+            "steps": c.steps.iter().map(|s| serde_json::json!({
+                "id": s.id,
+                "title": s.title,
+                "description": s.description,
+                "icon": s.icon
+            })).collect::<Vec<_>>(),
+            "compiledPlaybookIds": c.compiled_playbook_ids,
+            "stepToPlaybooks": step_to_playbooks
+        })
+    }).collect();
+    
+    Json(serde_json::json!({
+        "success": result.success,
+        "baseline": {
+            "type": result.baseline.baseline_type,
+            "chains": chains_json,
+            "baselinePlaybookIds": result.baseline.baseline_playbook_ids
+        },
+        "errors": result.errors
+    }))
+}
+
+/// Helper: Get playbook catalog in format needed for chain compilation
+fn get_playbook_catalog_for_chains() -> Vec<services::chains::PlaybookInfo> {
+    let (playbooks_dir, _, _) = services::run_control::discover_playbooks_dir();
+    
+    if playbooks_dir.is_none() {
+        return Vec::new();
+    }
+    
+    let pb_dir = playbooks_dir.unwrap();
+    let windows_dir = pb_dir.join("windows");
+    let target_dir = if windows_dir.exists() { windows_dir } else { pb_dir.clone() };
+    
+    let mut playbooks: Vec<services::chains::PlaybookInfo> = Vec::new();
+    
+    // Scan playbooks directory
+    if let Ok(entries) = std::fs::read_dir(&target_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.extension().map(|e| e == "yaml" || e == "yml").unwrap_or(false) {
+                continue;
+            }
+            
+            let playbook_id = path.file_stem()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            
+            // Parse YAML to extract metadata
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(yaml) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+                    let title = yaml.get("name")
+                        .or_else(|| yaml.get("title"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&playbook_id)
+                        .to_string();
+                    
+                    let category = yaml.get("family")
+                        .or_else(|| yaml.get("category"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    
+                    let family = yaml.get("family")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    
+                    playbooks.push(services::chains::PlaybookInfo {
+                        playbook_id,
+                        title,
+                        category,
+                        family,
+                    });
+                }
+            }
+        }
+    }
+    
+    playbooks
+}
+
+// ============================================================================
+// RUN STEP STATUS - Backend-canonical satisfaction tracking
+// ============================================================================
+
+/// GET /api/runs/:run_id/step_status
+/// Computes step satisfaction for a chain stack based on actual run evidence.
+/// This is the canonical source of truth - frontend must NOT duplicate this logic.
+///
+/// Query params:
+/// - chain_ids: comma-separated list of chain IDs (required)
+///
+/// Response:
+/// {
+///   "success": bool,
+///   "run_id": string,
+///   "chains": [{ chain_id, title, steps: [{ step_id, state, evidence_refs_count, ... }] }],
+///   "is_live": bool,  // true if run is still capturing
+///   "generated_at": string
+/// }
+async fn run_step_status_handler(
+    State(state): State<SharedState>,
+    Path(run_id): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    // Parse chain_ids from query params
+    let chain_ids: Vec<String> = params.get("chain_ids")
+        .map(|s| s.split(',').map(|id| id.trim().to_string()).filter(|id| !id.is_empty()).collect())
+        .unwrap_or_default();
+    
+    if chain_ids.is_empty() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "chain_ids query parameter required",
+            "hint": "Usage: /api/runs/:run_id/step_status?chain_ids=process-injection,credential-dump"
+        }));
+    }
+    
+    // Check if run exists and get run_dir
+    let (run_dir, run_record) = match services::run_control::resolve_run_dir(&state.db, &run_id) {
+        Ok(r) => r,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": e.message,
+                "code": format!("{:?}", e.code)
+            }));
+        }
+    };
+    
+    // Determine if run is live (still capturing)
+    let is_live = run_record.status == "capturing" || run_record.status == "active";
+    
+    // Open workbench DB
+    let workbench_db_path = run_dir.join("workbench.db");
+    let workbench_conn = match rusqlite::Connection::open(&workbench_db_path) {
+        Ok(c) => c,
+        Err(e) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to open workbench DB: {}", e),
+                "is_live": is_live
+            }));
+        }
+    };
+    
+    // Query signals from workbench DB
+    let signals = query_run_signals_for_step_status(&workbench_conn);
+    
+    // Get capability snapshot from run facts
+    let capability = get_capability_snapshot_from_run(&workbench_conn);
+    
+    // Get playbook catalog
+    let playbooks = get_playbook_catalog_for_chains();
+    
+    // Compute step status using canonical backend logic
+    let chain_statuses = services::chains::compute_step_status(
+        &chain_ids,
+        &signals,
+        &capability,
+        &playbooks,
+    );
+    
+    // Convert to JSON response
+    let chains_json: Vec<serde_json::Value> = chain_statuses.iter().map(|cs| {
+        let steps_json: Vec<serde_json::Value> = cs.steps.iter().map(|ss| {
+            serde_json::json!({
+                "step_id": ss.step_id,
+                "title": ss.title,
+                "icon": ss.icon,
+                "state": ss.state.as_str(),
+                "evidence_refs_count": ss.evidence_refs_count,
+                "matched_playbooks": ss.matched_playbooks,
+                "matched_signals": ss.matched_signals.iter().map(|sm| serde_json::json!({
+                    "signal_id": sm.signal_id,
+                    "playbook_id": sm.playbook_id,
+                    "severity": sm.severity,
+                    "evidence_count": sm.evidence_count
+                })).collect::<Vec<_>>(),
+                "why": ss.why,
+                "coverage_gaps": ss.coverage_gaps
+            })
+        }).collect();
+        
+        serde_json::json!({
+            "chain_id": cs.chain_id,
+            "title": cs.title,
+            "icon": cs.icon,
+            "steps": steps_json
+        })
+    }).collect();
+    
+    Json(serde_json::json!({
+        "success": true,
+        "run_id": run_id,
+        "chains": chains_json,
+        "is_live": is_live,
+        "generated_at": chrono::Utc::now().to_rfc3339()
+    }))
+}
+
+/// Query signals from workbench DB for step status computation
+fn query_run_signals_for_step_status(conn: &rusqlite::Connection) -> Vec<services::chains::RunSignal> {
+    let mut signals: Vec<services::chains::RunSignal> = Vec::new();
+    
+    let query = r#"
+        SELECT 
+            signal_id,
+            signal_type,
+            severity,
+            evidence_ptrs
+        FROM signals
+        ORDER BY timestamp DESC
+    "#;
+    
+    let result: Result<Vec<_>, _> = conn.prepare(query)
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                let signal_id: String = row.get(0)?;
+                let signal_type: String = row.get(1)?;
+                let severity: String = row.get(2)?;
+                let evidence_ptrs_json: Option<String> = row.get(3)?;
+                
+                Ok((signal_id, signal_type, severity, evidence_ptrs_json))
+            })?.collect()
+        });
+    
+    if let Ok(rows) = result {
+        for (signal_id, signal_type, severity, evidence_ptrs_json) in rows {
+            // Extract playbook_id from signal_type (format: "playbook:xxx")
+            let playbook_id = signal_type
+                .strip_prefix("playbook:")
+                .unwrap_or(&signal_type)
+                .to_string();
+            
+            // Parse evidence_ptrs JSON
+            let evidence_refs: Vec<serde_json::Value> = evidence_ptrs_json
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_default();
+            
+            signals.push(services::chains::RunSignal {
+                signal_id,
+                signal_type,
+                playbook_id,
+                severity,
+                evidence_refs,
+            });
+        }
+    }
+    
+    signals
+}
+
+/// Get capability snapshot from run facts
+fn get_capability_snapshot_from_run(conn: &rusqlite::Connection) -> services::chains::CapabilitySnapshot {
+    let mut snapshot = services::chains::CapabilitySnapshot::default();
+    
+    // Query facts table for capability information
+    let query = r#"
+        SELECT fact_type, fact_value FROM facts
+        WHERE fact_type IN ('sysmon_installed', 'is_admin', 'security_log_accessible', 'channel_status')
+    "#;
+    
+    let result: Result<Vec<_>, _> = conn.prepare(query)
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| {
+                let fact_type: String = row.get(0)?;
+                let fact_value: String = row.get(1)?;
+                Ok((fact_type, fact_value))
+            })?.collect()
+        });
+    
+    if let Ok(facts) = result {
+        for (fact_type, fact_value) in facts {
+            match fact_type.as_str() {
+                "sysmon_installed" => {
+                    snapshot.sysmon_installed = fact_value.to_lowercase() == "true" 
+                        || fact_value == "1" 
+                        || fact_value.to_lowercase() == "yes";
+                }
+                "is_admin" => {
+                    snapshot.is_admin = fact_value.to_lowercase() == "true" 
+                        || fact_value == "1" 
+                        || fact_value.to_lowercase() == "yes";
+                }
+                "security_log_accessible" => {
+                    snapshot.security_log_accessible = fact_value.to_lowercase() == "true" 
+                        || fact_value == "1" 
+                        || fact_value.to_lowercase() == "yes";
+                }
+                "channel_status" => {
+                    // Parse channel status JSON
+                    if let Ok(channels) = serde_json::from_str::<HashMap<String, bool>>(&fact_value) {
+                        snapshot.channels = channels;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    // Fallback: Try to infer from event sources if facts not available
+    if !snapshot.sysmon_installed {
+        // Check if any Sysmon events exist
+        let sysmon_check = conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE provider_name LIKE '%Sysmon%' LIMIT 1",
+            [],
+            |row| row.get::<_, i64>(0)
+        );
+        if let Ok(count) = sysmon_check {
+            snapshot.sysmon_installed = count > 0;
+        }
+    }
+    
+    snapshot
 }
 
 // Features - TODO

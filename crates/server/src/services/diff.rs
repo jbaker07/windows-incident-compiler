@@ -2,6 +2,9 @@
 //!
 //! Handles Diff v2 with phase/baseline/marker modes.
 //! All business logic for change detection lives here.
+//! 
+//! SSoT: This is the SINGLE SOURCE OF TRUTH for diff computation.
+//! Handlers should call run_diff() and wrap the response, not implement diff logic.
 
 use crate::services::types::{DiffCategory, DiffChange, DiffDirection, DiffEntities, DiffMode};
 use crate::services::run_control::open_db_with_wal;
@@ -381,4 +384,242 @@ pub fn severity_hint_from_signal(severity: &str) -> &'static str {
         "low" => "low",
         _ => "info",
     }
+}
+// ============================================================================
+// Diff Result Types
+// ============================================================================
+
+/// Result of running a diff operation
+#[derive(Debug, serde::Serialize)]
+pub struct DiffResult {
+    pub available: bool,
+    pub run_id: String,
+    pub mode: String,
+    pub comparison: String,
+    pub highlights: Vec<serde_json::Value>,
+    pub changes: Vec<DiffChange>,
+    pub stats: DiffStats,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Statistics for a diff operation
+#[derive(Debug, serde::Serialize)]
+pub struct DiffStats {
+    pub total_changes: usize,
+    pub events_total: u64,
+    pub facts_extracted: u64,
+}
+
+/// Error type for diff operations with contract-compliant fields
+#[derive(Debug)]
+pub struct DiffError {
+    pub error: String,
+    pub code: String,
+}
+
+impl DiffError {
+    pub fn invalid_mode(mode: &str) -> Self {
+        Self {
+            error: format!("Invalid diff mode: {}", mode),
+            code: "INVALID_MODE".to_string(),
+        }
+    }
+    
+    pub fn db_error(msg: &str) -> Self {
+        Self {
+            error: msg.to_string(),
+            code: "DB_ERROR".to_string(),
+        }
+    }
+    
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "success": false,
+            "error": self.error,
+            "code": self.code
+        })
+    }
+}
+
+// ============================================================================
+// Main Entry Point (SSoT)
+// ============================================================================
+
+/// Parameters for diff operation
+pub struct DiffParams {
+    pub mode: String,
+    pub phase_minutes: Option<i64>,
+    pub baseline_run_id: Option<String>,
+    pub marker_ts: Option<i64>,
+    pub baseline_filter: Option<bool>,
+}
+
+/// Execute diff operation - SINGLE SOURCE OF TRUTH
+/// 
+/// Handlers should call this function and wrap the result.
+/// This function contains ALL diff business logic.
+pub fn run_diff(
+    db_path: &Path,
+    run_id: &str,
+    params: DiffParams,
+    events_total: u64,
+    facts_extracted: u64,
+) -> Result<DiffResult, DiffError> {
+    let mode = params.mode.as_str();
+    
+    // Validate mode
+    match mode {
+        "phase" | "baseline" | "marker" => {}
+        _ => return Err(DiffError::invalid_mode(mode)),
+    }
+    
+    // Execute appropriate diff mode
+    let changes = match mode {
+        "phase" => {
+            let phase_minutes = params.phase_minutes.unwrap_or(2);
+            diff_phase(db_path, run_id, phase_minutes, None)
+                .map_err(|e| DiffError::db_error(&e))?
+        }
+        "baseline" => {
+            // Get baseline keys if baseline_run_id provided
+            let baseline_keys = if let Some(ref baseline_id) = params.baseline_run_id {
+                let baseline_path = db_path.parent()
+                    .unwrap_or(Path::new("."))
+                    .parent()
+                    .unwrap_or(Path::new("."))
+                    .join(baseline_id)
+                    .join("workbench.db");
+                if baseline_path.exists() {
+                    Some(load_baseline_keys(&baseline_path, baseline_id)
+                        .map_err(|e| DiffError::db_error(&e))?)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            diff_phase(db_path, run_id, 2, baseline_keys.as_ref())
+                .map_err(|e| DiffError::db_error(&e))?
+        }
+        "marker" => {
+            let marker_ts = params.marker_ts.unwrap_or(0);
+            if marker_ts == 0 {
+                // No marker set, return empty diff
+                vec![]
+            } else {
+                diff_around_marker(db_path, run_id, marker_ts)
+                    .map_err(|e| DiffError::db_error(&e))?
+            }
+        }
+        _ => vec![], // Already validated above
+    };
+    
+    let total_changes = changes.len();
+    let comparison = match mode {
+        "phase" => format!("Phase diff for {}", run_id),
+        "baseline" => format!("Baseline diff for {}", run_id),
+        "marker" => format!("Marker diff for {}", run_id),
+        _ => format!("Diff for {}", run_id),
+    };
+    
+    // Build highlights from top changes
+    let highlights: Vec<serde_json::Value> = changes.iter()
+        .take(3)
+        .map(|c| serde_json::json!({
+            "category": c.category.as_str(),
+            "direction": c.direction.as_str(),
+            "severity": c.severity,
+            "title": c.title
+        }))
+        .collect();
+    
+    Ok(DiffResult {
+        available: true,
+        run_id: run_id.to_string(),
+        mode: mode.to_string(),
+        comparison,
+        highlights,
+        changes,
+        stats: DiffStats {
+            total_changes,
+            events_total,
+            facts_extracted,
+        },
+        reason_code: None,
+        message: None,
+    })
+}
+
+/// Load baseline stable keys from a baseline run's database
+fn load_baseline_keys(db_path: &Path, run_id: &str) -> Result<HashSet<String>, String> {
+    let conn = open_db_with_wal(db_path).map_err(|e| format!("DB error: {}", e))?;
+    let mut keys = HashSet::new();
+    
+    let query = r#"
+        SELECT fact_key, fact_type, value_json
+        FROM facts
+        WHERE run_id = ?
+    "#;
+    
+    let mut stmt = conn.prepare(query).map_err(|e| format!("Query error: {}", e))?;
+    let rows = stmt
+        .query_map([run_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Query error: {}", e))?;
+    
+    for row in rows.flatten() {
+        let (_fact_key, fact_type, value_json) = row;
+        let value: serde_json::Value = value_json
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(serde_json::json!({}));
+        
+        let host = value.get("host").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let category = DiffCategory::from_fact_type(&fact_type);
+        let stable_key = build_stable_key(category, &value, host);
+        keys.insert(stable_key);
+    }
+    
+    Ok(keys)
+}
+
+/// Execute marker-mode diff (around a specific timestamp)
+fn diff_around_marker(
+    db_path: &Path,
+    run_id: &str,
+    marker_ts: i64,
+) -> Result<Vec<DiffChange>, String> {
+    let conn = open_db_with_wal(db_path).map_err(|e| format!("DB error: {}", e))?;
+    
+    // Get time range
+    let (min_ts, max_ts): (i64, i64) = conn
+        .query_row(
+            "SELECT COALESCE(MIN(ts), 0), COALESCE(MAX(ts), 0) FROM facts WHERE run_id = ?",
+            [run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap_or((0, 0));
+    
+    if min_ts == 0 || max_ts == 0 || marker_ts < min_ts || marker_ts > max_ts {
+        return Ok(vec![]);
+    }
+    
+    // Get facts before marker
+    let before_keys = get_phase_keys(&conn, run_id, min_ts, marker_ts)?;
+    
+    // Get facts after marker  
+    let after_keys = get_phase_keys(&conn, run_id, marker_ts, max_ts)?;
+    
+    // Compute diff
+    let changes = compute_key_diff(&before_keys, &after_keys, None);
+    
+    Ok(changes)
 }

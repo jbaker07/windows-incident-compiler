@@ -69,6 +69,10 @@ pub struct StartRunRequest {
     /// Optional label for the run
     #[serde(default)]
     pub run_label: Option<String>,
+    /// Chain IDs for Investigate tab (INVESTIGATE_CHAINS-1)
+    /// Stored with run for persistence across reloads
+    #[serde(default)]
+    pub chain_ids: Option<Vec<String>>,
 }
 
 /// Response from start

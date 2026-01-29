@@ -4,6 +4,7 @@
 # Monitors TaskScheduler/Operational events for suspicious task patterns
 
 name: "Windows Task Scheduler Persistence"
+family: "persistence"
 id: "windows_task_persistence_001"
 version: "1.0"
 description: |
@@ -38,6 +39,16 @@ rules:
           - "persistence"
           - "scheduled_task"
           - "initial_access"
+    expected:
+      facts:
+        - "Scheduled task created with persistence indicators"
+        - "Task Scheduler used for persistence mechanism"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec", "PersistArtifact"]
+        query_terms: ["schtasks", "task", "create", "schedule"]
+        event_ids: [4698, 4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "task_scheduler"
         field_mapping:
@@ -58,6 +69,16 @@ rules:
         tags:
           - "privilege_escalation"
           - "persistence"
+    expected:
+      facts:
+        - "Scheduled task modified by non-administrative user"
+        - "Potential privilege escalation via task modification"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec", "PersistArtifact"]
+        query_terms: ["schtasks", "task", "modify", "change"]
+        event_ids: [4702, 4688, 1]
+      visibility_requires: ["security_log"]
 
 # Playbook response
 response:

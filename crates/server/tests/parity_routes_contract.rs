@@ -187,3 +187,84 @@ fn contract_version_format() {
     
     eprintln!("✓ Contract version format check passed");
 }
+
+// =============================================================================
+// ERROR ENVELOPE CONTRACT TESTS
+// =============================================================================
+// These tests verify that error responses follow the contract:
+//   { success: false, error: "<string>", code: "<ERROR_CODE>" }
+//
+// This is critical for UI parity - the frontend expects this exact shape.
+
+/// Test FEATURE_LOCKED error envelope matches contract
+#[test]
+fn error_envelope_feature_locked() {
+    use edr_server::services::types::{feature_locked_403, ProductTier};
+    
+    // Generate the error envelope (returns tuple of (StatusCode, Json<Value>))
+    let (_status, axum::Json(envelope)) = feature_locked_403("test_feature", ProductTier::Pro);
+    
+    // Contract: success must be false
+    assert_eq!(
+        envelope.get("success").and_then(|v| v.as_bool()),
+        Some(false),
+        "FEATURE_LOCKED envelope must have success=false"
+    );
+    
+    // Contract: error must be a string (not an object)
+    let error = envelope.get("error");
+    assert!(
+        error.is_some() && error.unwrap().is_string(),
+        "FEATURE_LOCKED envelope must have error as string, got: {:?}",
+        error
+    );
+    
+    // Contract: code must be "FEATURE_LOCKED"
+    assert_eq!(
+        envelope.get("code").and_then(|v| v.as_str()),
+        Some("FEATURE_LOCKED"),
+        "FEATURE_LOCKED envelope must have code=\"FEATURE_LOCKED\""
+    );
+    
+    eprintln!("✓ FEATURE_LOCKED error envelope contract check passed");
+}
+
+/// Test INVALID_MODE error envelope from diff service matches contract
+#[test]
+fn error_envelope_invalid_mode() {
+    use edr_server::services::diff::DiffError;
+    
+    // Generate the invalid mode error
+    let err = DiffError::invalid_mode("bogus_mode");
+    let envelope = err.to_json();
+    
+    // Contract: success must be false
+    assert_eq!(
+        envelope.get("success").and_then(|v| v.as_bool()),
+        Some(false),
+        "INVALID_MODE envelope must have success=false"
+    );
+    
+    // Contract: error must be a string containing the bad mode
+    let error = envelope.get("error");
+    assert!(
+        error.is_some() && error.unwrap().is_string(),
+        "INVALID_MODE envelope must have error as string, got: {:?}",
+        error
+    );
+    let error_str = error.unwrap().as_str().unwrap();
+    assert!(
+        error_str.contains("bogus_mode"),
+        "INVALID_MODE error should contain the invalid mode name, got: {}",
+        error_str
+    );
+    
+    // Contract: code must be "INVALID_MODE"
+    assert_eq!(
+        envelope.get("code").and_then(|v| v.as_str()),
+        Some("INVALID_MODE"),
+        "INVALID_MODE envelope must have code=\"INVALID_MODE\""
+    );
+    
+    eprintln!("✓ INVALID_MODE error envelope contract check passed");
+}

@@ -67,6 +67,16 @@ rules:
           - "process_creation"
           - "lolbin"
           - "wmi_exec"
+    expected:
+      facts:
+        - "wmic.exe process call create command - spawning new process via WMI"
+        - "LOLBin abuse for process execution"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wmic", "process", "call", "create"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -84,6 +94,16 @@ rules:
         tags:
           - "xsl_execution"
           - "applocker_bypass"
+    expected:
+      facts:
+        - "wmic.exe with /format: XSL stylesheet - arbitrary code execution"
+        - "AppLocker bypass via XSL script processing"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wmic", "/format:", ".xsl", "stylesheet"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "WMIC Shadow Copy Delete"
     window: 10
@@ -99,6 +119,16 @@ rules:
           - "ransomware"
           - "recovery_inhibit"
           - "shadow_delete"
+    expected:
+      facts:
+        - "wmic.exe shadowcopy delete - deleting Volume Shadow Copies"
+        - "Ransomware indicator - inhibiting system recovery"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wmic", "shadowcopy", "delete", "vss"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "WMIC Remote Execution"
     window: 10
@@ -113,6 +143,16 @@ rules:
         tags:
           - "lateral_movement"
           - "remote_exec"
+    expected:
+      facts:
+        - "wmic.exe with /node: parameter - remote WMI execution"
+        - "Lateral movement via WMI on remote host"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wmic", "/node:", "remote"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "WMIC Product Uninstall"
     window: 10
@@ -127,6 +167,16 @@ rules:
         tags:
           - "defense_evasion"
           - "software_removal"
+    expected:
+      facts:
+        - "wmic.exe product call uninstall - removing installed software"
+        - "Potential defense evasion by uninstalling security tools"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wmic", "product", "uninstall", "call"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

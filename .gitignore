@@ -12,6 +12,20 @@ cargo-runner.txt
 run_output.txt
 edr-digest-*.txt
 
+# dev session artifacts (DO NOT COMMIT)
+eval_*.json
+phase*.json
+locint_*.txt
+temp_served_app.js
+test_*.yaml
+test_*.rs
+stdout.txt
+stderr.txt
+build_output.txt
+query
+stress_results/
+*_test.yaml
+
 # telemetry outputs (runtime data)
 telemetry_output_demo/
 test_telemetry/

@@ -230,6 +230,73 @@ fn parse_xml_message(xml: &str) -> Option<String> {
     None
 }
 
+/// Extract EventID from Windows Event XML System section
+/// Parses <EventID>N</EventID> from the <System> block
+fn extract_event_id_from_xml(event: &Event) -> Option<u32> {
+    // First try direct field lookup
+    if let Some(val) = event.fields.get("windows.event_id") {
+        if let Some(n) = val.as_u64() {
+            return Some(n as u32);
+        }
+        if let Some(s) = val.as_str() {
+            if let Ok(n) = s.parse::<u32>() {
+                return Some(n);
+            }
+        }
+    }
+    
+    // Fallback: parse from windows.xml System section
+    let xml = event.fields.get("windows.xml")?.as_str()?;
+    let xml_lower = xml.to_lowercase();
+    
+    // Find <eventid>N</eventid> in the System section
+    if let Some(start) = xml_lower.find("<eventid>") {
+        let value_start = start + "<eventid>".len();
+        if let Some(end) = xml_lower[value_start..].find("</eventid>") {
+            let raw_value = &xml[value_start..value_start + end];
+            return raw_value.trim().parse().ok();
+        }
+    }
+    
+    None
+}
+
+/// Extract Channel from Windows Event XML System section
+/// Parses <Channel>...</Channel> from the <System> block
+fn extract_channel_from_xml(event: &Event) -> Option<String> {
+    // First try direct field lookup
+    if let Some(val) = event.fields.get("windows.channel").and_then(|v| v.as_str()) {
+        if !val.trim().is_empty() {
+            return Some(val.to_string());
+        }
+    }
+    
+    // Also check evidence_ptr.stream_id which often contains channel name
+    if let Some(ptr) = &event.evidence_ptr {
+        if !ptr.stream_id.is_empty() && ptr.stream_id != "unknown" {
+            return Some(ptr.stream_id.clone());
+        }
+    }
+    
+    // Fallback: parse from windows.xml System section
+    let xml = event.fields.get("windows.xml")?.as_str()?;
+    let xml_lower = xml.to_lowercase();
+    
+    // Find <channel>...</channel> in the System section  
+    if let Some(start) = xml_lower.find("<channel>") {
+        let value_start = start + "<channel>".len();
+        if let Some(end) = xml_lower[value_start..].find("</channel>") {
+            let raw_value = &xml[value_start..value_start + end];
+            let trimmed = raw_value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    
+    None
+}
+
 /// RD-4 FIX: Self-process allowlist to prevent LocInt from flagging itself
 /// Returns true if the process path/name belongs to LocInt's own processes
 fn is_self_process(proc_path: &str) -> bool {
@@ -495,20 +562,12 @@ fn timestamp_from_ms(ts_ms: i64) -> DateTime<Utc> {
 
 /// Enrich event tags based on Windows Event ID
 /// This bridges the gap between raw capture (generic tags) and detection (specific tags)
+/// W1-FIX: Now extracts event_id from XML when not available in fields
 fn enrich_tags_from_event_id(event: &Event) -> Vec<String> {
     let mut tags = Vec::new();
 
-    // Get event ID from fields
-    let event_id = event
-        .fields
-        .get("windows.event_id")
-        .and_then(|v| {
-            v.as_u64()
-                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
-        })
-        .map(|v| v as u32);
-
-    let Some(eid) = event_id else {
+    // Get event ID - use helper that parses from XML if needed
+    let Some(eid) = extract_event_id_from_xml(event) else {
         return tags;
     };
 
@@ -592,31 +651,25 @@ fn enrich_tags_from_event_id(event: &Event) -> Vec<String> {
 }
 
 /// Check if event is from PowerShell Operational channel
+/// W1-FIX: Now uses extract_channel_from_xml to parse from XML
 fn is_powershell_channel(event: &Event) -> bool {
-    event
-        .fields
-        .get("windows.channel")
-        .and_then(|v| v.as_str())
+    extract_channel_from_xml(event)
         .map(|s| s.contains("PowerShell") && s.contains("Operational"))
         .unwrap_or(false)
 }
 
 /// Check if event is from RDP/Terminal Services channel
+/// W1-FIX: Now uses extract_channel_from_xml to parse from XML
 fn is_rdp_channel(event: &Event) -> bool {
-    event
-        .fields
-        .get("windows.channel")
-        .and_then(|v| v.as_str())
+    extract_channel_from_xml(event)
         .map(|s| s.contains("TerminalServices") || s.contains("RemoteDesktop"))
         .unwrap_or(false)
 }
 
 /// Check if event is from Sysmon channel
+/// W1-FIX: Now uses extract_channel_from_xml to parse from XML or evidence_ptr.stream_id
 fn is_sysmon_channel(event: &Event) -> bool {
-    event
-        .fields
-        .get("windows.channel")
-        .and_then(|v| v.as_str())
+    extract_channel_from_xml(event)
         .map(|s| s.contains("Sysmon"))
         .unwrap_or(false)
 }
@@ -687,28 +740,14 @@ fn extract_process_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) ->
 
 /// Extract network connection fact (Sysmon 3, 5156)
 fn extract_network_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    let dst_ip = event
-        .fields
-        .get("dest_ip")
-        .or_else(|| event.fields.get("DestinationIp"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("0.0.0.0")
-        .to_string();
+    let dst_ip = extract_xml_string(event, "DestinationIp")
+        .unwrap_or_else(|| "0.0.0.0".to_string());
 
-    let dst_port = event
-        .fields
-        .get("dest_port")
-        .or_else(|| event.fields.get("DestinationPort"))
-        .and_then(|v| v.as_u64())
+    let dst_port = extract_xml_u32(event, "DestinationPort")
         .unwrap_or(0) as u16;
 
-    let proto = event
-        .fields
-        .get("protocol")
-        .or_else(|| event.fields.get("Protocol"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("tcp")
-        .to_string();
+    let proto = extract_xml_string(event, "Protocol")
+        .unwrap_or_else(|| "tcp".to_string());
 
     let fact = Fact::new(
         host_id,
@@ -961,21 +1000,11 @@ fn extract_task_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Op
 
 /// Extract registry modification fact (4657, Sysmon 13)
 fn extract_registry_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    let key = event
-        .fields
-        .get("TargetObject")
-        .or_else(|| event.fields.get("ObjectName"))
-        .or_else(|| event.fields.get("registry_key"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let key = extract_xml_string(event, "TargetObject")
+        .or_else(|| extract_xml_string(event, "ObjectName"))
+        .unwrap_or_else(|| "unknown".to_string());
 
-    let value_name = event
-        .fields
-        .get("Details")
-        .or_else(|| event.fields.get("value_name"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let value_name = extract_xml_string(event, "Details");
 
     let operation = if event.tags.contains(&"deleted".to_string()) {
         RegistryOp::DeleteValue
@@ -1184,13 +1213,8 @@ fn extract_powershell_fact(event: &Event, host_id: &str, evidence: &EvidencePtr)
 
 /// Extract file creation fact (Sysmon 11)
 fn extract_file_create_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    let path = event
-        .fields
-        .get("TargetFilename")
-        .or_else(|| event.fields.get("target_filename"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let path = extract_xml_string(event, "TargetFilename")
+        .unwrap_or_else(|| "unknown".to_string());
 
     let fact = Fact::new(
         host_id,
@@ -1204,13 +1228,8 @@ fn extract_file_create_fact(event: &Event, host_id: &str, evidence: &EvidencePtr
 
 /// Extract file deletion fact (Sysmon 23, 26)
 fn extract_file_delete_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    let path = event
-        .fields
-        .get("TargetFilename")
-        .or_else(|| event.fields.get("target_filename"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let path = extract_xml_string(event, "TargetFilename")
+        .unwrap_or_else(|| "unknown".to_string());
 
     let fact = Fact::new(
         host_id,
@@ -1224,19 +1243,10 @@ fn extract_file_delete_fact(event: &Event, host_id: &str, evidence: &EvidencePtr
 
 /// Extract DNS query fact (Sysmon 22)
 fn extract_dns_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    let query = event
-        .fields
-        .get("QueryName")
-        .or_else(|| event.fields.get("query_name"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let query = extract_xml_string(event, "QueryName")
+        .unwrap_or_else(|| "unknown".to_string());
 
-    let responses = event
-        .fields
-        .get("QueryResults")
-        .or_else(|| event.fields.get("query_results"))
-        .and_then(|v| v.as_str())
+    let responses = extract_xml_string(event, "QueryResults")
         .map(|s| {
             s.split(';')
                 .map(|r| r.trim().to_string())
@@ -1257,27 +1267,12 @@ fn extract_dns_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Opt
 
 /// Extract module/DLL load fact (Sysmon 6, 7)
 fn extract_module_load_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    let path = event
-        .fields
-        .get("ImageLoaded")
-        .or_else(|| event.fields.get("image_loaded"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown")
-        .to_string();
+    let path = extract_xml_string(event, "ImageLoaded")
+        .unwrap_or_else(|| "unknown".to_string());
 
-    let hash = event
-        .fields
-        .get("Hashes")
-        .or_else(|| event.fields.get("hash"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let hash = extract_xml_string(event, "Hashes");
 
-    let signer = event
-        .fields
-        .get("Signature")
-        .or_else(|| event.fields.get("signer"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let signer = extract_xml_string(event, "Signature");
 
     // Event ID 6 = driver (kernel), Event ID 7 = image (user)
     let is_kernel = event
@@ -1605,6 +1600,11 @@ fn extract_lolbin_fact(
     Some(fact)
 }
 
+// =========================================================================
+// REGRESSION GUARD: Sysmon XML field extraction tests
+// Ensures extract_*_fact functions use extract_xml_string (not event.fields.get)
+// =========================================================================
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1792,5 +1792,174 @@ mod tests {
         let xml = r#"<EventData><Data Name="Image">notepad.exe</Data></EventData>"#;
         let result = parse_xml_data_field(xml, "Image");
         assert_eq!(result, Some("notepad.exe".to_string()));
+    }
+
+    // =========================================================================
+    // REGRESSION GUARD: Sysmon v1 XML extraction (January 2026 fix)
+    // These tests ensure Sysmon facts extract fields from windows.xml via
+    // extract_xml_string(), NOT from event.fields.get() which is unpopulated.
+    // =========================================================================
+
+    fn make_sysmon_event(event_id: u64, xml_content: &str) -> Event {
+        let mut fields = BTreeMap::new();
+        fields.insert("windows.channel".to_string(), serde_json::json!("Microsoft-Windows-Sysmon/Operational"));
+        fields.insert("windows.event_id".to_string(), serde_json::json!(event_id));
+        fields.insert("windows.xml".to_string(), serde_json::json!(xml_content));
+
+        Event {
+            ts_ms: 1700000000000,
+            host: "test-host".to_string(),
+            tags: vec!["windows".to_string()],
+            proc_key: None,
+            file_key: None,
+            identity_key: None,
+            evidence_ptr: None,
+            fields,
+        }
+    }
+
+    /// Create a realistic Sysmon event as it comes from wevt_reader
+    /// CRITICAL: wevt_reader only populates windows.xml - NOT windows.event_id or windows.channel!
+    /// The event_id and channel must be extracted from the XML System section.
+    fn make_realistic_sysmon_event(xml_with_system: &str) -> Event {
+        let mut fields = BTreeMap::new();
+        // Only windows.xml is populated - NOT windows.event_id or windows.channel!
+        fields.insert("windows.xml".to_string(), serde_json::json!(xml_with_system));
+
+        Event {
+            ts_ms: 1700000000000,
+            host: "test-host".to_string(),
+            tags: vec!["windows".to_string()],
+            proc_key: None,
+            file_key: None,
+            identity_key: None,
+            evidence_ptr: Some(edr_core::EvidencePtr {
+                stream_id: "Microsoft-Windows-Sysmon/Operational".to_string(),
+                segment_id: 0,
+                record_index: 1,
+            }),
+            fields,
+        }
+    }
+
+    #[test]
+    fn test_sysmon_1_exec_extracts_from_xml_only() {
+        // REGRESSION: Sysmon Event ID 1 (ProcessCreate) must work with ONLY windows.xml populated
+        // This simulates real wevt_reader output where event_id/channel come from XML System section
+        let xml = r#"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'>
+            <System>
+                <EventID>1</EventID>
+                <Channel>Microsoft-Windows-Sysmon/Operational</Channel>
+            </System>
+            <EventData>
+                <Data Name='Image'>C:\Windows\System32\cmd.exe</Data>
+                <Data Name='CommandLine'>cmd /c whoami</Data>
+                <Data Name='User'>DESKTOP\TestUser</Data>
+                <Data Name='Hashes'>SHA256=ABC123</Data>
+            </EventData>
+        </Event>"#;
+        
+        let event = make_realistic_sysmon_event(xml);
+        let facts = extract_facts(&event);
+        
+        assert!(!facts.is_empty(), "Should extract Exec fact from Sysmon 1 (XML-only)");
+        let exec_fact = facts.iter().find(|f| matches!(f.fact_type, FactType::Exec { .. }));
+        assert!(exec_fact.is_some(), "Must produce Exec fact for Sysmon Event ID 1");
+        
+        match &exec_fact.unwrap().fact_type {
+            FactType::Exec { path, cmdline, exe_hash, .. } => {
+                assert_eq!(path, "C:\\Windows\\System32\\cmd.exe", "Path must be extracted from XML Image");
+                assert_eq!(cmdline.as_deref(), Some("cmd /c whoami"), "CommandLine must be extracted from XML");
+                assert!(exe_hash.as_ref().map(|h| h.contains("ABC123")).unwrap_or(false), "Hash must be extracted");
+            }
+            _ => panic!("Expected Exec fact"),
+        }
+    }
+
+    #[test]
+    fn test_sysmon_11_file_create_extracts_from_xml() {
+        // Sysmon Event ID 11 (FileCreate) - path must come from windows.xml
+        let xml = r#"<Event><EventData>
+            <Data Name='TargetFilename'>C:\Temp\malware.exe</Data>
+            <Data Name='Image'>C:\Windows\explorer.exe</Data>
+        </EventData></Event>"#;
+        
+        let event = make_sysmon_event(11, xml);
+        let facts = extract_facts(&event);
+        
+        assert!(!facts.is_empty(), "Should extract FileCreate fact");
+        match &facts[0].fact_type {
+            FactType::CreatePath { path, .. } => {
+                assert_eq!(path, "C:\\Temp\\malware.exe", "Path must be extracted from XML TargetFilename");
+                assert_ne!(path, "unknown", "Path must NOT be 'unknown' - XML extraction failed");
+            }
+            _ => panic!("Expected CreatePath fact for Sysmon 11"),
+        }
+    }
+
+    #[test]
+    fn test_sysmon_3_network_extracts_from_xml() {
+        // Sysmon Event ID 3 (NetworkConnect) - dst_ip/port must come from windows.xml
+        let xml = r#"<Event><EventData>
+            <Data Name='DestinationIp'>192.168.1.100</Data>
+            <Data Name='DestinationPort'>443</Data>
+            <Data Name='Protocol'>tcp</Data>
+        </EventData></Event>"#;
+        
+        let event = make_sysmon_event(3, xml);
+        let facts = extract_facts(&event);
+        
+        assert!(!facts.is_empty(), "Should extract NetworkConnect fact");
+        match &facts[0].fact_type {
+            FactType::OutboundConnect { dst_ip, dst_port, proto, .. } => {
+                assert_eq!(dst_ip, "192.168.1.100", "dst_ip must be extracted from XML");
+                assert_eq!(*dst_port, 443, "dst_port must be extracted from XML");
+                assert_eq!(proto, "tcp", "proto must be extracted from XML");
+            }
+            _ => panic!("Expected OutboundConnect fact for Sysmon 3"),
+        }
+    }
+
+    #[test]
+    fn test_sysmon_12_registry_extracts_from_xml() {
+        // Sysmon Event ID 12/13/14 (Registry) - key must come from windows.xml
+        let xml = r#"<Event><EventData>
+            <Data Name='TargetObject'>HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run\Malware</Data>
+            <Data Name='Details'>C:\evil.exe</Data>
+        </EventData></Event>"#;
+        
+        let event = make_sysmon_event(12, xml);
+        let facts = extract_facts(&event);
+        
+        assert!(!facts.is_empty(), "Should extract RegistryMod fact");
+        match &facts[0].fact_type {
+            FactType::RegistryMod { key, .. } => {
+                assert!(key.contains("HKLM"), "Key must be extracted from XML TargetObject");
+                assert!(key.contains("Run"), "Key must contain full registry path");
+                assert_ne!(key, "unknown", "Key must NOT be 'unknown' - XML extraction failed");
+            }
+            _ => panic!("Expected RegistryMod fact for Sysmon 12"),
+        }
+    }
+
+    #[test]
+    fn test_sysmon_22_dns_extracts_from_xml() {
+        // Sysmon Event ID 22 (DnsQuery) - query must come from windows.xml
+        let xml = r#"<Event><EventData>
+            <Data Name='QueryName'>evil-c2.example.com</Data>
+            <Data Name='QueryResults'>192.168.1.1;</Data>
+        </EventData></Event>"#;
+        
+        let event = make_sysmon_event(22, xml);
+        let facts = extract_facts(&event);
+        
+        assert!(!facts.is_empty(), "Should extract DnsResolve fact");
+        match &facts[0].fact_type {
+            FactType::DnsResolve { query, .. } => {
+                assert_eq!(query, "evil-c2.example.com", "Query must be extracted from XML");
+                assert_ne!(query, "unknown", "Query must NOT be 'unknown' - XML extraction failed");
+            }
+            _ => panic!("Expected DnsResolve fact for Sysmon 22"),
+        }
     }
 }

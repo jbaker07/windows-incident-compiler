@@ -60,6 +60,16 @@ rules:
         tags:
           - "privilege_escalation"
           - "admin_group"
+    expected:
+      facts:
+        - "User added to Administrators or Domain Admins group"
+        - "Group membership change event with privileged group target"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["group", "member", "administrator", "domain admin"]
+        event_ids: [4728, 4732, 4756]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "group_membership"
         event_id: [4728, 4732, 4756]
@@ -79,6 +89,16 @@ rules:
         tags:
           - "domain_escalation"
           - "high_privilege"
+    expected:
+      facts:
+        - "User added to Enterprise Admins group - highest privilege in forest"
+        - "Domain-wide privilege escalation indicator"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["enterprise admin", "group", "member"]
+        event_ids: [4728, 4756]
+      visibility_requires: ["security_log"]
 
   - name: "Remote Desktop Users Added"
     window: 10
@@ -91,6 +111,16 @@ rules:
         tags:
           - "rdp_access"
           - "lateral_movement_prep"
+    expected:
+      facts:
+        - "User added to Remote Desktop Users group"
+        - "Potential lateral movement preparation via RDP access"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["remote desktop", "group", "member", "RDP"]
+        event_ids: [4732, 4728]
+      visibility_requires: ["security_log"]
 
   - name: "Backup Operators Added"
     window: 10
@@ -103,6 +133,16 @@ rules:
         tags:
           - "backup_escalation"
           - "ntds_theft_risk"
+    expected:
+      facts:
+        - "User added to Backup Operators group"
+        - "Potential NTDS.dit theft risk - backup operators can read sensitive files"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["backup operator", "group", "member"]
+        event_ids: [4732, 4728]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

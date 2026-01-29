@@ -57,6 +57,16 @@ rules:
     evidence:
       - event_type: "image_load"
         event_id: 7
+    expected:
+      facts:
+        - "DLL loaded from temp directory (%TEMP% or \\Temp\\)"
+        - "Sysmon Event 7 - Image loaded from suspicious path"
+      evidence:
+        lens: "process"
+        fact_types: ["ModuleLoad"]
+        query_terms: ["temp", ".dll", "ImageLoaded"]
+        event_ids: [7]
+      visibility_requires: ["sysmon"]
 
   - name: "DLL from User Writable Path"
     window: 10
@@ -69,6 +79,16 @@ rules:
         tags:
           - "user_writable_dll"
           - "potential_hijack"
+    expected:
+      facts:
+        - "DLL loaded from user-writable AppData or ProgramData path"
+        - "Potential DLL search order hijacking"
+      evidence:
+        lens: "process"
+        fact_types: ["ModuleLoad"]
+        query_terms: ["AppData", "ProgramData", ".dll", "ImageLoaded"]
+        event_ids: [7]
+      visibility_requires: ["sysmon"]
 
   - name: "Unsigned DLL Load"
     window: 10
@@ -83,6 +103,16 @@ rules:
         tags:
           - "unsigned_dll"
           - "verification"
+    expected:
+      facts:
+        - "Unsigned DLL loaded from non-Windows directory"
+        - "Missing digital signature on loaded module"
+      evidence:
+        lens: "process"
+        fact_types: ["ModuleLoad"]
+        query_terms: ["unsigned", "ImageLoaded", "Signed:false"]
+        event_ids: [7]
+      visibility_requires: ["sysmon"]
 
 response:
   - type: "alert"

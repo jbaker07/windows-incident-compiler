@@ -24,6 +24,7 @@ pub mod db;
 pub mod flight_recorder;
 pub mod health;
 pub mod instance_lock;
+pub mod playbook_scope;
 pub mod query_isolation;
 pub mod report;
 pub mod run_coverage;

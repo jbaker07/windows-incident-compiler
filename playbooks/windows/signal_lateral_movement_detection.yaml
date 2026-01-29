@@ -4,6 +4,7 @@
 # Monitors Security event logs: 4624, 4769, 5140; Sysmon EventID 1
 
 name: "Windows Lateral Movement Detection"
+family: "lateral_movement"
 id: "windows_lateral_movement_001"
 version: "1.0"
 requires: ["security_log"]
@@ -35,7 +36,7 @@ rules:
     aggregation: count
     threshold: 1
     conditions:
-      - tag: "remote_logon"
+      - fact_type: AuthEvent
       - logon_type: ["3", "10"]  # Network or RDP logon
       - not_source_ip: ["127.0.0.1", "::1"]
     actions:
@@ -51,13 +52,23 @@ rules:
           target_user: "TargetUserName"
           logon_type: "LogonType"
           workstation: "SourceWorkstationName"
+    expected:
+      facts:
+        - "Remote Desktop (RDP) logon from non-local source (Event 4624, LogonType 10)"
+        - "Network logon from external IP (Event 4624, LogonType 3)"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["4624", "LogonType", "10", "RDP"]
+        event_ids: [4624]
+      visibility_requires: ["security_log"]
 
   - name: "Administrative Share Access"
     window: 300
     aggregation: count
     threshold: 1
     conditions:
-      - tag: "share_access"
+      - fact_type: AuthEvent
       - or:
           - share: "*\\C$"
           - share: "*\\IPC$"
@@ -74,13 +85,33 @@ rules:
           source_ip: "SourceAddress"
           share_name: "ShareName"
           access_mask: "AccessMask"
+    expected:
+      facts:
+        - "Access to administrative shares (C$, ADMIN$, IPC$) - Event 5140"
+        - "Remote access to hidden administrative shares"
+      variants:
+        - label: "C$ Access"
+          facts:
+            - "Network access to \\\\host\\C$ share"
+        - label: "ADMIN$ Access"
+          facts:
+            - "Network access to \\\\host\\ADMIN$ share"
+        - label: "IPC$ Access"
+          facts:
+            - "Network access to \\\\host\\IPC$ (named pipe communication)"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["5140", "C$", "ADMIN$", "IPC$", "ShareName"]
+        event_ids: [5140]
+      visibility_requires: ["security_log"]
 
   - name: "Kerberos Ticket Request (PTH Indicator)"
     window: 60
     aggregation: count
     threshold: 5  # Multiple ticket requests in short time
     conditions:
-      - tag: "kerberos_ticket"
+      - fact_type: AuthEvent
       - event_id: 4769
     actions:
       - severity: MEDIUM
@@ -94,13 +125,23 @@ rules:
           service_name: "ServiceName"
           account_name: "AccountName"
           failure_code: "FailureCode"
+    expected:
+      facts:
+        - "Multiple Kerberos service ticket requests (Event 4769)"
+        - "Potential Pass-the-Hash or Pass-the-Ticket attack"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent"]
+        query_terms: ["4769", "Kerberos", "TGS", "ServiceName"]
+        event_ids: [4769]
+      visibility_requires: ["security_log"]
 
   - name: "Remote Code Execution via PSExec"
     window: 60
     aggregation: count
     threshold: 1
     conditions:
-      - tag: "remote_execution"
+      - fact_type: Exec
       - or:
           - process: "*psexesvc*"
           - process: "*WmiPrvSE*"
@@ -117,16 +158,37 @@ rules:
           executable: "Image"
           parent_process: "ParentImage"
           command_line: "CommandLine"
+    expected:
+      facts:
+        - "PSExec service (PSEXESVC.exe) execution indicating remote command"
+        - "WMI Provider Host (WmiPrvSE.exe) spawning suspicious child process"
+      variants:
+        - label: "PSExec Remote Execution"
+          facts:
+            - "PSEXESVC.exe service started on target system"
+            - "Remote command execution via Sysinternals PSExec"
+        - label: "WMI Remote Execution"
+          facts:
+            - "WmiPrvSE.exe spawning child process"
+            - "Remote WMI command execution"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["psexesvc", "WmiPrvSE", "remote", "4688", "1"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log", "sysmon"]
 
   - name: "Privilege Escalation via RDP"
     window: 300
     aggregation: sequence
     threshold: 2
     conditions:
-      - event_id: 4624
+      - fact_type: AuthEvent
+        event_id: 4624
         logon_type: "10"
         privilege_level: "user"
       - then:
+        fact_type: Exec
         event_id: 4688
         process: "*powershell*|*cmd*|*cscript*"
         privilege_level: "admin"
@@ -135,6 +197,24 @@ rules:
         tags:
           - "lateral_movement"
           - "privilege_escalation"
+    expected:
+      facts:
+        - "RDP logon (Event 4624, LogonType 10) followed by admin process execution"
+        - "User logged in via RDP then executed elevated commands"
+        - "Privilege escalation sequence: RDP user → admin shell"
+      variants:
+        - label: "RDP to Admin PowerShell"
+          facts:
+            - "RDP logon followed by PowerShell running as administrator"
+        - label: "RDP to Admin CMD"
+          facts:
+            - "RDP logon followed by cmd.exe with elevated privileges"
+      evidence:
+        lens: "auth"
+        fact_types: ["AuthEvent", "Exec"]
+        query_terms: ["4624", "LogonType 10", "RDP", "admin", "powershell", "cmd"]
+        event_ids: [4624, 4688]
+      visibility_requires: ["security_log"]
 
 # Playbook response
 response:

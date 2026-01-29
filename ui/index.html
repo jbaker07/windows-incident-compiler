@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- BUILD_STAMP: 2026-01-10T23:00:00Z_SHIP -->
+<!-- BUILD_STAMP: 2026-01-28-UI_SYNC_HARDENED-1 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -7,6 +7,61 @@
   <title>Incident Compiler</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
+    /* ============ UI BUILD VERIFICATION BADGE ============ */
+    #uiBuildBadge {
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      z-index: 99999;
+      padding: 4px 8px;
+      font-size: 9px;
+      font-family: monospace;
+      background: #8b5cf6;
+      color: white;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      pointer-events: none;
+    }
+    
+    /* ============ UI MISMATCH WARNING BANNER (UI_SYNC_HARDENED-1) ============ */
+    #uiMismatchBanner {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 999999;
+      padding: 8px 16px;
+      font-size: 12px;
+      font-family: monospace;
+      background: linear-gradient(135deg, #dc2626, #b91c1c);
+      color: white;
+      text-align: center;
+      box-shadow: 0 2px 12px rgba(220, 38, 38, 0.5);
+    }
+    #uiMismatchBanner code {
+      background: rgba(0,0,0,0.2);
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin: 0 4px;
+    }
+    #uiMismatchBanner .dismiss-btn {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: white;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    #uiMismatchBanner .dismiss-btn:hover {
+      background: rgba(255,255,255,0.3);
+    }
+    
     /* ============ DESIGN TOKENS ============ */
     :root {
       --bg: #0f1117;
@@ -44,6 +99,411 @@
       max-width: 1140px;
       margin: 0 auto;
       padding: 0 24px;
+    }
+
+    /* Mission tab: widen container when Mission is active */
+    main.app-container.mission-wide {
+      max-width: none !important;
+      width: 100% !important;
+    }
+    main.app-container.mission-wide #tabMission {
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+    }
+    /* Mission inner wrapper for centered, readable content */
+    #tabMission .mission-inner {
+      width: min(clamp(1200px, 92vw, 1600px), calc(100vw - 48px));
+      margin: 0 auto;
+      padding-right: 8px; /* Breathing room for dock */
+    }
+    /* Ensure dock has margin from viewport edge */
+    #missionDock {
+      margin-right: 8px;
+    }
+    /* Mission grid - pure layout container, no visual styling */
+    #tabMission .mission-grid {
+      display: grid;
+      grid-template-columns: 1fr clamp(280px, 26vw, 360px);
+      gap: 20px;
+      align-items: start;
+    }
+    /* Left column wrapper - the actual card panel */
+    .mission-main {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-sm);
+      padding: 24px;
+    }
+
+    /* Outcome Checklist card styling */
+    .outcome-checklist {
+      font-size: 11px;
+    }
+    .outcome-checklist .outcome-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .outcome-checklist .outcome-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .outcome-checklist .outcome-mode-badge {
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      background: var(--panel2);
+      color: var(--muted);
+    }
+    .outcome-checklist .outcome-mode-badge.tracking {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--good);
+    }
+    .outcome-checklist .outcome-mode-badge.final {
+      background: rgba(139, 92, 246, 0.15);
+      color: var(--accent);
+    }
+    .outcome-checklist .outcome-summary {
+      font-size: 11px;
+      color: var(--text);
+      margin-bottom: 8px;
+      padding: 6px 8px;
+      background: rgba(139, 92, 246, 0.08);
+      border-radius: var(--radius-sm);
+      border-left: 2px solid var(--accent);
+    }
+    .outcome-checklist .outcome-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .outcome-checklist .outcome-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 8px;
+      background: var(--panel2);
+      border-radius: var(--radius-sm);
+      border-left: 2px solid transparent;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .outcome-checklist .outcome-step.step-satisfied {
+      border-left-color: var(--good);
+      background: rgba(16, 185, 129, 0.08);
+    }
+    .outcome-checklist .outcome-step.step-candidate {
+      border-left-color: var(--warn);
+    }
+    .outcome-checklist .outcome-step.step-not-observed {
+      border-left-color: var(--muted);
+      opacity: 0.7;
+    }
+    .outcome-checklist .outcome-step.step-blocked {
+      border-left-color: var(--danger);
+      opacity: 0.6;
+    }
+    .outcome-checklist .step-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+      width: 18px;
+      text-align: center;
+    }
+    .outcome-checklist .step-content {
+      flex: 1;
+      min-width: 0;
+    }
+    .outcome-checklist .step-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .outcome-checklist .step-desc {
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .outcome-checklist .step-playbooks {
+      font-size: 9px;
+      color: var(--muted);
+      margin-top: 4px;
+      padding-top: 4px;
+      border-top: 1px solid var(--border);
+    }
+    .outcome-checklist .step-playbooks code {
+      background: var(--panel);
+      padding: 1px 4px;
+      border-radius: 2px;
+      font-size: 9px;
+    }
+    .outcome-checklist .outcome-toggle {
+      margin-top: 6px;
+      padding: 4px 0;
+      text-align: center;
+    }
+    .outcome-checklist .outcome-toggle button {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font-size: 10px;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    .outcome-checklist .outcome-toggle button:hover {
+      text-decoration: underline;
+    }
+    .outcome-checklist .outcome-empty {
+      color: var(--muted);
+      font-size: 10px;
+      text-align: center;
+      padding: 12px 8px;
+    }
+    .outcome-checklist .outcome-footer {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .outcome-checklist .outcome-stats {
+      font-size: 9px;
+      color: var(--muted);
+    }
+    .outcome-checklist .outcome-action button {
+      padding: 4px 10px;
+      font-size: 10px;
+    }
+    .outcome-checklist .outcome-nofindings {
+      font-size: 10px;
+      color: var(--muted);
+      padding: 6px 8px;
+      background: var(--panel2);
+      border-radius: var(--radius-sm);
+      margin-top: 6px;
+    }
+    .outcome-checklist .step-main {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      flex: 1;
+    }
+    .outcome-checklist .step-status {
+      font-size: 12px;
+      margin-left: 4px;
+    }
+    .outcome-checklist .step-count {
+      font-size: 9px;
+      color: var(--muted);
+      background: var(--panel);
+      padding: 1px 5px;
+      border-radius: 3px;
+      margin-left: 6px;
+    }
+    .outcome-checklist .step-description {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    .outcome-checklist .step-reason {
+      font-size: 9px;
+      color: var(--warn);
+      margin-top: 4px;
+    }
+    .outcome-checklist .step-evidence {
+      font-size: 9px;
+      color: var(--good);
+      margin-top: 4px;
+    }
+    /* Micro-step styling - slightly more compact, distinct */
+    .outcome-checklist .outcome-step.micro-step {
+      background: rgba(139, 92, 246, 0.04);
+      border-left-color: var(--accent);
+    }
+    .outcome-checklist .outcome-step.micro-step .step-title {
+      font-size: 10px;
+    }
+    .outcome-checklist .outcome-step.micro-step .step-count {
+      background: rgba(139, 92, 246, 0.12);
+    }
+    .outcome-checklist .step-matches {
+      margin: 4px 0 0 0;
+      padding-left: 16px;
+      font-size: 9px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .outcome-checklist .step-matches li {
+      margin-bottom: 2px;
+    }
+    
+    /* Step 2 Mode Entry Buttons (not toggles) */
+    .step2-mode-btn {
+      transition: all 0.15s ease;
+    }
+    .step2-mode-btn:hover {
+      background: rgba(99, 102, 241, 0.08) !important;
+      border-color: var(--accent) !important;
+      transform: translateY(-1px);
+    }
+    .step2-mode-btn:active {
+      transform: translateY(0);
+    }
+    /* Highlight style when preset/chain is actively selected */
+    .step2-mode-btn.highlight {
+      border-color: var(--accent) !important;
+      background: rgba(99, 102, 241, 0.12) !important;
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+    }
+    
+    /* Selection mode badge (Custom state indicator) */
+    #selectionModeBadge {
+      transition: all 0.2s ease;
+    }
+    #selectionModeBadge:not(.hidden) {
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateX(-4px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    
+    /* Pulse animation for checklist highlight */
+    @keyframes pulseHighlight {
+      0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+      70% { box-shadow: 0 0 0 6px rgba(99, 102, 241, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(99, 102, 246, 0); }
+    }
+    .checklist-pulse {
+      animation: pulseHighlight 0.6s ease-out 2;
+    }
+    
+    /* Compact outcome families list - kept for backward compat */
+    .outcome-families-compact {
+      margin: 0;
+      padding-left: 16px;
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .outcome-families-compact li {
+      margin-bottom: 2px;
+    }
+    .outcome-more-link {
+      font-size: 10px;
+      color: var(--accent);
+      cursor: pointer;
+      margin-left: 16px;
+      display: inline-block;
+    }
+    .outcome-more-link:hover {
+      text-decoration: underline;
+    }
+    /* Link-like button (accessible clickable text) */
+    .linklike {
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0;
+      font-size: inherit;
+      font-family: inherit;
+      color: var(--accent);
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .linklike:hover {
+      text-decoration: underline;
+    }
+    .linklike:focus {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    /* Contract Receipt Strip */
+    .contract-receipt {
+      font-size: 10px;
+      color: var(--muted);
+      padding: 8px 10px;
+      background: var(--panel2);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+      margin-bottom: 12px;
+    }
+    .contract-receipt-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      align-items: center;
+    }
+    .contract-receipt-line .receipt-label {
+      font-weight: 600;
+      color: var(--text);
+    }
+    .contract-receipt-line .receipt-runnable { color: var(--good); }
+    .contract-receipt-line .receipt-blocked { color: var(--warn); }
+    .contract-receipt-line .receipt-unverified { color: var(--muted); }
+    .contract-receipt-warning {
+      margin-top: 6px;
+      padding: 4px 8px;
+      background: rgba(255, 193, 7, 0.1);
+      border-radius: var(--radius-sm);
+      font-size: 9px;
+      color: var(--warn);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    /* Outcome Result Mode */
+    .outcome-result {
+      text-align: center;
+      padding: 12px 10px;
+    }
+    .outcome-result-icon {
+      font-size: 24px;
+      margin-bottom: 6px;
+    }
+    .outcome-result-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+    .outcome-result-subtitle {
+      font-size: 10px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .outcome-result-badge {
+      display: inline-block;
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-bottom: 8px;
+    }
+    .outcome-result-badge.limited {
+      background: rgba(255, 193, 7, 0.15);
+      color: var(--warn);
+    }
+    .outcome-result-cta {
+      margin-top: 8px;
+    }
+    @media (max-width: 1024px) {
+      #tabMission .mission-inner {
+        width: 100%;
+      }
+      #tabMission .mission-grid {
+        grid-template-columns: 1fr !important;
+      }
     }
 
     /* Cards */
@@ -159,6 +619,16 @@
       border: 1px solid rgba(245, 158, 11, 0.3);
     }
     
+    /* Collapsible sections (details/summary) */
+    details summary { list-style: none; }
+    details summary::-webkit-details-marker { display: none; }
+    details[open] > summary .collapse-arrow { transform: rotate(90deg); }
+    details summary:hover { opacity: 0.85; }
+    
+    /* Pro feature button styling */
+    .pro-feature-btn { position: relative; }
+    .pro-feature-btn .pro-lock-icon { font-size: 10px; margin-right: 2px; }
+    
     /* === Status Semantics Badges (Configured/Active/Blocked/Missing/Disabled) ===
      * Single source of truth for status indicator styling
      * - Active: facts/events observed in current run (positive/green)
@@ -228,6 +698,20 @@
       margin-top: 4px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
+    }
+
+    /* Mission Dock (Preflight Dock) */
+    .mission-dock {
+      transition: all 0.2s ease;
+    }
+    .mission-dock.is-idle .dock-live-panels {
+      display: none;
+    }
+    .mission-dock.is-running .dock-live-panels {
+      display: flex;
+    }
+    .mission-dock .card {
+      margin: 0;
     }
 
     /* ============ INFO BUBBLE (Glossary Tooltips) ============ */
@@ -410,6 +894,61 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
     }
+    
+    /* Small spinner for inline loading indicators */
+    .spinner-small {
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    /* Compile status indicator styles */
+    .compile-status-compiling {
+      background: rgba(251, 191, 36, 0.15);
+      border: 1px solid var(--warn);
+      color: var(--warn);
+    }
+    .compile-status-ready {
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid var(--good);
+      color: var(--good);
+    }
+    .compile-status-interrupted {
+      background: rgba(243, 156, 18, 0.15);
+      border: 1px solid var(--warn);
+      color: var(--warn);
+    }
+    
+    /* Run status pill (header) */
+    .run-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .run-status-pill--finalized {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--good);
+    }
+    .run-status-pill--compiling {
+      background: rgba(52, 152, 219, 0.15);
+      color: var(--accent);
+    }
+    .run-status-pill--interrupted {
+      background: rgba(243, 156, 18, 0.15);
+      color: var(--warn);
+    }
 
     /* Build stamp */
     .build-stamp {
@@ -454,6 +993,61 @@
     .tier-notice a {
       color: var(--accent);
       text-decoration: underline;
+    }
+    
+    /* Generic modal overlay (for dynamically created modals) */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    .modal-overlay.hidden {
+      display: none !important;
+    }
+    /* Inner modal dialog */
+    .modal-overlay .modal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      max-width: 90vw;
+    }
+    .modal-overlay .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-overlay .modal-header h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+    .modal-overlay .modal-close {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: var(--muted);
+      padding: 0;
+      line-height: 1;
+    }
+    .modal-overlay .modal-close:hover {
+      color: var(--text);
+    }
+    .modal-overlay .modal-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    .modal-overlay .modal-footer > div {
+      display: flex;
+      gap: 8px;
     }
     
     /* Upgrade modal */
@@ -512,6 +1106,33 @@
   </style>
 </head>
 <body>
+  <!-- ============ UI BUILD VERIFICATION BADGE (UI_ORIGIN_PROOF-1) ============ -->
+  <div id="uiBuildBadge">UI BUILD: 2026-01-28-UI_SYNC_HARDENED-1</div>
+  <!-- ============ UI MISMATCH WARNING BANNER (UI_SYNC_HARDENED-1) ============ -->
+  <div id="uiMismatchBanner">
+    ⚠️ <strong>UI STALE:</strong> Served files don't match source. 
+    Run <code>scripts/sync_ui.ps1</code> or set <code>LOCINT_DEV_UI=1</code> to serve from source.
+    <button class="dismiss-btn" onclick="this.parentElement.style.display='none'">✕ Dismiss</button>
+  </div>
+  <div id="uiOriginBadge" style="position: fixed; top: 8px; right: 220px; z-index: 99999; padding: 4px 8px; font-size: 9px; font-family: monospace; background: #374151; color: #9ca3af; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); display: none;">UI ORIGIN: loading...</div>
+  <script>
+    // UI Origin Diagnostic - prints immediately to help debug which UI bundle is loaded
+    (function() {
+      var appJsSrc = document.querySelector('script[src*="app.js"]')?.src || 'unknown';
+      console.log('[UI ORIGIN] path=' + location.pathname + ' host=' + location.host);
+      console.log('[UI ORIGIN] app.js src=' + appJsSrc);
+      
+      // Show UI origin badge if ?debug_ui=1 is in URL
+      if (location.search.includes('debug_ui=1')) {
+        var badge = document.getElementById('uiOriginBadge');
+        if (badge) {
+          badge.style.display = 'block';
+          badge.textContent = 'SRC: ' + appJsSrc.split('/').pop();
+        }
+      }
+    })();
+  </script>
+  
   <!-- ============ ERROR BANNER (hidden by default) ============ -->
   <div id="errorBanner" class="hidden app-container" style="padding-top: 16px;">
     <div class="error-banner">
@@ -564,18 +1185,138 @@
 
     <!-- ======== MISSION TAB ======== -->
     <section id="tabMission" class="tab-content">
-      <div style="display: grid; grid-template-columns: 1fr 340px; gap: 24px;">
+      <div class="mission-inner">
+      <div class="mission-grid">
         
-        <!-- LEFT: Run Control Hero Card -->
-        <div class="card card-accent" style="padding: 24px;">
-          <h2 style="font-size: 22px; font-weight: 700; margin: 0 0 6px 0;">Mission</h2>
-          <p style="font-size: 13px; color: var(--muted); margin: 0 0 20px 0;">
-            Capture telemetry → compile findings → review as cases
-          </p>
+        <!-- LEFT: Run Builder (mission-main column) -->
+        <section class="mission-main" id="missionMainCol">
+          
+          <!-- STEP 1: Path of Work Chooser -->
+          <div id="missionStep1" style="margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+              <span style="font-size: 14px; font-weight: 700; color: var(--accent);">①</span>
+              <h3 style="font-size: 14px; font-weight: 600; margin: 0;">What are you trying to do?</h3>
+            </div>
+            <div id="pathOfWorkChips" style="display: flex; flex-wrap: wrap; gap: 8px;">
+              <button class="path-chip active" data-path="discovery" style="padding: 10px 16px; border-radius: var(--radius-sm); border: 2px solid var(--accent); background: rgba(99, 102, 241, 0.15); color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s ease;">
+                <span style="margin-right: 4px;">🔍</span> Discovery (System Changes)
+              </button>
+              <button class="path-chip" data-path="threat-hunt" style="padding: 10px 16px; border-radius: var(--radius-sm); border: 2px solid var(--border); background: var(--panel2); color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s ease;">
+                <span style="margin-right: 4px;">🎯</span> Threat Hunt (Broad)
+              </button>
+              <button class="path-chip" data-path="credential" style="padding: 10px 16px; border-radius: var(--radius-sm); border: 2px solid var(--border); background: var(--panel2); color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s ease;">
+                <span style="margin-right: 4px;">🔑</span> Credential / LoTL
+              </button>
+              <button class="path-chip" data-path="network" style="padding: 10px 16px; border-radius: var(--radius-sm); border: 2px solid var(--border); background: var(--panel2); color: var(--text); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s ease;">
+                <span style="margin-right: 4px;">🌐</span> Network Focus
+              </button>
+            </div>
+            <div id="pathDescription" style="margin-top: 10px; font-size: 11px; color: var(--muted); padding: 8px 10px; background: var(--panel2); border-radius: var(--radius-sm);">
+              🔍 Discovery: Capture general system changes without requiring Admin or Sysmon.
+            </div>
+            
+            <!-- Telemetry Readiness Indicator (traffic light) -->
+            <div id="telemetryReadinessIndicator" style="margin-top: 12px; padding: 10px 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 10px;">
+              <span id="telemetryReadinessLight" style="font-size: 16px;">⚪</span>
+              <div style="flex: 1;">
+                <div style="font-size: 12px; font-weight: 500; color: var(--text);" id="telemetryReadinessLabel">Checking telemetry...</div>
+                <div style="font-size: 10px; color: var(--muted);" id="telemetryReadinessDetail">Verifying sensor access</div>
+              </div>
+              <button id="btnRefreshReadiness" class="btn-secondary" style="padding: 4px 8px; font-size: 10px;">↻</button>
+            </div>
+            
+            <!-- Custom Selection Label (shown when user manually edits playbooks) -->
+            <div id="customSelectionLabel" class="hidden" style="margin-top: 8px; font-size: 11px; color: var(--accent); display: flex; align-items: center; gap: 6px;">
+              <span>⚙️</span> <span>Custom selection</span>
+              <button id="btnResetToPreset" style="padding: 2px 6px; font-size: 9px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; color: var(--muted); cursor: pointer;">Reset</button>
+            </div>
+          </div>
 
-          <!-- Compact controls row -->
-          <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-            <div style="flex: 1;">
+          <!-- STEP 2: Playbook Selection / Attack Chain Builder -->
+          <div id="missionStep2" style="margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 14px; font-weight: 700; color: var(--accent);">②</span>
+                <h3 style="font-size: 14px; font-weight: 600; margin: 0;">Select Playbooks / Attack Chain</h3>
+                <!-- Custom selection state badge (not a button) -->
+                <span id="selectionModeBadge" class="hidden" style="font-size: 10px; padding: 2px 8px; background: rgba(251, 191, 36, 0.15); border: 1px solid rgba(251, 191, 36, 0.4); border-radius: 10px; color: var(--warn); font-weight: 500;"></span>
+              </div>
+            </div>
+            <p id="step2HelperText" style="font-size: 11px; color: var(--muted); margin: 0 0 10px 22px;">
+              <strong>Preset bundles</strong> = quick broad coverage. <strong>Micro chains</strong> = focused recipes with step-by-step progress.
+            </p>
+            
+            <!-- Mode Entry Points (not toggle states) -->
+            <div id="step2ModeChips" style="display: flex; gap: 6px; margin-bottom: 12px; margin-left: 22px; flex-wrap: wrap;">
+              <button id="btnModePreset" class="step2-mode-btn" style="padding: 5px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--panel2); color: var(--text); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px;">
+                <span>📦</span> Preset bundle
+              </button>
+              <button id="btnModeMicroChain" class="step2-mode-btn" style="padding: 5px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--panel2); color: var(--text); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px;">
+                <span>🔗</span> Micro chain
+              </button>
+              <button id="btnModeEditSelection" class="step2-mode-btn" style="padding: 5px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--panel2); color: var(--text); font-size: 11px; font-weight: 500; cursor: pointer; transition: all 0.15s ease; display: inline-flex; align-items: center; gap: 4px;">
+                <span>✏️</span> Edit selection
+              </button>
+            </div>
+            
+            <!-- Preset dropdown (initially visible, hidden when chain selected) -->
+            <div id="presetDropdownRow" style="margin-left: 22px; margin-bottom: 12px;">
+              <label style="font-size: 10px; color: var(--muted); display: block; margin-bottom: 4px;">Active preset:</label>
+              <select id="playbookPresetSelect" class="select" style="width: auto; min-width: 180px; font-size: 11px; padding: 4px 8px;">
+                <option value="general" selected>🌐 General (System Changes)</option>
+                <option value="extended">🔮 Extended (All)</option>
+              </select>
+            </div>
+            
+            <!-- Chain Provenance Label (shown when a micro chain is applied) -->
+            <div id="chainProvenanceLabel" class="hidden" style="margin-left: 22px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span style="font-size: 11px; padding: 4px 10px; background: rgba(99, 102, 241, 0.15); border: 1px solid var(--accent); border-radius: var(--radius-sm); color: var(--text); display: inline-flex; align-items: center; gap: 6px;">
+                <span>🔗</span>
+                <span>Chain:</span>
+                <strong id="chainProvenanceTitle" style="color: var(--accent);">—</strong>
+              </span>
+              <button id="btnEditChainPlaybooks" class="linklike" style="font-size: 10px; color: var(--muted);">Edit playbooks</button>
+              <button id="btnResetToChain" class="linklike hidden" style="font-size: 10px; color: var(--accent);">Reset to chain</button>
+            </div>
+            
+            <!-- Custom Selection State Label (based on chain or preset) -->
+            <div id="customBasedOnLabel" class="hidden" style="margin-left: 22px; margin-bottom: 12px; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span style="padding: 3px 8px; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 4px;">
+                <span>⚙️</span>
+                <span>Custom</span>
+                <span style="color: var(--text);">(based on <strong id="customBasedOnTitle" style="color: var(--accent);">—</strong>)</span>
+              </span>
+              <span id="customDiffBadge" style="font-size: 10px; color: var(--muted);"></span>
+              <button id="btnResetToBaseline" class="linklike" style="font-size: 10px; color: var(--accent);">Reset</button>
+            </div>
+            
+            <!-- Selection Summary Bar (always visible) -->
+            <div id="playbookSelectionSummary" style="margin-left: 22px; margin-bottom: 12px; padding: 10px 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+              <!-- Catalog Status Indicator -->
+              <div id="catalogStatusIndicator" class="hidden" style="margin-bottom: 8px; font-size: 11px;"></div>
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 12px; font-size: 12px;">
+                  <span><span style="color: var(--muted);">Selected:</span> <strong id="playbookSelectedCount" style="color: var(--accent);">—</strong></span>
+                  <span><span style="color: var(--muted);">Runnable:</span> <strong id="playbookRunnableCount" style="color: var(--good);">—</strong></span>
+                  <span id="playbookBlockedSummary"><span style="color: var(--muted);">Blocked:</span> <strong id="playbookBlockedCount" style="color: var(--warn);">0</strong></span>
+                  <span id="playbookUnverifiedSummary" class="hidden"><span style="color: var(--muted);">Unverified:</span> <strong id="playbookUnverifiedCount" style="color: var(--muted);">0</strong></span>
+                </div>
+                <button id="btnChoosePlaybooks" class="btn-secondary" style="padding: 6px 12px; font-size: 11px; font-weight: 500;">View / Edit Playbooks</button>
+              </div>
+              <!-- Chain checklist callout -->
+              <div id="chainChecklistCallout" style="font-size: 10px; color: var(--muted); margin-top: 6px; display: flex; align-items: center; gap: 4px;">
+                <span id="checklistCalloutText">Attack chain checklist</span>
+                <button id="btnScrollToChecklist" class="linklike" style="font-size: 10px; color: var(--accent); background: none; border: none; cursor: pointer; padding: 0;">→</button>
+              </div>
+              <div id="playbookUpgradeHint" style="font-size: 10px; color: var(--muted); margin-top: 6px; display: none;">
+                💡 <span id="playbookUpgradeHintText">Need deeper coverage? Try Admin or Sysmon preset.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Run Duration (compact) -->
+          <div style="display: flex; gap: 12px; margin-bottom: 0;">
+            <div style="flex: 1; display: none;">
               <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Profile</label>
               <select id="profileSelect" class="select" style="width: 100%;">
                 <option value="core">Core</option>
@@ -584,7 +1325,7 @@
               </select>
             </div>
             <div style="flex: 1;">
-              <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Duration</label>
+              <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Run Duration</label>
               <select id="durationSelect" class="select" style="width: 100%;">
                 <option value="5">5 min</option>
                 <option value="10" selected>10 min</option>
@@ -592,99 +1333,9 @@
                 <option value="30">30 min</option>
               </select>
             </div>
-            <div style="flex: 1;">
-              <label style="font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Playbooks</label>
-              <select id="playbookPresetSelect" class="select" style="width: 100%;">
-                <option value="general" selected>🌐 General (System Changes)</option>
-                <option value="admin">🔐 Admin (+ Security Log)</option>
-                <option value="sysmon">🔍 Sysmon (+ Deep Visibility)</option>
-                <option value="powershell">⚡ PowerShell</option>
-                <option value="extended">🔮 Extended (All)</option>
-                <option value="custom">⚙️ Custom...</option>
-              </select>
-              <div style="font-size: 10px; color: var(--muted); margin-top: 4px;">Default: system changes without Admin or Sysmon</div>
-            </div>
-          </div>
-          
-          <!-- Playbook selection summary -->
-          <div id="playbookSelectionSummary" style="margin-bottom: 12px; padding: 10px 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-              <div style="font-size: 11px;">
-                <span style="color: var(--muted);">Selected:</span> <span id="playbookSelectedCount" style="color: var(--accent); font-weight: 600;">—</span>
-                <span style="margin-left: 8px; color: var(--muted);">•</span>
-                <span style="margin-left: 8px; color: var(--muted);">Runnable:</span> <span id="playbookRunnableCount" style="color: var(--good); font-weight: 600;">—</span>
-                <span style="margin-left: 8px; color: var(--muted);">•</span>
-                <span style="margin-left: 8px; color: var(--muted);">Blocked:</span> <span id="playbookBlockedCount" style="color: var(--warn); font-weight: 600;">—</span>
-              </div>
-              <button id="btnCustomizePlaybooks" class="btn-secondary" style="padding: 3px 8px; font-size: 10px; display: none;">Customize</button>
-            </div>
-            <div id="playbookUpgradeHint" style="font-size: 10px; color: var(--muted); display: none;">
-              💡 <span id="playbookUpgradeHintText">Need deeper coverage? Try Admin or Sysmon preset.</span>
-            </div>
           </div>
 
-          <!-- System Readiness & Detection Plan -->
-          <div style="margin-bottom: 16px; padding: 14px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-              <span style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">🛡️ System Readiness<span id="infoBubbleReadiness"></span></span>
-              <div style="display: flex; gap: 6px; align-items: center;">
-                <button id="btnMissionViewReadiness" class="btn-secondary" style="padding: 3px 8px; font-size: 10px;">View</button>
-                <button id="btnMissionRerunReadiness" class="btn-secondary" style="padding: 3px 8px; font-size: 10px;">Re-run</button>
-                <span id="missionReadinessStatus" class="badge badge-stopped">—</span>
-              </div>
-            </div>
-            
-            <div id="missionReadinessLabel" style="font-size: 12px; color: var(--text); margin-bottom: 10px;">Checking telemetry access...</div>
-            
-            <!-- Sensor/Channel Summary Row -->
-            <div style="font-size: 11px; display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 10px;">
-              <span><span style="color: var(--muted);">Sensors<span id="infoBubbleSensors"></span>:</span> <span id="missionSensorsAvailable">—</span>/<span id="missionSensorsTotal">—</span></span>
-              <span><span style="color: var(--muted);">Channels<span id="infoBubbleChannels"></span>:</span> <span id="missionChannelsAccessible">—</span>/<span id="missionChannelsTotal">—</span></span>
-            </div>
-            
-            <!-- Detection Plan Summary -->
-            <div style="padding-top: 10px; border-top: 1px solid var(--border-subtle);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <span style="font-size: 11px; font-weight: 500;">🎯 Detection Plan</span>
-                <button id="btnMissionLoadPlan" class="btn-secondary" style="padding: 3px 8px; font-size: 10px;">View</button>
-              </div>
-              <div style="font-size: 11px; display: flex; gap: 14px;">
-                <span><span id="missionPlanEnabled" style="color: var(--good); font-weight: 600;">—</span> <span style="color: var(--muted);">enabled<span id="infoBubblePlaybooksEnabled"></span></span></span>
-                <span><span id="missionPlanBlocked" style="color: var(--warn); font-weight: 600;">—</span> <span style="color: var(--muted);">blocked<span id="infoBubblePlaybooksBlocked"></span></span></span>
-              </div>
-            </div>
-            
-            <!-- Detection Plan Expandable Panel -->
-            <div id="missionPlanPanel" class="hidden" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
-              <input id="missionPlanSearch" type="text" placeholder="Search playbooks..." style="width: 100%; padding: 5px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 10px; margin-bottom: 6px;">
-              <div id="missionPlanList" style="max-height: 180px; overflow-y: auto; font-size: 10px;">
-                <div style="color: var(--muted); text-align: center; padding: 10px;">Loading...</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Primary action button (full width, prominent) -->
-          <div style="margin-bottom: 8px;">
-            <button id="btnStartRun" class="btn-primary" style="width: 100%; padding: 14px 20px; font-size: 15px;">
-              ▶️ Start Run
-            </button>
-            <button id="btnStopRun" class="btn-danger hidden" style="width: 100%; padding: 14px 20px; font-size: 15px;">
-              ⏹️ Stop Run
-            </button>
-          </div>
-          <!-- Compact status meta row -->
-          <div style="font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; margin-bottom: 6px;">
-            <span>Status: <span id="runStatus" style="color: var(--text); font-weight: 500;">Idle</span></span>
-            <span style="opacity: 0.4;">•</span>
-            <span>Readiness: <span id="readinessStatus" style="color: var(--text);">Checking...</span></span>
-            <span style="opacity: 0.4;">•</span>
-            <span>Elapsed: <span id="runDuration" style="color: var(--text);">—</span></span>
-          </div>
-          <div id="missionHint" style="font-size: 11px; color: var(--muted); opacity: 0.7;">
-            🔒 Runs locally · Click Start Run to begin capture
-          </div>
-          
-          <!-- Debug: Validation Helper (shown only in debug mode) -->
+          <!-- Debug: Validation Helper (hidden by default) -->
           <div id="validationHelper" class="hidden" style="margin-top: 12px; padding: 10px 12px; background: rgba(99, 102, 241, 0.1); border-radius: var(--radius-sm); border: 1px solid rgba(99, 102, 241, 0.3);">
             <div style="display: flex; align-items: center; gap: 10px;">
               <span style="font-size: 14px;">🧪</span>
@@ -699,26 +1350,79 @@
               Runs <code style="background: var(--bg); padding: 1px 4px; border-radius: 3px;">whoami</code> as encoded PowerShell — benign, triggers detection
             </div>
           </div>
-          
-          <!-- Readiness Warning Panel (shown when degraded/limited) -->
-          <div id="missionReadinessWarning" class="hidden" style="margin-top: 16px; padding: 12px; background: rgba(255, 193, 7, 0.1); border-radius: var(--radius-sm); border: 1px solid rgba(255, 193, 7, 0.3);">
-            <div style="display: flex; align-items: flex-start; gap: 10px;">
-              <span style="font-size: 16px;">⚠️</span>
-              <div style="flex: 1;">
-                <h4 style="font-size: 13px; font-weight: 600; color: var(--warn); margin: 0 0 6px 0;">Limited Telemetry Expected</h4>
-                <div id="missionReadinessIssues" style="font-size: 12px; color: var(--text); line-height: 1.5;">
-                  <!-- Populated by JS -->
-                </div>
-                <div id="restartAdminSection" class="hidden" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 193, 7, 0.2);">
-                  <button id="btnRestartAdmin" class="btn-primary" style="padding: 8px 16px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px;">
-                    🛡️ Restart as Administrator
-                  </button>
-                  <span id="restartAdminHint" style="font-size: 11px; color: var(--muted); margin-left: 8px;">One-click elevation</span>
-                </div>
-                <div style="font-size: 11px; color: var(--muted); margin-top: 8px;">
-                  You can still run capture, but detection coverage will be reduced.
+
+          <!-- STEP 3: Telemetry Check / Readiness -->
+          <div id="missionStep3" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+              <span style="font-size: 14px; font-weight: 700; color: var(--accent);">③</span>
+              <h3 style="font-size: 14px; font-weight: 600; margin: 0;">Telemetry Check</h3>
+            </div>
+            <div id="dockReadinessCard" style="padding: 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 11px; font-weight: 600; color: var(--text);">🛡️ Readiness</span>
+                <div style="display: flex; gap: 6px; align-items: center;">
+                  <button id="btnMissionRerunReadiness" class="btn-secondary" style="padding: 2px 6px; font-size: 9px;">Re-check</button>
+                  <span id="missionReadinessStatus" class="badge badge-stopped">—</span>
                 </div>
               </div>
+              <div id="missionReadinessLabel" style="font-size: 11px; color: var(--text); margin-bottom: 6px;">Checking telemetry access...</div>
+              <div style="font-size: 10px; display: flex; gap: 12px; flex-wrap: wrap;">
+                <span><span style="color: var(--muted);">Sensors:</span> <span id="missionSensorsAvailable">—</span>/<span id="missionSensorsTotal">—</span></span>
+                <span><span style="color: var(--muted);">Channels:</span> <span id="missionChannelsAccessible">—</span>/<span id="missionChannelsTotal">—</span></span>
+              </div>
+              <div id="missionReadinessIssues" style="font-size: 10px; color: var(--warn); margin-top: 4px;"></div>
+            </div>
+
+            <!-- Readiness Warning Panel (shown when degraded/limited) -->
+            <div id="missionReadinessWarning" class="hidden" style="margin-top: 8px; padding: 10px; background: rgba(255, 193, 7, 0.1); border-radius: var(--radius-sm); border: 1px solid rgba(255, 193, 7, 0.3);">
+              <div style="display: flex; align-items: flex-start; gap: 8px;">
+                <span style="font-size: 14px;">⚠️</span>
+                <div style="flex: 1;">
+                  <h4 style="font-size: 11px; font-weight: 600; color: var(--warn); margin: 0 0 4px 0;">Limited Telemetry</h4>
+                  <div id="missionReadinessIssuesText" style="font-size: 10px; color: var(--text); line-height: 1.4;"></div>
+                  <div id="restartAdminSection" class="hidden" style="margin-top: 6px;">
+                    <button id="btnRestartAdmin" class="btn-primary" style="padding: 4px 10px; font-size: 10px;">🛡️ Restart as Admin</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- STEP 4: Launch -->
+          <div id="missionStep4" style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-subtle);">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+              <span style="font-size: 14px; font-weight: 700; color: var(--accent);">④</span>
+              <h3 style="font-size: 14px; font-weight: 600; margin: 0;">Launch</h3>
+            </div>
+            
+            <!-- Contract Receipt Strip -->
+            <div id="contractReceipt" class="contract-receipt">
+              <div class="contract-receipt-line">
+                <span class="receipt-label">Will run:</span>
+                <span><span id="receiptRunnable" class="receipt-runnable">—</span> runnable</span>
+                <span>·</span>
+                <span><span id="receiptBlocked" class="receipt-blocked">0</span> blocked</span>
+                <span>·</span>
+                <span><span id="receiptUnverified" class="receipt-unverified">0</span> unverified</span>
+                <span>·</span>
+                <span>Confidence: <span id="receiptConfidence" style="font-weight: 600;">—</span></span>
+              </div>
+              <div id="receiptWarning" class="contract-receipt-warning hidden">
+                <span>⚠️</span>
+                <span id="receiptWarningText">Some playbooks blocked or unverified</span>
+              </div>
+            </div>
+            
+            <button id="btnStartRun" class="btn-primary" style="width: 100%; padding: 14px 20px; font-size: 15px; font-weight: 600;" data-action="startRun">
+              ▶️ Start Run
+            </button>
+            <button id="btnStopRun" class="btn-danger hidden" style="width: 100%; padding: 14px 20px; font-size: 15px; font-weight: 600;" data-action="stopRun">
+              ⏹️ Stop Run
+            </button>
+            <div style="margin-top: 10px; font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center;">
+              <span>Status: <span id="runStatus" style="color: var(--text); font-weight: 500;">Idle</span></span>
+              <span style="opacity: 0.4;">•</span>
+              <span>Elapsed: <span id="runDuration" style="color: var(--text);">—</span></span>
             </div>
           </div>
 
@@ -730,64 +1434,94 @@
               <button id="btnRetryStart" class="btn-secondary" style="padding: 6px 12px; font-size: 12px;">🔄 Retry</button>
             </div>
           </div>
-        </div>
+        </section>
 
-        <!-- RIGHT: Supporting Cards -->
-        <div style="display: flex; flex-direction: column; gap: 16px;">
+
+        <!-- RIGHT: Preflight Dock (sticky sidebar) -->
+        <aside id="missionDock" class="mission-dock is-idle" style="position: sticky; top: 16px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 100px); overflow-y: auto;">
           
-          <!-- Live Counters Card -->
-          <div class="card" style="padding: 16px;">
-            <h3 style="font-size: 12px; font-weight: 600; margin: 0 0 12px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Live Counters</h3>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-              <div class="metric-tile">
-                <div id="counterEvents" class="metric-value">—</div>
-                <div class="metric-label">Events<span id="infoBubbleEvents"></span></div>
-              </div>
-              <div class="metric-tile">
-                <div id="counterSegments" class="metric-value">—</div>
-                <div class="metric-label">Segments<span id="infoBubbleSegments"></span></div>
-              </div>
-              <div class="metric-tile">
-                <div id="counterFacts" class="metric-value">—</div>
-                <div class="metric-label">Facts<span id="infoBubbleFacts"></span></div>
-              </div>
-              <div class="metric-tile">
-                <div id="counterSignals" class="metric-value">—</div>
-                <div class="metric-label">Signals<span id="infoBubbleSignals"></span></div>
-              </div>
-            </div>
-            <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-subtle); font-size: 10px; color: var(--muted); display: flex; justify-content: space-between;">
-              <span>Dedupe<span id="infoBubbleDedupe"></span>: <span id="dedupeStatus">ON</span></span>
-              <span>Startup suppress<span id="infoBubbleStartupSuppress"></span>: <span id="suppressionTime">45s</span></span>
+          <!-- Dock Header -->
+          <div class="dock-header">
+            <div class="dock-header-label">🛫 PRE-FLIGHT</div>
+            <div class="dock-header-subtitle">Context & coaching</div>
+          </div>
+
+          <!-- Outcome Checklist Card (Attack Chain Satisfaction Tracker) -->
+          <div id="outcomeChecklistCard" class="card outcome-checklist" style="padding: 10px;">
+            <div id="outcomeChecklistContainer">
+              <!-- Rendered by renderOutcomeChecklist() -->
+              <div class="outcome-empty">Select playbooks to see outcome checklist</div>
             </div>
           </div>
 
-          <!-- Noise Diagnostics Card -->
-          <div class="card" style="padding: 16px;">
-            <h3 style="font-size: 12px; font-weight: 600; margin: 0 0 12px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Noise Diagnostics</h3>
-            <div id="noiseContent" style="font-size: 13px;">
-              <div class="info-row">
-                <span class="info-label">Signals/min</span>
-                <span id="signalsPerMin" class="info-value" style="opacity: 0.4; min-width: 60px; text-align: right;">—</span>
+          <!-- Live Panels (shown when running) -->
+          <div id="dockLivePanels" class="dock-live-panels" style="display: flex; flex-direction: column; gap: 10px;">
+            
+            <!-- Live Counters Card -->
+            <details id="liveCountersDetails" class="card" style="padding: 0;" open>
+              <summary id="liveCountersSummary" style="padding: 8px 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                <span style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">📊 Live Counters</span>
+                <span id="liveCountersStatus" style="font-size: 9px; color: var(--muted);">Idle</span>
+              </summary>
+              <div id="liveCountersContent" style="padding: 0 12px 12px 12px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                  <div class="metric-tile" style="padding: 8px;">
+                    <div id="counterEvents" class="metric-value" style="font-size: 16px;">—</div>
+                    <div class="metric-label" style="font-size: 9px;">Events</div>
+                  </div>
+                  <div class="metric-tile" style="padding: 8px;">
+                    <div id="counterSegments" class="metric-value" style="font-size: 16px;">—</div>
+                    <div class="metric-label" style="font-size: 9px;">Segments</div>
+                  </div>
+                  <div class="metric-tile" style="padding: 8px;">
+                    <div id="counterFacts" class="metric-value" style="font-size: 16px;">—</div>
+                    <div class="metric-label" style="font-size: 9px;">Facts</div>
+                  </div>
+                  <div class="metric-tile" style="padding: 8px;">
+                    <div id="counterSignals" class="metric-value" style="font-size: 16px;">—</div>
+                    <div class="metric-label" style="font-size: 9px;">Signals</div>
+                  </div>
+                </div>
+                <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border-subtle); font-size: 9px; color: var(--muted); display: flex; justify-content: space-between;">
+                  <span>Dedupe: <span id="dedupeStatus">ON</span></span>
+                  <span>Suppress: <span id="suppressionTime">45s</span></span>
+                </div>
               </div>
-              <div class="info-row">
-                <span class="info-label">Top playbook</span>
-                <span id="topPlaybook" class="info-value" style="opacity: 0.4; min-width: 60px; text-align: right;">—</span>
+            </details>
+
+            <!-- Noise Diagnostics Card -->
+            <details id="noiseDiagnosticsDetails" class="card" style="padding: 0;" open>
+              <summary style="padding: 8px 12px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                <span style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">🔇 Noise Diagnostics</span>
+                <span id="noiseStatus" style="font-size: 9px; color: var(--muted);">—</span>
+              </summary>
+              <div id="noiseContent" style="padding: 0 12px 12px 12px; font-size: 11px;">
+                <div class="info-row" style="padding: 3px 0;">
+                  <span class="info-label">Signals/min</span>
+                  <span id="signalsPerMin" class="info-value" style="opacity: 0.4; min-width: 40px; text-align: right;">—</span>
+                </div>
+                <div class="info-row" style="padding: 3px 0;">
+                  <span class="info-label">Top playbook</span>
+                  <span id="topPlaybook" class="info-value" style="opacity: 0.4; min-width: 40px; text-align: right;">—</span>
+                </div>
+                <div class="info-row" style="padding: 3px 0;">
+                  <span class="info-label">Top entity</span>
+                  <span id="topEntity" class="info-value" style="opacity: 0.4; min-width: 40px; text-align: right;">—</span>
+                </div>
+                <div class="info-row" style="padding: 3px 0;">
+                  <span class="info-label">Collapsed</span>
+                  <span id="dedupeCount" class="info-value" style="opacity: 0.4; min-width: 40px; text-align: right;">—</span>
+                </div>
               </div>
-              <div class="info-row">
-                <span class="info-label">Top entity</span>
-                <span id="topEntity" class="info-value" style="opacity: 0.4; min-width: 60px; text-align: right;">—</span>
-              </div>
-              <div class="info-row">
-                <span class="info-label">Collapsed</span>
-                <span id="dedupeCount" class="info-value" style="opacity: 0.4; min-width: 60px; text-align: right;">—</span>
-              </div>
-            </div>
-            <div id="noiseHint" style="text-align: center; padding-top: 8px; margin-top: 8px; border-top: 1px solid var(--border-subtle); font-size: 10px; color: var(--muted); opacity: 0.7;">
-              Populates after Start Run
-            </div>
+            </details>
           </div>
-        </div>
+
+          <!-- Dock footer hint -->
+          <div id="missionHint" style="font-size: 9px; color: var(--muted); opacity: 0.6; text-align: center; padding: 4px 0;">
+            🔒 Runs locally · Selection saved automatically
+          </div>
+        </aside>
+      </div>
       </div>
     </section>
 
@@ -830,180 +1564,250 @@
         </div>
 
         <!-- Right: Run detail -->
-        <div class="card" style="padding: 24px;">
-          <div id="runDetailEmpty" class="empty-state" style="padding: 32px 0;">
+        <div class="card" style="padding: 0; display: flex; flex-direction: column; max-height: calc(100vh - 140px); overflow: hidden;">
+          <div id="runDetailEmpty" class="empty-state" style="padding: 32px 24px;">
             <div style="font-size: 32px; margin-bottom: 12px; opacity: 0.5;">👈</div>
             <div style="font-size: 14px; color: var(--muted);">Select a run to view details</div>
           </div>
-          <div id="runDetail" class="hidden">
-            <h3 id="runDetailTitle" style="font-size: 18px; font-weight: 600; margin: 0 0 8px 0;">Run #12345</h3>
-            <p id="runDetailTime" style="font-size: 13px; color: var(--muted); margin: 0 0 16px 0;">Jan 10, 2026 at 10:30 AM</p>
-            
-            <!-- System State Summary Panel (Part A - always shows something) -->
-            <div id="runStatePanel" class="hidden" style="margin-bottom: 20px; padding: 16px; background: var(--panel2); border-radius: var(--radius-sm); border-left: 4px solid var(--accent);">
-              <h4 style="font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px 0;">📊 System State Summary</h4>
-              
-              <!-- Telemetry Status -->
-              <div id="stateTelemetryStatus" style="margin-bottom: 12px;">
-                <span style="font-size: 12px; color: var(--muted);">Telemetry:</span>
-                <span id="stateTelemetryBadge" class="badge badge-stopped" style="margin-left: 8px;">—</span>
+          <div id="runDetail" class="hidden" style="display: flex; flex-direction: column; height: 100%;">
+            <!-- STICKY: Run Brief Header -->
+            <div id="runBriefHeader" style="flex-shrink: 0; padding: 16px 20px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 10;">
+              <!-- Title row (export/baseline moved to Import/Export tab) -->
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
+                <h3 id="runDetailTitle" style="font-size: 16px; font-weight: 600; margin: 0;">Run #12345</h3>
               </div>
-              
-              <!-- Sensors Grid -->
-              <div id="stateSensorsSection" style="margin-bottom: 12px;">
-                <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">Sensors:</div>
-                <div id="stateSensorsList" style="display: flex; flex-wrap: wrap; gap: 6px;">
-                  <!-- Populated by JS -->
-                </div>
+              <!-- Compact meta row -->
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--muted);">
+                <span id="runDetailTime">Jan 10, 2026</span>
+                <span style="opacity: 0.3;">|</span>
+                <span id="runDetailHost">Host: <span style="color: var(--text); font-family: monospace;">—</span></span>
+                <span style="opacity: 0.3;">|</span>
+                <span id="runDetailPreset">Preset: <span style="color: var(--text);">—</span></span>
               </div>
-              
-              <!-- Quick Stats Row -->
-              <div style="display: flex; gap: 16px; margin-bottom: 12px; font-size: 12px;">
-                <div><span style="color: var(--muted);">Facts:</span> <span id="stateFactsCount" style="font-weight: 600;">—</span></div>
-                <div><span style="color: var(--muted);">Signals:</span> <span id="stateSignalsCount" style="font-weight: 600;">—</span></div>
-                <div><span style="color: var(--muted);">Top Process:</span> <span id="stateTopProcess" style="font-family: monospace;">—</span></div>
-              </div>
-              
-              <!-- Top Entities (when available) -->
-              <div id="stateEntitiesSection" class="hidden" style="margin-bottom: 12px;">
-                <div style="font-size: 12px; color: var(--muted); margin-bottom: 6px;">Top Observed Entities:</div>
-                <div id="stateEntitiesList" style="display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px;">
-                  <!-- Populated by JS -->
-                </div>
-              </div>
-              
-              <!-- Notes/Issues -->
-              <div id="stateNotesSection" class="hidden">
-                <div id="stateNotesList" style="font-size: 12px; color: var(--warn);">
-                  <!-- Populated by JS -->
-                </div>
+              <!-- Status Pills Row (compact) -->
+              <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px;">
+                <span id="runTelemetryPill" class="badge badge-stopped" style="font-size: 9px; padding: 2px 6px;">📡 —</span>
+                <span id="runCompilePill" class="badge badge-stopped" style="font-size: 9px; padding: 2px 6px;">⚙️ —</span>
+                <span id="runStatusPill" class="run-status-pill run-status-pill--finalized hidden" style="font-size: 9px;">✓ FINALIZED</span>
               </div>
             </div>
             
-            <!-- Next Steps Panel (Workflow Guidance) -->
-            <div id="runNextStepsPanel" class="hidden" style="margin-bottom: 20px; padding: 16px; background: var(--panel2); border-radius: var(--radius-sm); border-left: 4px solid var(--good);">
-              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                <h4 style="font-size: 12px; font-weight: 600; color: var(--good); text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">🎯 Next Steps</h4>
-                <span id="nextStepsSeverityBadge" class="badge badge-info" style="font-size: 10px;">—</span>
-              </div>
-              
-              <!-- Summary -->
-              <div id="nextStepsSummary" style="font-size: 13px; color: var(--text); margin-bottom: 12px; line-height: 1.5;">
-                <!-- Populated by JS -->
-              </div>
-              
-              <!-- Coverage Checklist (Attack Surface Status) -->
-              <div id="coverageChecklist" class="hidden" style="margin-bottom: 16px; padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm);">
-                <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 10px;">📋 Coverage Checklist</div>
-                <div id="coverageChecklistItems" style="display: flex; flex-direction: column; gap: 6px;">
-                  <!-- Populated by JS -->
-                </div>
-              </div>
-              
-              <!-- Action Cards -->
-              <div id="nextStepsActions" style="display: flex; flex-direction: column; gap: 8px;">
-                <!-- Populated by JS -->
-              </div>
-            </div>
+            <!-- SCROLLABLE: Run Detail Content -->
+            <div id="runDetailContent" style="flex: 1; overflow-y: auto; padding: 16px 20px;">
             
-            <!-- Run Detail Tabs -->
+            <!-- PRIMARY TAB ROW (main navigation, moved up) -->
             <!-- CORE PRODUCT: Only core tabs shown by default. Non-core tabs (Changes, Playbooks, Timeline) hidden. -->
             <div class="run-detail-tabs" style="display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 0;">
               <button class="run-tab active" data-run-tab="overview" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--text); cursor: pointer; border-bottom: 2px solid var(--accent); margin-bottom: -1px;">Overview</button>
-              <!-- NON-CORE: Changes tab (requires diff feature) -->
-              <button class="run-tab non-core-feature hidden" data-run-tab="changes" data-feature="diff" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Changes</button>
-              <button class="run-tab" data-run-tab="findings" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Findings</button>
-              <!-- NON-CORE: Playbooks tab (debug/dev feature) -->
-              <button class="run-tab non-core-feature hidden" data-run-tab="playbooks" data-feature="playbook_debug" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Playbooks</button>
-              <button class="run-tab" data-run-tab="facts" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Facts</button>
-              <!-- NON-CORE: Timeline tab (requires timeline feature) -->
-              <button class="run-tab non-core-feature hidden" data-run-tab="timeline" data-feature="timeline" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Timeline</button>
-              <button class="run-tab" data-run-tab="explain" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Explain</button>
-              <!-- PRO: Entity Explorer tab (requires Pro tier) -->
+              <button class="run-tab" data-run-tab="investigate" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Investigate</button>
+              <button class="run-tab" data-run-tab="facts" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Evidence</button>
               <button class="run-tab pro-feature" data-run-tab="explore" data-tier="pro" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Explore <span style="font-size: 9px; color: var(--accent); font-weight: 700; vertical-align: super;">PRO</span></button>
-              <button class="run-tab" data-run-tab="raw" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Raw JSON</button>
+              <!-- NON-CORE: Hidden tabs for dev/debug -->
+              <button class="run-tab non-core-feature hidden" data-run-tab="changes" data-feature="diff" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Changes</button>
+              <button class="run-tab non-core-feature hidden" data-run-tab="playbooks" data-feature="playbook_debug" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Playbooks</button>
+              <button class="run-tab non-core-feature hidden" data-run-tab="timeline" data-feature="timeline" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Timeline</button>
+              <button class="run-tab hidden" data-run-tab="explain" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Explain</button>
+              <button class="run-tab" data-run-tab="raw" style="padding: 8px 16px; font-size: 13px; font-weight: 500; background: transparent; border: none; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;">Raw</button>
             </div>
+            
+            <!-- Compile Status Banner (only when actively compiling, NOT for interrupted) -->
+            <div id="runCompileStatus" class="hidden" style="margin-bottom: 12px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 12px; display: flex; align-items: center; gap: 8px; background: rgba(139, 92, 246, 0.1); border: 1px solid var(--accent);">
+              <span id="compileStatusIcon">⏳</span>
+              <span id="compileStatusText">Compiling facts...</span>
+            </div>
+            
+            <!-- Interrupt Warning Banner (single authoritative banner for interrupted runs) -->
+            <div id="runInterruptBanner" class="hidden" style="margin-bottom: 12px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 11px; background: rgba(243, 156, 18, 0.12); border-left: 3px solid var(--warn);">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="font-size: 12px;">⚠️</span>
+                <span style="font-weight: 600; color: var(--warn);">Partial Data</span>
+                <span id="interruptReason" style="color: var(--muted); font-size: 10px;">— Run was interrupted</span>
+              </div>
+            </div>
+            
+            <!-- System State Details MOVED to bottom of Overview tab -->
 
             <!-- Overview Tab Content -->
             <div id="runTabOverview" class="run-tab-content">
-              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
-                <div class="metric-tile">
-                  <div id="detailEvents" class="metric-value">—</div>
-                  <div class="metric-label">Events<span id="infoBubbleRunEvents"></span></div>
-                </div>
-                <div class="metric-tile">
-                  <div id="detailSegments" class="metric-value">—</div>
-                  <div class="metric-label">Segments<span id="infoBubbleRunSegments"></span></div>
-                </div>
-                <div class="metric-tile">
-                  <div id="detailFacts" class="metric-value">—</div>
-                  <div class="metric-label">Facts<span id="infoBubbleRunFacts"></span></div>
-                </div>
-                <div class="metric-tile">
-                  <div id="detailSignals" class="metric-value">—</div>
-                  <div class="metric-label">Signals<span id="infoBubbleRunSignals"></span></div>
-                </div>
-              </div>
-              
-              <!-- Data Sources / Sensors -->
-              <div style="margin-bottom: 20px;">
-                <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">Data Sources</h4>
-                <div id="dataSources" style="display: flex; flex-wrap: wrap; gap: 8px;">
-                  <span class="badge badge-stopped">Loading...</span>
-                </div>
-              </div>
-              
-              <!-- Run Metadata -->
-              <div style="margin-bottom: 20px;">
-                <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">Run Details</h4>
-                <div id="runMetadataGrid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px;">
-                  <div><span style="color: var(--muted);">Profile:</span> <span id="detailProfile">—</span></div>
-                  <div><span style="color: var(--muted);">Duration:</span> <span id="detailDuration">—</span></div>
-                  <div><span style="color: var(--muted);">Hosts:</span> <span id="detailHosts">—</span></div>
-                </div>
-              </div>
-              
-              <!-- Discovery Workflow - Primary Run Summary -->
-              <div id="discoverySummaryPanel" class="hidden" style="margin-bottom: 20px;">
-                <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 16px 0; display: flex; align-items: center; gap: 8px;">
-                  🔍 Discovery Summary
-                  <span id="discoverySummaryCount" style="background: var(--accent); color: var(--bg); padding: 2px 8px; border-radius: 10px; font-size: 10px;">0</span>
-                </h4>
-                
-                <!-- Drift Banner (shown when observed telemetry exists but capability says unavailable) -->
-                <div id="discoveryDriftBanner" class="hidden"></div>
-                
-                <!-- Panel 1: What Changed -->
-                <div id="discoveryWhatChanged" style="margin-bottom: 20px;">
-                  <div style="font-size: 11px; font-weight: 600; color: var(--good); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
-                    <span>📊</span> What Changed
+              <!-- Workflow Status Banner (status only, no CTAs - tabs handle navigation) -->
+              <div id="overviewWorkflowGuide" class="hidden" style="margin-bottom: 16px; padding: 12px 14px; background: linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(59, 130, 246, 0.06)); border-radius: var(--radius-sm); border: 1px solid var(--accent);">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <span id="workflowGuideIcon" style="font-size: 20px; flex-shrink: 0;">🎯</span>
+                  <div style="flex: 1; min-width: 0;">
+                    <div id="workflowGuideSummary" style="font-size: 13px; font-weight: 600; color: var(--text);">Run complete</div>
+                    <div id="workflowGuideDetail" style="font-size: 12px; color: var(--muted); margin-top: 4px;">Use the tabs above to investigate.</div>
                   </div>
-                  <div id="discoveryChangeGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px;"></div>
+                </div>
+              </div>
+              
+              <!-- Compact Metrics Row -->
+              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 16px;">
+                <div class="metric-tile" style="padding: 10px;">
+                  <div id="detailEvents" class="metric-value" style="font-size: 18px;">—</div>
+                  <div class="metric-label" style="font-size: 10px;">Events<span id="infoBubbleRunEvents"></span></div>
+                </div>
+                <div class="metric-tile" style="padding: 10px;">
+                  <div id="detailSegments" class="metric-value" style="font-size: 18px;">—</div>
+                  <div class="metric-label" style="font-size: 10px;">Segments<span id="infoBubbleRunSegments"></span></div>
+                </div>
+                <div class="metric-tile" style="padding: 10px;">
+                  <div id="detailFacts" class="metric-value" style="font-size: 18px;">—</div>
+                  <div class="metric-label" style="font-size: 10px;">Facts<span id="infoBubbleRunFacts"></span></div>
+                </div>
+                <div class="metric-tile" style="padding: 10px;">
+                  <div id="detailSignals" class="metric-value" style="font-size: 18px;">—</div>
+                  <div class="metric-label" style="font-size: 10px;">Signals<span id="infoBubbleRunSignals"></span></div>
+                </div>
+              </div>
+              
+              <!-- Two-Column Grid: Data Sources + Run Details -->
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                <!-- Data Sources / Sensors -->
+                <div>
+                  <h4 style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px 0;">Data Sources</h4>
+                  <div id="dataSources" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    <span class="badge badge-stopped" style="font-size: 10px;">Loading...</span>
+                  </div>
                 </div>
                 
-                <!-- Panel 2: Milestones Observed -->
-                <div id="discoveryMilestones" style="margin-bottom: 20px;">
-                  <div style="font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
-                    <span>🎯</span> Milestones Observed
+                <!-- Run Metadata -->
+                <div>
+                  <h4 style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 8px 0;">Run Details</h4>
+                  <div id="runMetadataGrid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 12px;">
+                    <div><span style="color: var(--muted);">Profile:</span> <span id="detailProfile">—</span></div>
+                    <div><span style="color: var(--muted);">Duration:</span> <span id="detailDuration">—</span></div>
+                    <div style="grid-column: span 2;"><span style="color: var(--muted);">Host:</span> <span id="detailHosts">—</span></div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- AUTHORITATIVE: Run Capability Snapshot (captured at run time, not current system) -->
+              <div id="runCapabilitySnapshot" class="hidden" style="margin-bottom: 16px; padding: 12px; background: var(--panel2); border-radius: var(--radius-sm); border-left: 3px solid var(--accent);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <h4 style="font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">🔒 Coverage & Visibility (for this run)</h4>
+                  <span id="capabilitySnapshotStatus" style="font-size: 8px; padding: 1px 5px; background: var(--panel); border-radius: 8px; color: var(--muted);">from run snapshot</span>
+                </div>
+                <div id="capabilitySnapshotContent" style="font-size: 12px;">
+                  <!-- Populated by JS: Admin, Sysmon, Security log, sensors/channels -->
+                </div>
+                <div id="capabilitySnapshotMissing" class="hidden" style="font-size: 11px; color: var(--muted); font-style: italic; padding: 8px; background: var(--panel); border-radius: var(--radius-sm);">
+                  ⚠️ Visibility snapshot not recorded for this run. Cannot determine exact capabilities.
+                </div>
+              </div>
+              
+              <!-- AUTHORITATIVE: Step Status Blockers (from step_status endpoint) -->
+              <div id="runBlockersPanel" class="hidden" style="margin-bottom: 16px; padding: 12px; background: rgba(239, 68, 68, 0.05); border-radius: var(--radius-sm); border-left: 3px solid var(--error);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <h4 style="font-size: 11px; font-weight: 600; color: var(--error); text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">⚠️ Detection Blockers</h4>
+                  <span id="blockersCount" style="font-size: 8px; padding: 1px 5px; background: var(--error); color: white; border-radius: 8px;">0</span>
+                </div>
+                <div id="blockersList" style="display: flex; flex-direction: column; gap: 6px;">
+                  <!-- Populated by JS: "Sysmon missing → N steps blocked" etc -->
+                </div>
+              </div>
+              
+              <!-- Coverage Delta Chips (inline with fact types) -->
+              <div id="coverageDeltaRow" class="hidden" style="margin-bottom: 12px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                <span style="font-size: 10px; color: var(--muted); margin-right: 4px;">COVERAGE:</span>
+                <span id="chipProcess" class="coverage-chip" data-surface="process" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 10px; border-radius: 10px; cursor: pointer; transition: opacity 0.15s;">▶️ Process</span>
+                <span id="chipPowerShell" class="coverage-chip" data-surface="powershell" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 10px; border-radius: 10px; cursor: pointer; transition: opacity 0.15s;">⚡ PowerShell</span>
+                <span id="chipNetwork" class="coverage-chip" data-surface="network" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 10px; border-radius: 10px; cursor: pointer; transition: opacity 0.15s;">🌐 Network</span>
+                <span id="chipFile" class="coverage-chip" data-surface="file" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 10px; border-radius: 10px; cursor: pointer; transition: opacity 0.15s;">📄 File</span>
+                <span id="chipRegistry" class="coverage-chip" data-surface="registry" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; font-size: 10px; border-radius: 10px; cursor: pointer; transition: opacity 0.15s;">📝 Registry</span>
+              </div>
+              
+              <!-- Fact Type Distribution (from full run data) -->
+              <details id="overviewFactTypesSection" class="hidden" style="margin-bottom: 12px;">
+                <summary style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; padding: 8px 0; display: flex; align-items: center; gap: 6px;">
+                  📊 Fact Types
+                  <span id="overviewFactTypesCount" style="font-weight: normal; color: var(--text); font-size: 10px;">—</span>
+                </summary>
+                <div style="padding-top: 8px;">
+                  <div id="overviewFactTypesCompiling" class="hidden" style="padding: 10px; background: var(--panel2); border-radius: var(--radius-sm); font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px;">
+                    <span class="spinner-small"></span>
+                    <span>Facts are still being extracted...</span>
+                  </div>
+                  <div id="overviewFactTypesList" style="display: flex; flex-direction: column; gap: 3px;">
+                    <!-- Populated by JS: mini histogram bars -->
+                  </div>
+                  <div id="overviewFactTypesEmpty" class="hidden" style="padding: 10px; background: var(--panel2); border-radius: var(--radius-sm); font-size: 11px; color: var(--muted);">
+                    No facts extracted yet
+                  </div>
+                </div>
+              </details>
+              
+              <!-- Discovery Workflow - Primary Run Summary (TIER 2) -->
+              <div id="discoverySummaryPanel" class="hidden" style="margin-bottom: 12px;">
+                <!-- Consolidated Drift Banner (ONE location only) -->
+                <div id="discoveryDriftBanner" class="hidden" style="margin-bottom: 10px;"></div>
+                
+                <!-- TIER 2: What Changed (compact 2-row grid) -->
+                <div id="discoveryWhatChanged" style="margin-bottom: 10px;">
+                  <div style="font-size: 11px; font-weight: 600; color: var(--good); margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
+                    <span>📊</span> What Changed
+                    <span id="discoverySummaryCount" style="background: var(--accent); color: var(--bg); padding: 1px 6px; border-radius: 10px; font-size: 9px;">0</span>
+                  </div>
+                  <div id="discoveryChangeGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px;"></div>
+                </div>
+                
+                <!-- TIER 3: Milestones Observed (collapsible) -->
+                <details id="discoveryMilestones" style="margin-bottom: 10px;">
+                  <summary style="font-size: 11px; font-weight: 600; color: var(--accent); cursor: pointer; padding: 8px 0; display: flex; align-items: center; gap: 6px;">
+                    <span>🎯</span> Milestones
                     <span id="milestonesObservedCount" style="background: var(--good); color: var(--bg); padding: 1px 6px; border-radius: 8px; font-size: 9px;">0</span>
                     <span id="milestonesNotObservableCount" style="background: var(--warn); color: var(--bg); padding: 1px 6px; border-radius: 8px; font-size: 9px;">0</span>
-                  </div>
-                  <div id="discoveryMilestonesList" style="display: flex; flex-direction: column; gap: 6px;"></div>
-                </div>
+                  </summary>
+                  <div id="discoveryMilestonesList" style="display: flex; flex-direction: column; gap: 4px; padding-top: 6px;"></div>
+                </details>
                 
-                <!-- Panel 3: Visibility Limits -->
-                <div id="discoveryVisibilityLimits" class="hidden" style="padding: 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--warn); border-left-width: 3px;">
-                  <div style="font-size: 11px; font-weight: 600; color: var(--warn); margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+                <!-- TIER 3: Visibility Limits (collapsible) -->
+                <details id="discoveryVisibilityLimits" class="hidden">
+                  <summary style="font-size: 11px; font-weight: 600; color: var(--warn); cursor: pointer; padding: 8px 10px; background: var(--panel2); border-radius: var(--radius-sm); border-left: 3px solid var(--warn); display: flex; align-items: center; gap: 6px;">
                     <span>⚠️</span> Visibility Limits
-                  </div>
-                  <div id="discoveryLimitsList" style="display: flex; flex-direction: column; gap: 8px;"></div>
-                </div>
+                    <span id="limitsBlockedCount" style="background: var(--warn); color: var(--bg); padding: 1px 6px; border-radius: 8px; font-size: 9px; margin-left: auto;">0 blocked</span>
+                  </summary>
+                  <div id="discoveryLimitsList" style="display: flex; flex-direction: column; gap: 6px; padding: 10px; background: var(--panel2); border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin-top: -2px;"></div>
+                </details>
               </div>
 
-              <div style="display: flex; gap: 12px;">
-                <button id="btnViewFindings" class="btn-primary">View Findings →</button>
-                <button id="btnExportRun" class="btn-secondary">Export</button>
-              </div>
+              <!-- System State Details (debug panel, collapsed by default, at bottom of Overview) -->
+              <details id="runStatePanel" class="hidden" style="margin-top: 20px;">
+                <summary style="padding: 10px 12px; background: var(--panel2); border-radius: var(--radius-sm); cursor: pointer; font-size: 11px; font-weight: 500; color: var(--muted); list-style: none; display: flex; align-items: center; gap: 8px;">
+                  <span class="collapse-arrow" style="transition: transform 0.2s;">▶</span>
+                  🔧 Run environment (debug)
+                  <span id="stateQuickStats" style="font-weight: normal; color: var(--muted); margin-left: auto; font-size: 10px;">—</span>
+                </summary>
+                <div style="padding: 12px; background: var(--panel2); border-radius: 0 0 var(--radius-sm) var(--radius-sm); margin-top: -4px;">
+                  <!-- Sensors Grid -->
+                  <div id="stateSensorsSection" style="margin-bottom: 12px;">
+                    <div style="font-size: 11px; color: var(--muted); margin-bottom: 6px;">Sensors:</div>
+                    <div id="stateSensorsList" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                      <!-- Populated by JS -->
+                    </div>
+                  </div>
+                  
+                  <!-- Top Process -->
+                  <div style="margin-bottom: 12px; font-size: 12px;">
+                    <span style="color: var(--muted); cursor: help;" title="Most frequently occurring process in Exec facts. Based on entity_key aggregation from compiled facts.">Top Process:</span> 
+                    <span id="stateTopProcess" style="font-family: monospace;">—</span>
+                  </div>
+                  
+                  <!-- Top Entities (when available) -->
+                  <div id="stateEntitiesSection" class="hidden" style="margin-bottom: 12px;">
+                    <div style="font-size: 11px; color: var(--muted); margin-bottom: 6px;">Top Observed Entities:</div>
+                    <div id="stateEntitiesList" style="display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px;">
+                      <!-- Populated by JS -->
+                    </div>
+                  </div>
+                  
+                  <!-- Notes/Issues -->
+                  <div id="stateNotesSection" class="hidden">
+                    <div id="stateNotesList" style="font-size: 12px; color: var(--warn);">
+                      <!-- Populated by JS -->
+                    </div>
+                  </div>
+                </div>
+              </details>
             </div>
 
             <!-- Changes/Diff Tab Content (Layer 1 Explainability - Diff v2) -->
@@ -1017,6 +1821,37 @@
                 <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Run may not have analysis data yet</div>
               </div>
               <div id="changesContent" class="hidden">
+                <!-- Structure Snapshot (from observed facts) -->
+                <div id="structureSnapshotSection" style="margin-bottom: 20px;">
+                  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                    <h4 style="font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">📊 Structure Snapshot <span style="font-size: 10px; font-weight: normal; color: var(--muted);">(from observed facts)</span></h4>
+                    <span id="structureSnapshotSampleNote" class="hidden" style="font-size: 10px; color: var(--muted);">sample data</span>
+                  </div>
+                  <div id="structureSnapshotCards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+                    <!-- Populated by JS: Services, Tasks, Autoruns, Binaries, Outbound -->
+                  </div>
+                  <div id="structureSnapshotEmpty" class="hidden" style="padding: 16px; background: var(--panel2); border-radius: var(--radius-sm); text-align: center;">
+                    <span style="font-size: 12px; color: var(--muted);">No structural data observed. Facts may still be compiling.</span>
+                  </div>
+                </div>
+
+                <!-- Desired Outcome Guidance -->
+                <div id="desiredOutcomeSection" style="margin-bottom: 16px; padding: 12px; background: var(--panel); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                  <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                    <span style="font-size: 12px; font-weight: 600; color: var(--muted);">🎯 Desired Outcome:</span>
+                    <select id="desiredOutcomeSelect" style="padding: 4px 10px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--border); color: var(--text); font-size: 12px; min-width: 180px;">
+                      <option value="none">None (show all)</option>
+                      <option value="clean-workstation">Clean workstation session</option>
+                      <option value="lab-htb">Lab/HTB session</option>
+                      <option value="dev-workstation">Dev workstation</option>
+                    </select>
+                    <button id="btnShowOutcomeWhy" style="padding: 2px 8px; font-size: 10px; border-radius: 4px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer;" title="Show what this emphasizes">ⓘ Why?</button>
+                  </div>
+                  <div id="desiredOutcomeGuidance" style="margin-top: 10px; padding: 10px; background: var(--panel2); border-radius: var(--radius-sm); font-size: 11px;">
+                    <!-- Populated by JS based on selection -->
+                  </div>
+                </div>
+
                 <!-- Diff Mode Controls -->
                 <div id="diffModeControls" style="margin-bottom: 16px; padding: 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border);">
                   <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
@@ -1084,6 +1919,22 @@
                   </div>
                 </div>
                 
+                <!-- Diff Goal Presets -->
+                <div id="diffGoalSection" style="margin-bottom: 16px; padding: 12px; background: var(--panel); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                  <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;">
+                    <span style="font-size: 12px; font-weight: 600; color: var(--accent);">🎯 Diff Goal:</span>
+                    <div id="diffGoalPresets" style="display: flex; gap: 6px; flex-wrap: wrap;">
+                      <button class="diff-goal-btn active" data-goal="all" style="padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); cursor: pointer;">All System</button>
+                      <button class="diff-goal-btn" data-goal="suspicious" style="padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); cursor: pointer;">🔍 Suspicious</button>
+                      <button class="diff-goal-btn" data-goal="persistence" style="padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); cursor: pointer;">🔒 Persistence</button>
+                      <button class="diff-goal-btn" data-goal="credential" style="padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); cursor: pointer;">🔑 Credential</button>
+                      <button class="diff-goal-btn" data-goal="network" style="padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); cursor: pointer;">🌐 Network</button>
+                      <button class="diff-goal-btn" data-goal="software" style="padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); cursor: pointer;">📦 Software</button>
+                    </div>
+                  </div>
+                  <div id="diffGoalDescription" style="font-size: 11px; color: var(--muted);">Showing all system changes — no filtering applied.</div>
+                </div>
+
                 <!-- Filter Controls -->
                 <div id="diffFilterControls" style="margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center;">
                   <span style="font-size: 11px; color: var(--muted);">Filter:</span>
@@ -1104,13 +1955,22 @@
                     <option value="decreased">Decreased</option>
                     <option value="modified">Modified</option>
                   </select>
+                  <button id="btnClearFilters" style="padding: 4px 10px; font-size: 10px; border-radius: 4px; border: 1px solid var(--border); background: var(--panel2); color: var(--muted); cursor: pointer;">Clear</button>
                 </div>
 
-                <!-- Highlights Section -->
+                <!-- Delta Highlights (Top 3 actionable cards) -->
                 <div id="changesHighlightsSection" style="margin-bottom: 20px;">
-                  <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">🔥 Top 5 Highlights</h4>
-                  <div id="changesHighlightsList" style="display: flex; flex-direction: column; gap: 8px;">
-                    <!-- Populated by JS -->
+                  <h4 style="font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">⚡ Delta Highlights</h4>
+                  <div id="changesHighlightsList" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                    <!-- Populated by JS - 3 highlight cards with pivot actions -->
+                  </div>
+                </div>
+
+                <!-- What to do next Panel -->
+                <div id="diffWhatNextSection" style="margin-bottom: 20px; padding: 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                  <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">📋 What to do next</h4>
+                  <div id="diffWhatNextContent" style="display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Populated by JS based on current goal/findings -->
                   </div>
                 </div>
 
@@ -1127,6 +1987,23 @@
                   <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">All Changes</h4>
                   <div id="changesAllList" style="display: flex; flex-direction: column; gap: 6px; max-height: 400px; overflow-y: auto;">
                     <!-- Populated by JS -->
+                  </div>
+                </div>
+
+                <!-- Observed Structure Map (collapsible) -->
+                <div id="observedStructureSection" style="margin-bottom: 20px;">
+                  <div style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 10px;" onclick="toggleObservedStructure()">
+                    <span id="observedStructureToggle" style="font-size: 10px; color: var(--muted);">▶</span>
+                    <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0;">🗺️ Observed Structure Map</h4>
+                    <span style="font-size: 10px; color: var(--muted);">(from facts)</span>
+                  </div>
+                  <div id="observedStructureContent" class="hidden" style="padding-left: 18px;">
+                    <div id="observedStructureTiles" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+                      <!-- Structure tiles populated by JS: Processes, Network, Persistence, Files/Registry -->
+                    </div>
+                    <div id="observedStructureEmpty" class="hidden" style="font-size: 12px; color: var(--muted); padding: 12px 0;">
+                      No facts available for structure map. View the <a href="#" onclick="switchRunTab('facts'); return false;" style="color: var(--accent);">Evidence tab</a> for details.
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1227,33 +2104,509 @@
               </div>
             </div>
 
-            <!-- Findings Tab Content -->
+            <!-- Investigate Tab Content (consolidated Findings + Explain master/detail) -->
+            <!-- Uses id="runTabFindings" for backward compatibility with existing JS -->
             <div id="runTabFindings" class="run-tab-content hidden">
-              <div id="findingsEmpty" class="empty-state" style="padding: 24px 0;">
+              <!-- ===== INVESTIGATE MODE TOGGLE (INVESTIGATE_OBSERVED_FIRST-1) ===== -->
+              <div id="investigateModeToggle" style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; margin-bottom: 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 14px;">🔬</span>
+                  <span style="font-size: 12px; font-weight: 600; color: var(--text);">Investigation Workbench</span>
+                </div>
+                <div style="display: flex; gap: 4px; background: var(--panel); border-radius: var(--radius-sm); padding: 3px;">
+                  <button id="btnInvestigateModeObserved" class="investigate-mode-btn active" style="padding: 6px 14px; font-size: 11px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: var(--accent); color: white;">Observed</button>
+                  <button id="btnInvestigateModeChains" class="investigate-mode-btn" style="padding: 6px 14px; font-size: 11px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: transparent; color: var(--muted);">Chains</button>
+                  <button id="btnInvestigateModePlaybooks" class="investigate-mode-btn" style="padding: 6px 14px; font-size: 11px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: transparent; color: var(--muted);">Detectors (debug)</button>
+                  <button id="btnInvestigateModeEvidence" class="investigate-mode-btn" style="padding: 6px 14px; font-size: 11px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: transparent; color: var(--muted);">Evidence</button>
+                </div>
+              </div>
+              
+              <!-- ===== OBSERVED MODE CONTAINER (INVESTIGATE_CHAIN_LENS-1, default) ===== -->
+              <div id="investigateObservedMode" style="display: block;">
+                <!-- Loading state -->
+                <div id="investigateObservedLoading" style="padding: 24px; text-align: center; color: var(--muted);">
+                  <div style="font-size: 14px;">Loading observed activity...</div>
+                </div>
+                
+                <!-- Observed content -->
+                <div id="investigateObservedContent" class="hidden">
+                  <!-- ===== ATTACK CHAIN LENS (INVESTIGATE_CHAIN_LENS-1) ===== -->
+                  <div id="chainLensSection" style="margin-bottom: 16px;">
+                    <!-- Chain Lens Header -->
+                    <div id="chainLensHeader" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.12)); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 12px;">
+                      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-size: 16px;">🔗</span>
+                          <span style="font-size: 13px; font-weight: 600; color: var(--text);">Attack Chain Lens</span>
+                          <span id="chainLensActiveCount" style="font-size: 10px; color: var(--accent); padding: 2px 8px; background: rgba(99, 102, 241, 0.15); border-radius: 10px;">0 active</span>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                          <button id="btnChainLensEdit" style="padding: 5px 12px; font-size: 10px; font-weight: 500; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">✏️ Edit Lens</button>
+                        </div>
+                      </div>
+                      <div id="chainLensDescription" style="font-size: 11px; color: var(--muted);">
+                        Apply attack chain lenses to interpret this run's activity through behavioral patterns.
+                      </div>
+                    </div>
+                    
+                    <!-- Chain Lens Picker (hidden by default, shown on Edit) -->
+                    <div id="chainLensPicker" class="hidden" style="background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 12px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <span style="font-size: 12px; font-weight: 600; color: var(--text);">Select Attack Chains</span>
+                        <button id="btnChainLensPickerClose" style="padding: 4px 8px; font-size: 10px; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--muted);">✕ Close</button>
+                      </div>
+                      <div id="chainLensPickerList" style="max-height: 200px; overflow-y: auto; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px;">
+                        <div style="color: var(--muted); font-size: 11px; padding: 12px; text-align: center;">Loading chains...</div>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; align-items: center; padding-top: 10px; border-top: 1px solid var(--border);">
+                        <span id="chainLensPickerCount" style="font-size: 10px; color: var(--muted);">0 selected</span>
+                        <button id="btnChainLensApply" style="padding: 6px 16px; font-size: 11px; font-weight: 500; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">✔ Apply Lens</button>
+                      </div>
+                    </div>
+                    
+                    <!-- Chain Lens Empty State (no chains selected) -->
+                    <div id="chainLensEmpty" style="background: var(--panel); border: 1px dashed var(--border); border-radius: var(--radius-sm); padding: 24px; text-align: center;">
+                      <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.6;">🔍</div>
+                      <div style="font-size: 12px; color: var(--text); font-weight: 500; margin-bottom: 4px;">No attack chain lens applied</div>
+                      <div style="font-size: 11px; color: var(--muted); margin-bottom: 12px;">Apply an attack chain lens to interpret this run's activity through behavioral patterns.</div>
+                      <button id="btnChainLensQuickApply" style="padding: 8px 16px; font-size: 11px; font-weight: 500; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">🔗 Select Chains</button>
+                    </div>
+                    
+                    <!-- Chain Lens Results (shown when chains applied) -->
+                    <div id="chainLensResults" class="hidden">
+                      <!-- Suggested Chains (nice-to-have) -->
+                      <div id="chainLensSuggested" class="hidden" style="background: rgba(250, 204, 21, 0.1); border: 1px solid rgba(250, 204, 21, 0.3); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+                          <span style="font-size: 12px;">💡</span>
+                          <span style="font-size: 11px; font-weight: 500; color: var(--warn);">Suggested based on signals:</span>
+                        </div>
+                        <div id="chainLensSuggestedList" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+                      </div>
+                      
+                      <!-- Chain Checklist (primary investigation view) -->
+                      <div id="chainLensChecklist" style="display: flex; flex-direction: column; gap: 12px;"></div>
+                    </div>
+                  </div>
+                  
+                  <!-- Coverage Banner -->
+                  <div id="investigateObservedCoverage" style="display: flex; align-items: center; gap: 12px; padding: 10px 14px; margin-bottom: 14px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                    <span style="font-size: 14px;">📡</span>
+                    <div style="flex: 1;">
+                      <div style="font-size: 12px; font-weight: 600; color: var(--text);">Coverage Snapshot</div>
+                      <div id="investigateObservedCoverageDetail" style="font-size: 11px; color: var(--muted); margin-top: 2px;">—</div>
+                    </div>
+                    <div id="investigateObservedCoverageGaps" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+                  </div>
+                  
+                  <!-- Notable Findings Section -->
+                  <div id="investigateObservedFindings" style="background: var(--panel); border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 14px; overflow: hidden;">
+                    <div style="padding: 10px 14px; background: var(--panel2); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 14px;">🚨</span>
+                        <span style="font-size: 12px; font-weight: 600; color: var(--text);">Notable Findings</span>
+                      </div>
+                      <span id="investigateObservedFindingsCount" style="font-size: 10px; color: var(--muted); padding: 2px 8px; background: var(--panel); border-radius: 10px;">0 signals</span>
+                    </div>
+                    <div id="investigateObservedFindingsList" style="max-height: 280px; overflow-y: auto; padding: 10px;">
+                      <div style="color: var(--muted); font-style: italic; font-size: 12px; text-align: center; padding: 20px;">No signals fired</div>
+                    </div>
+                  </div>
+                  
+                  <!-- Two-column layout for Episodes and Unmapped -->
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                    <!-- Episodes Section -->
+                    <div id="investigateObservedEpisodes" style="background: var(--panel); border-radius: var(--radius-sm); border: 1px solid var(--border); overflow: hidden;">
+                      <div style="padding: 10px 14px; background: var(--panel2); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-size: 14px;">📍</span>
+                          <span style="font-size: 12px; font-weight: 600; color: var(--text);">Activity Episodes</span>
+                        </div>
+                        <span id="investigateObservedEpisodesCount" style="font-size: 10px; color: var(--muted); padding: 2px 8px; background: var(--panel); border-radius: 10px;">0</span>
+                      </div>
+                      <div id="investigateObservedEpisodesList" style="max-height: 240px; overflow-y: auto; padding: 10px;">
+                        <div style="color: var(--muted); font-style: italic; font-size: 12px; text-align: center; padding: 20px;">No episodes detected</div>
+                      </div>
+                    </div>
+                    
+                    <!-- Unmapped Activity Section -->
+                    <div id="investigateObservedUnmapped" style="background: var(--panel); border-radius: var(--radius-sm); border: 1px solid var(--border); overflow: hidden;">
+                      <div style="padding: 10px 14px; background: var(--panel2); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                          <span style="font-size: 14px;">❓</span>
+                          <span style="font-size: 12px; font-weight: 600; color: var(--text);">Unmapped Activity</span>
+                        </div>
+                        <span style="font-size: 10px; color: var(--muted);">Not in any signal</span>
+                      </div>
+                      <div id="investigateObservedUnmappedList" style="max-height: 240px; overflow-y: auto; padding: 10px;">
+                        <div style="color: var(--muted); font-style: italic; font-size: 12px; text-align: center; padding: 20px;">No unmapped facts</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- Quick Stats Row -->
+                  <div id="investigateObservedStats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 14px;">
+                    <div style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; text-align: center; border: 1px solid var(--border);">
+                      <div id="investigateObservedStatEvents" style="font-size: 18px; font-weight: 700; color: var(--text);">—</div>
+                      <div style="font-size: 10px; color: var(--muted);">Events</div>
+                    </div>
+                    <div style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; text-align: center; border: 1px solid var(--border);">
+                      <div id="investigateObservedStatFacts" style="font-size: 18px; font-weight: 700; color: var(--text);">—</div>
+                      <div style="font-size: 10px; color: var(--muted);">Facts</div>
+                    </div>
+                    <div style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; text-align: center; border: 1px solid var(--border);">
+                      <div id="investigateObservedStatSignals" style="font-size: 18px; font-weight: 700; color: var(--text);">—</div>
+                      <div style="font-size: 10px; color: var(--muted);">Signals</div>
+                    </div>
+                    <div style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; text-align: center; border: 1px solid var(--border);">
+                      <div id="investigateObservedStatTopEntity" style="font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">—</div>
+                      <div style="font-size: 10px; color: var(--muted);">Top Entity</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Empty state when brief unavailable -->
+                <div id="investigateObservedEmpty" class="hidden" style="padding: 40px 20px; text-align: center;">
+                  <div style="font-size: 32px; margin-bottom: 12px; opacity: 0.5;">🔭</div>
+                  <div style="font-size: 14px; color: var(--muted);">No observed data available</div>
+                  <div style="font-size: 12px; color: var(--muted); margin-top: 8px;">This run may not have completed processing yet.</div>
+                </div>
+              </div>
+              
+              <!-- ===== CHAINS MODE CONTAINER (INVESTIGATE_OBSERVED_FIRST-2) ===== -->
+              <div id="investigateChainsMode" class="hidden" style="display: none;">
+                <!-- ===== CHAIN STACK PANEL (INVESTIGATE_CHAINS-1) ===== -->
+                <div id="investigateChainsStack" style="padding: 10px 12px; margin-bottom: 12px; border-radius: var(--radius-sm); background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(139, 92, 246, 0.08)); border: 1px solid rgba(99, 102, 241, 0.3);">
+                  <!-- Header row -->
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 14px;">🔗</span>
+                      <span style="font-size: 12px; font-weight: 600; color: var(--text);">Chain Stack</span>
+                      <span id="chainsStackCount" style="font-size: 10px; color: var(--muted); padding: 2px 6px; background: var(--panel); border-radius: 10px;">0 chains</span>
+                    </div>
+                    <div style="display: flex; gap: 4px;">
+                      <button id="btnChainsFilterEvidence" class="hidden" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--accent);" title="Filter evidence to selected chain">🔍 Filter Evidence</button>
+                    </div>
+                  </div>
+                  
+                  <!-- Chain cards container -->
+                  <div id="chainsStackCards" style="display: flex; flex-direction: column; gap: 8px;">
+                    <!-- Populated by JS -->
+                  </div>
+                  
+                  <!-- No chains message -->
+                  <div id="chainsStackEmpty" class="hidden" style="text-align: center; padding: 20px; color: var(--muted);">
+                    <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;">🔗</div>
+                    <div style="font-size: 12px;">No chains attached to this run.</div>
+                    <div style="font-size: 11px; margin-top: 4px; color: var(--accent);">Add chains in Mission mode to track investigative hypotheses.</div>
+                  </div>
+                </div>
+                
+                <!-- Chain Step Evidence Panel (shown when a chain step is selected) -->
+                <div id="chainsStepEvidence" class="hidden" style="background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;">
+                  <div style="padding: 10px 14px; background: var(--panel2); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <span style="font-size: 14px;">📋</span>
+                      <span id="chainsStepEvidenceTitle" style="font-size: 12px; font-weight: 600; color: var(--text);">Step Evidence</span>
+                    </div>
+                    <button id="btnChainsCloseStepEvidence" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--muted);">✕ Close</button>
+                  </div>
+                  <div id="chainsStepEvidenceContent" style="max-height: 300px; overflow-y: auto; padding: 10px;">
+                    <!-- Populated by JS with pinned evidence -->
+                  </div>
+                </div>
+              </div>
+              
+              <!-- ===== DETECTORS (DEBUG) MODE CONTAINER (INVESTIGATE_OBSERVED_FIRST-2) ===== -->
+              <div id="investigatePlaybooksMode" class="hidden" style="display: none;">
+                <!-- Compact Summary Banner (non-dominant) -->
+                <div id="investigatePlaybooksSummaryBanner" style="padding: 10px 12px; margin-bottom: 12px; border-radius: var(--radius-sm); background: var(--panel2); border: 1px solid var(--border);">
+                  <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 8px;">
+                    <span style="font-size: 12px; font-weight: 600; color: var(--text);">🔧 Detectors (Debug):</span>
+                    <span id="playbooksTotalCount" style="font-size: 11px; color: var(--text);">0 total</span>
+                    <span style="color: var(--border);">·</span>
+                    <span id="playbooksFiredCount" style="font-size: 11px; color: var(--bad);">🔴 0 fired</span>
+                    <span style="color: var(--border);">·</span>
+                    <span id="playbooksCandidateCount" style="font-size: 11px; color: var(--warn);">🟠 0 candidate</span>
+                    <span style="color: var(--border);">·</span>
+                    <span id="playbooksBlockedCount" style="font-size: 11px; color: #888;">⚫ 0 blocked</span>
+                    <span style="color: var(--border);">·</span>
+                    <span id="playbooksNoMatchCount" style="font-size: 11px; color: var(--muted);">⚪ 0 no match</span>
+                  </div>
+                  <!-- Blockers summary -->
+                  <div id="playbooksBlockersSummary" class="hidden" style="padding: 8px 10px; background: rgba(0, 0, 0, 0.15); border-radius: var(--radius-sm); margin-top: 8px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                      <div style="display: flex; align-items: center; gap: 6px;">
+                        <span style="font-size: 12px;">⚠️</span>
+                        <span id="playbooksBlockerReason" style="font-size: 11px; color: var(--text);">Top blocking reason: —</span>
+                      </div>
+                      <button id="btnPlaybooksWhyBlocked" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--accent);">Why blocked?</button>
+                    </div>
+                    <div id="playbooksBlockerDetail" class="hidden" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 10px;">
+                      <div id="playbooksBlockerList" style="color: var(--muted);"></div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Verifier Toggle Button (collapsed by default) -->
+                <div id="playbooksVerifierToggle" style="margin-bottom: 12px;">
+                  <button id="btnOpenVerifier" style="padding: 8px 16px; font-size: 11px; font-weight: 500; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--muted); display: flex; align-items: center; gap: 6px;">
+                    <span>🔍</span> <span>Open Playbook Verifier</span> <span style="font-size: 10px;">▼</span>
+                  </button>
+                </div>
+                
+                <!-- Playbook Split Pane (collapsed by default in INVESTIGATE_OBSERVED_FIRST-2) -->
+                <div id="playbooksSplitPane" class="hidden" style="display: none; grid-template-columns: 280px 1fr; gap: 12px; min-height: 400px; max-height: calc(100vh - 360px);">
+                  <!-- LEFT PANE: Playbooks List -->
+                  <div id="playbooksLeftPane" style="border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; display: flex; flex-direction: column; background: var(--panel);">
+                    <div style="padding: 8px 10px; background: var(--panel2); border-bottom: 1px solid var(--border);">
+                      <input id="playbooksSearchInput" type="text" placeholder="Search playbooks..." 
+                             style="width: 100%; padding: 5px 8px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); margin-bottom: 6px;">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span id="playbooksCount" style="font-size: 11px; font-weight: 600; color: var(--text);">0 playbooks</span>
+                        <div style="display: flex; gap: 4px;">
+                          <button id="btnPlaybooksActionableOnly" style="padding: 2px 6px; font-size: 9px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); cursor: pointer;" title="Show only actionable (hides blocked)">✓ Actionable</button>
+                        </div>
+                      </div>
+                      <select id="playbooksStatusFilter" style="width: 100%; padding: 3px 6px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
+                        <option value="">All statuses</option>
+                        <option value="fired">🔴 Fired</option>
+                        <option value="candidate">🟠 Candidate</option>
+                        <option value="blocked">⚫ Blocked</option>
+                        <option value="no_match">⚪ No Match</option>
+                      </select>
+                    </div>
+                    <div id="playbooksGrouped" style="flex: 1; overflow-y: auto; padding: 8px;">
+                      <!-- Populated by JS -->
+                    </div>
+                  </div>
+                  
+                  <!-- RIGHT PANE: Playbook Detail -->
+                  <div id="playbooksRightPane" style="border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; display: flex; flex-direction: column; background: var(--panel);">
+                    <div id="playbooksDetailHeader" style="padding: 6px 10px; background: var(--panel2); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                      <div id="playbooksDetailTitle" style="font-size: 12px; font-weight: 600; color: var(--text);">Select a playbook</div>
+                      <div id="playbooksNavControls" class="hidden" style="display: flex; gap: 4px; align-items: center;">
+                        <button id="btnPlaybooksPrev" style="padding: 2px 6px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">←</button>
+                        <span id="playbooksPosition" style="font-size: 9px; color: var(--muted);">1/5</span>
+                        <button id="btnPlaybooksNext" style="padding: 2px 6px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">→</button>
+                      </div>
+                    </div>
+                    <div id="playbooksDetailContent" style="flex: 1; overflow-y: auto; padding: 10px;">
+                      <div id="playbooksPlaceholder" style="padding: 40px 20px; text-align: center; color: var(--muted);">
+                        <div style="font-size: 32px; margin-bottom: 12px;">📋</div>
+                        <div style="font-size: 13px; font-weight: 500; margin-bottom: 8px;">Select a playbook</div>
+                        <div style="font-size: 11px;">Click a playbook to view its evaluation details.</div>
+                      </div>
+                    </div>
+                    <div id="playbooksActionBar" class="hidden" style="padding: 8px 10px; background: var(--panel2); border-top: 1px solid var(--border); display: flex; gap: 6px;">
+                      <button id="btnPlaybooksViewEvidence" style="flex: 1; padding: 6px 8px; font-size: 10px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">📊 View Evidence</button>
+                      <button id="btnPlaybooksRawJson" style="padding: 6px 10px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">{ }</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- ===== LEGACY STEPS MODE CONTAINER (hidden, kept for compatibility) ===== -->
+              <div id="investigateStepsMode" class="hidden">
+                <!-- Legacy chain stack elements (IDs kept for backward compat) -->
+                <div id="investigateChainStack" class="hidden"></div>
+                <div id="chainStackCards"></div>
+                <div id="chainStackCount" class="hidden"></div>
+                <div id="chainStackEmpty" class="hidden"></div>
+                <div id="btnFilterByChain" class="hidden"></div>
+                <div id="btnExpandChainStack" class="hidden"></div>
+                <!-- Legacy investigate elements -->
+                <div id="investigateSummaryBanner" class="hidden"></div>
+                <div id="investigateTotalCount" class="hidden"></div>
+                <div id="investigateFiredCount" class="hidden"></div>
+                <div id="investigateCandidateCount" class="hidden"></div>
+                <div id="investigateBlockedCount" class="hidden"></div>
+                <div id="investigateNoMatchCount" class="hidden"></div>
+                <div id="investigateBlockersSummary" class="hidden"></div>
+                <div id="investigateBlockerReason" class="hidden"></div>
+                <div id="investigateBlockerDetail" class="hidden"></div>
+                <div id="investigateBlockerList" class="hidden"></div>
+                <div id="btnWhyBlocked" class="hidden"></div>
+                <div id="investigateScopeBanner" class="hidden"></div>
+                <div id="investigateScopeLabel" class="hidden"></div>
+                <div id="investigateScopeCount" class="hidden"></div>
+                <div id="investigateScopeRationale" class="hidden"></div>
+                <div id="btnInvestigateGoToMission" class="hidden"></div>
+                <div id="investigateSplitPane" class="hidden"></div>
+                <div id="investigateLeftPane" class="hidden"></div>
+                <div id="investigateSearchInput" class="hidden"></div>
+                <div id="findingsCount" class="hidden"></div>
+                <div id="btnShowActionableOnly" class="hidden"></div>
+                <div id="btnExpandAllFindings" class="hidden"></div>
+                <div id="btnCollapseAllFindings" class="hidden"></div>
+                <div id="findingsSeverityFilter" class="hidden"></div>
+                <div id="findingsGrouped" class="hidden"></div>
+                <div id="findingsShowAllGroups" class="hidden"></div>
+                <div id="findingsList" class="hidden"></div>
+                <div id="investigateRightPane" class="hidden"></div>
+                <div id="investigateDetailHeader" class="hidden"></div>
+                <div id="investigateDetailTitle" class="hidden"></div>
+                <div id="investigateNavControls" class="hidden"></div>
+                <div id="btnPrevFinding" class="hidden"></div>
+                <div id="investigateFindingPosition" class="hidden"></div>
+                <div id="btnNextFinding" class="hidden"></div>
+                <div id="investigateDetailContent" class="hidden"></div>
+                <div id="investigatePlaceholder" class="hidden"></div>
+                <div id="investigateActionBar" class="hidden"></div>
+                <div id="btnInvestigateViewEvidence" class="hidden"></div>
+                <div id="btnInvestigateRawJson" class="hidden"></div>
+              </div>
+              
+              <!-- ===== EVIDENCE DRAWER (slides in from right) ===== -->
+              <div id="investigateEvidenceDrawer" class="hidden" style="position: fixed; right: 0; top: 0; bottom: 0; width: 420px; background: var(--bg); border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.3); z-index: 100; display: flex; flex-direction: column;">
+                <div style="padding: 12px 16px; background: var(--panel2); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                  <div>
+                    <h4 style="font-size: 13px; font-weight: 600; margin: 0; color: var(--text);">📊 Step Evidence</h4>
+                    <div id="evidenceDrawerStepName" style="font-size: 11px; color: var(--muted); margin-top: 2px;">—</div>
+                  </div>
+                  <button id="btnCloseEvidenceDrawer" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted); padding: 4px;">&times;</button>
+                </div>
+                <div id="evidenceDrawerContent" style="flex: 1; overflow-y: auto; padding: 12px;">
+                  <div id="evidenceDrawerLoading" style="padding: 20px; text-align: center; color: var(--muted);">Loading evidence...</div>
+                  <div id="evidenceDrawerFacts" class="hidden"></div>
+                  <div id="evidenceDrawerEmpty" class="hidden" style="padding: 20px; text-align: center;">
+                    <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;">📭</div>
+                    <div id="evidenceDrawerEmptyReason" style="font-size: 12px; color: var(--muted);">No evidence available</div>
+                    <div id="evidenceDrawerEmptyHint" style="font-size: 11px; color: var(--accent); margin-top: 8px;"></div>
+                  </div>
+                </div>
+                <div style="padding: 10px 16px; background: var(--panel2); border-top: 1px solid var(--border); display: flex; gap: 8px;">
+                  <button id="btnCloseEvidenceDrawerFooter" style="flex: 1; padding: 8px 12px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">Close</button>
+                  <button id="btnOpenInEvidenceTab" style="padding: 8px 12px; font-size: 11px; background: transparent; border: none; cursor: pointer; color: var(--accent); text-decoration: underline;">Evidence mode →</button>
+                </div>
+              </div>
+              
+              <!-- Empty State -->
+              <div id="findingsEmpty" class="hidden" style="padding: 24px 0; text-align: center;">
                 <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;">🔍</div>
                 <div style="font-size: 14px; color: var(--muted);">No findings for this run</div>
-                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Check Mission → Readiness for telemetry health</div>
               </div>
-              <div id="findingsContent" class="hidden">
-                <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-                  <span id="findingsCount" style="font-size: 13px; color: var(--muted);">0 findings</span>
-                  <select id="findingsSeverityFilter" style="padding: 4px 8px; font-size: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
-                    <option value="">All severities</option>
-                    <option value="critical">Critical</option>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </div>
-                <div id="findingsList" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
-                  <!-- Populated by JS -->
-                </div>
-              </div>
+              
+              <!-- Unavailable State -->
               <div id="findingsUnavailable" class="hidden" style="padding: 24px 0; text-align: center;">
                 <div style="font-size: 14px; color: var(--warn);">Not available</div>
                 <div id="findingsMissingEndpoint" style="font-size: 12px; color: var(--muted); margin-top: 4px; font-family: monospace;">(missing: /api/signals)</div>
               </div>
+              
+              <div id="findingsContent" class="hidden"></div>
+            
+            <!-- ===== EVIDENCE MODE CONTAINER (INVESTIGATE_CHAIN_LENS-1) ===== -->
+            <div id="investigateEvidenceMode" class="hidden" style="display: none;">
+              <!-- Evidence Context Banner (INVESTIGATE_CHAIN_LENS-1: shown when opened from chain/episode/finding) -->
+              <div id="evidenceContextBanner" class="hidden" style="padding: 10px 14px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1)); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: var(--radius-sm); margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 14px;">📌</span>
+                    <div>
+                      <div style="font-size: 12px; font-weight: 600; color: var(--text);">Viewing evidence for: <span id="evidenceContextSource" style="color: var(--accent);">—</span></div>
+                      <div id="evidenceContextCounts" style="font-size: 10px; color: var(--muted); margin-top: 2px;">
+                        <span id="evidenceContextExact" style="color: var(--good);">0 exact</span>
+                        <span style="margin: 0 6px;">·</span>
+                        <span id="evidenceContextRelated" style="color: var(--warn);">0 related</span>
+                        <span style="margin: 0 6px;">·</span>
+                        <span id="evidenceContextUnresolved" style="color: var(--muted);">0 unresolved</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    <button id="btnEvidenceBackToInvestigate" style="padding: 6px 12px; font-size: 10px; font-weight: 500; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">← Back to Investigate</button>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Filter Status Banner (shown when filters active) -->
+              <div id="investigateEvidenceFilterBanner" class="hidden" style="padding: 6px 10px; background: rgba(139, 92, 246, 0.1); border: 1px solid var(--accent); border-radius: var(--radius-sm); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                <span id="investigateEvidenceFilterStatus" style="font-size: 11px; color: var(--accent);">🔍 Filtered</span>
+                <button id="btnClearInvestigateEvidenceFilters" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; color: var(--text);">✕ Clear Filters</button>
+              </div>
+              
+              <!-- Evidence Toolbar (sticky) -->
+              <div id="investigateEvidenceToolbar" style="position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); margin-bottom: 12px; flex-wrap: wrap; background: var(--bg);">
+                <!-- Lens dropdown ("Show me") -->
+                <select id="investigateEvidenceLensSelect" style="padding: 6px 10px; font-size: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
+                  <option value="">Show me: All fact types</option>
+                </select>
+                
+                <!-- Search -->
+                <input id="investigateEvidenceSearchInput" type="text" placeholder="Search facts..." style="flex: 1; min-width: 120px; padding: 6px 10px; font-size: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
+                <button id="investigateEvidenceSearchReset" style="padding: 6px 10px; font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); cursor: pointer;">Reset</button>
+                
+                <!-- Summary counts -->
+                <span id="investigateEvidenceSummary" style="font-size: 11px; color: var(--muted); white-space: nowrap;">
+                  <span id="investigateEvidenceTotalCount" style="color: var(--text); font-weight: 600;">—</span> facts
+                  · <span id="investigateEvidenceTypeCount" style="color: var(--text);">—</span> types
+                  · <span id="investigateEvidenceHostCount" style="color: var(--text);">—</span> hosts
+                </span>
+                
+                <!-- Grouped / Raw Toggle -->
+                <div style="display: flex; gap: 4px; background: var(--panel2); border-radius: var(--radius-sm); padding: 3px; margin-left: auto;">
+                  <button id="btnInvestigateEvidenceGrouped" class="evidence-mode-btn active" style="padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: var(--accent); color: white;">Grouped</button>
+                  <button id="btnInvestigateEvidenceRaw" class="evidence-mode-btn" style="padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: transparent; color: var(--muted);">Raw</button>
+                </div>
+              </div>
+              
+              <!-- Evidence Loading -->
+              <div id="investigateEvidenceLoading" style="padding: 24px 0; text-align: center;">
+                <div style="font-size: 14px; color: var(--muted);">Loading evidence...</div>
+              </div>
+              
+              <!-- Evidence Empty (with explanatory message) -->
+              <div id="investigateEvidenceEmpty" class="hidden" style="padding: 24px 0; text-align: center;">
+                <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;">📊</div>
+                <div id="investigateEvidenceEmptyTitle" style="font-size: 14px; color: var(--muted);">No facts match current filters</div>
+                <div id="investigateEvidenceEmptyHint" style="font-size: 12px; color: var(--muted); margin-top: 4px;">Search currently matches summary text only.</div>
+                <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: center;">
+                  <button id="btnInvestigateEvidenceClearSearch" style="padding: 6px 12px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">Clear Search</button>
+                  <button id="btnInvestigateEvidenceClearFilters" style="padding: 6px 12px; font-size: 11px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">Clear All Filters</button>
+                </div>
+              </div>
+              
+              <!-- Evidence Table Container -->
+              <div id="investigateEvidenceTableContainer" class="hidden" style="background: var(--panel2); border-radius: var(--radius-sm); overflow: hidden;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                  <thead>
+                    <tr id="investigateEvidenceTableHeader" style="background: var(--panel); border-bottom: 1px solid var(--border);">
+                      <!-- Header changes based on Grouped/Raw mode -->
+                    </tr>
+                  </thead>
+                  <tbody id="investigateEvidenceTableBody" style="max-height: 400px; overflow-y: auto;">
+                    <!-- Facts rows -->
+                  </tbody>
+                </table>
+              </div>
+              
+              <!-- Evidence Pagination -->
+              <div id="investigateEvidencePagination" class="hidden" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px;">
+                <span id="investigateEvidencePaginationInfo" style="color: var(--muted);">Showing 0-0 of 0</span>
+                <div style="display: flex; gap: 8px;">
+                  <button id="investigateEvidencePrevBtn" disabled style="padding: 4px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); cursor: pointer;">← Prev</button>
+                  <button id="investigateEvidenceNextBtn" disabled style="padding: 4px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); cursor: pointer;">Next →</button>
+                </div>
+              </div>
+              
+              <!-- Fact Detail Drawer (embedded in Investigate Evidence mode) -->
+              <div id="investigateFactDetailDrawer" class="hidden" style="position: fixed; right: 0; top: 0; bottom: 0; width: 400px; background: var(--bg); border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.3); z-index: 100; overflow-y: auto;">
+                <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--bg); z-index: 1;">
+                  <h4 style="font-size: 14px; font-weight: 600; margin: 0;">Fact Details</h4>
+                  <button id="investigateFactDrawerClose" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted); padding: 4px;">&times;</button>
+                </div>
+                <div id="investigateFactDetailContent" style="padding: 16px;">
+                  <!-- Fact details populated by JS -->
+                </div>
+                <!-- Fact Actions -->
+                <div id="investigateFactDetailActions" style="padding: 12px 16px; border-top: 1px solid var(--border); background: var(--panel2); position: sticky; bottom: 0;">
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button id="btnCopyEvidenceRef" style="flex: 1; padding: 6px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">📋 Copy EvidenceRef</button>
+                    <button id="btnOpenRawEvent" style="flex: 1; padding: 6px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">📄 Open Raw Event</button>
+                  </div>
+                </div>
+              </div>
             </div>
+            </div><!-- END runTabFindings -->
 
             <!-- Timeline Tab Content -->
             <div id="runTabTimeline" class="run-tab-content hidden">
@@ -1272,214 +2625,235 @@
               </div>
             </div>
 
-            <!-- Facts Tab Content (Observed Facts from pipeline) -->
+            <!-- Evidence Tab Content (Observed Facts from pipeline - raw browser, not workflow) -->
+            <!-- EVIDENCE_GRANULARITY-1: Upgraded with Summary mode, Context filters, improved Grouped -->
             <div id="runTabFacts" class="run-tab-content hidden">
-              <div id="factsLoading" style="padding: 24px 0; text-align: center;">
-                <div style="font-size: 14px; color: var(--muted);">Loading coverage data...</div>
+              <!-- Filter Status Banner (shown when Investigate deep-link filters active) -->
+              <div id="evidenceFilterBanner" class="hidden" style="padding: 6px 10px; background: rgba(139, 92, 246, 0.1); border: 1px solid var(--accent); border-radius: var(--radius-sm); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                <span id="evidenceFilterStatus" style="font-size: 11px; color: var(--accent);">🔍 Filtered from Investigate</span>
+                <button id="btnClearEvidenceFilters" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; color: var(--text);">✕ Clear Filters</button>
               </div>
               
-              <!-- No Facts Explanation Panel (shown when facts_total=0) -->
-              <div id="factsNoTelemetry" class="hidden" style="padding: 16px 0;">
-                <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 16px;">
-                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
-                    <span style="font-size: 20px;">⚠️</span>
-                    <div>
-                      <h4 style="font-size: 14px; font-weight: 600; color: #fca5a5; margin: 0;">No Security Telemetry Collected</h4>
-                      <p style="font-size: 12px; color: var(--muted); margin: 4px 0 0 0;">0 facts extracted from this run</p>
+              <!-- Chain Step Evidence Banner (shown when filtering by chain step) -->
+              <div id="evidenceChainStepBanner" class="hidden" style="padding: 8px 12px; background: rgba(52, 211, 153, 0.1); border: 1px solid var(--good); border-radius: var(--radius-sm); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 14px;">🔗</span>
+                  <span id="evidenceChainStepName" style="font-size: 12px; font-weight: 600; color: var(--good);">Showing evidence for Chain Step</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <label style="font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                    <input type="checkbox" id="chkEvidenceShowRelated" style="cursor: pointer;"> Show related (±5 min)
+                  </label>
+                  <button id="btnClearChainStepFilter" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; color: var(--text);">✕ Clear</button>
+                </div>
+              </div>
+              
+              <!-- Evidence Toolbar (stable shell - sticky header) -->
+              <div id="evidenceToolbar" style="position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); margin-bottom: 12px; flex-wrap: wrap; background: var(--bg);">
+                <!-- Context Filter Dropdowns (EVIDENCE_GRANULARITY-1) -->
+                <select id="evidenceChainSelect" class="hidden" style="padding: 6px 10px; font-size: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
+                  <option value="">Chain Step: All</option>
+                </select>
+                <select id="evidencePlaybookSelect" class="hidden" style="padding: 6px 10px; font-size: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
+                  <option value="">Playbook: All</option>
+                </select>
+                
+                <!-- Lens dropdown ("Show me") -->
+                <select id="evidenceLensSelect" style="padding: 6px 10px; font-size: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
+                  <option value="">Show me: All fact types</option>
+                </select>
+                
+                <!-- Search -->
+                <input id="evidenceSearchInput" type="text" placeholder="Search facts..." style="flex: 1; min-width: 120px; padding: 6px 10px; font-size: 12px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text);">
+                <button id="evidenceSearchReset" style="padding: 6px 10px; font-size: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); cursor: pointer;">Reset</button>
+                
+                <!-- Summary counts (inline in toolbar) -->
+                <span id="evidenceSummary" style="font-size: 11px; color: var(--muted); white-space: nowrap;">
+                  <span id="evidenceTotalCount" style="color: var(--text); font-weight: 600;">—</span> facts
+                  · <span id="evidenceTypeCount" style="color: var(--text);">—</span> types
+                  · <span id="evidenceHostCount" style="color: var(--text);">—</span> hosts
+                </span>
+                
+                <!-- Summary / Grouped / Raw Toggle (EVIDENCE_GRANULARITY-1: added Summary) -->
+                <div style="display: flex; gap: 4px; background: var(--panel2); border-radius: var(--radius-sm); padding: 3px; margin-left: auto;">
+                  <button id="btnEvidenceSummary" class="evidence-mode-btn active" style="padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: var(--accent); color: white;">Summary</button>
+                  <button id="btnEvidenceGrouped" class="evidence-mode-btn" style="padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: transparent; color: var(--muted);">Grouped</button>
+                  <button id="btnEvidenceRaw" class="evidence-mode-btn" style="padding: 6px 12px; font-size: 12px; font-weight: 500; border: none; border-radius: var(--radius-sm); cursor: pointer; background: transparent; color: var(--muted);">Raw</button>
+                </div>
+              </div>
+              
+              <!-- Evidence Loading -->
+              <div id="evidenceLoading" style="padding: 24px 0; text-align: center;">
+                <div style="font-size: 14px; color: var(--muted);">Loading evidence...</div>
+              </div>
+              
+              <!-- ===== SUMMARY MODE CONTAINER (EVIDENCE_GRANULARITY-1) ===== -->
+              <div id="evidenceSummaryContainer" class="hidden">
+                <!-- Top Entities Panel -->
+                <div id="evidenceTopEntities" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                  <!-- Processes -->
+                  <div class="entity-panel" data-category="processes" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border);">
+                    <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span style="font-size: 14px;">⚙️</span> Top Processes
+                    </div>
+                    <div id="evidenceTopProcesses" style="font-size: 12px;">
+                      <div style="color: var(--muted); font-style: italic;">Loading...</div>
                     </div>
                   </div>
-                  
-                  <div id="factsNoTelemetryReasons" style="font-size: 13px; color: var(--text); margin-bottom: 16px;">
-                    <!-- Populated by JS based on readiness_snapshot -->
-                  </div>
-                  
-                  <details style="background: var(--panel2); border-radius: var(--radius-sm); overflow: hidden;">
-                    <summary style="padding: 10px 12px; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--accent);">
-                      💡 How to Fix
-                    </summary>
-                    <div style="padding: 12px; border-top: 1px solid var(--border); font-size: 13px; line-height: 1.6;">
-                      <div id="factsNoTelemetryFixes">
-                        <!-- Populated by JS -->
-                      </div>
+                  <!-- Scripts -->
+                  <div class="entity-panel" data-category="scripts" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border);">
+                    <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span style="font-size: 14px;">📜</span> Top Scripts
                     </div>
-                  </details>
+                    <div id="evidenceTopScripts" style="font-size: 12px;">
+                      <div style="color: var(--muted); font-style: italic;">Loading...</div>
+                    </div>
+                  </div>
+                  <!-- Destinations -->
+                  <div class="entity-panel" data-category="destinations" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border);">
+                    <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span style="font-size: 14px;">🌐</span> Top Destinations
+                    </div>
+                    <div id="evidenceTopDestinations" style="font-size: 12px;">
+                      <div style="color: var(--muted); font-style: italic;">Loading...</div>
+                    </div>
+                  </div>
+                  <!-- Registry -->
+                  <div class="entity-panel" data-category="registry" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border);">
+                    <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span style="font-size: 14px;">🔑</span> Top Registry
+                    </div>
+                    <div id="evidenceTopRegistry" style="font-size: 12px;">
+                      <div style="color: var(--muted); font-style: italic;">Loading...</div>
+                    </div>
+                  </div>
+                  <!-- Files -->
+                  <div class="entity-panel" data-category="files" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border);">
+                    <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span style="font-size: 14px;">📁</span> Top Files
+                    </div>
+                    <div id="evidenceTopFiles" style="font-size: 12px;">
+                      <div style="color: var(--muted); font-style: italic;">Loading...</div>
+                    </div>
+                  </div>
                 </div>
                 
-                <!-- Still show basic run info even with 0 facts -->
-                <div style="font-size: 12px; color: var(--muted); text-align: center; padding: 12px;">
-                  Run completed but no security-relevant events were processed.<br>
-                  Check the "How to Fix" section above for remediation steps.
+                <!-- Timeline Mini-Chart -->
+                <div id="evidenceTimelineChart" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border); margin-bottom: 16px;">
+                  <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 14px;">📊</span> Activity Timeline
+                    <span id="evidenceTimelineRange" style="font-weight: 400; font-size: 10px; color: var(--muted); margin-left: auto;"></span>
+                  </div>
+                  <div id="evidenceTimelineBuckets" style="display: flex; align-items: flex-end; gap: 2px; height: 60px; padding: 4px 0;">
+                    <!-- Buckets rendered by JS -->
+                  </div>
+                </div>
+                
+                <!-- Quick Stats -->
+                <div id="evidenceQuickStats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px;">
+                  <!-- Stats cards rendered by JS -->
+                </div>
+                
+                <!-- ===== OBSERVED LENS (RUN_BRIEF-1) ===== -->
+                <div id="observedLensSection" class="hidden" style="margin-top: 16px;">
+                  <!-- Observed Lens Header -->
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+                    <span style="font-size: 16px;">🔭</span>
+                    <h4 style="font-size: 13px; font-weight: 600; color: var(--text); margin: 0;">Observed Lens</h4>
+                    <span style="font-size: 11px; color: var(--muted); font-style: italic;">What actually happened (independent of playbook selection)</span>
+                  </div>
+                  
+                  <!-- Notable Findings -->
+                  <div id="observedNotableFindings" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border); margin-bottom: 12px;">
+                    <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span style="font-size: 14px;">🚨</span> Notable Findings
+                      <span id="observedFindingsCount" style="font-size: 10px; font-weight: 400; color: var(--muted); margin-left: auto;">0 signals</span>
+                    </div>
+                    <div id="observedFindingsList" style="max-height: 200px; overflow-y: auto;">
+                      <div style="color: var(--muted); font-style: italic; font-size: 12px;">Loading...</div>
+                    </div>
+                  </div>
+                  
+                  <!-- Activity Episodes -->
+                  <div id="observedEpisodes" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border); margin-bottom: 12px;">
+                    <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span style="font-size: 14px;">📍</span> Activity Episodes
+                      <span id="observedEpisodesCount" style="font-size: 10px; font-weight: 400; color: var(--muted); margin-left: auto;">0 episodes</span>
+                    </div>
+                    <div id="observedEpisodesList" style="max-height: 200px; overflow-y: auto;">
+                      <div style="color: var(--muted); font-style: italic; font-size: 12px;">Loading...</div>
+                    </div>
+                  </div>
+                  
+                  <!-- Unmapped Activity -->
+                  <div id="observedUnmapped" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; border: 1px solid var(--border);">
+                    <div style="font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                      <span style="font-size: 14px;">❓</span> Unmapped Activity
+                      <span id="observedUnmappedHint" style="font-size: 10px; font-weight: 400; color: var(--muted); margin-left: auto;">Facts not in any signal</span>
+                    </div>
+                    <div id="observedUnmappedList" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                      <div style="color: var(--muted); font-style: italic; font-size: 12px;">Loading...</div>
+                    </div>
+                  </div>
                 </div>
               </div>
               
-              <div id="factsEmpty" class="empty-state hidden" style="padding: 24px 0;">
+              <!-- Evidence Empty (with explanatory message) -->
+              <div id="evidenceEmpty" class="hidden" style="padding: 24px 0; text-align: center;">
                 <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;">📊</div>
-                <div style="font-size: 14px; color: var(--muted);">No fact extraction data available</div>
-                <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">This run may not have an analysis database</div>
+                <div id="evidenceEmptyTitle" style="font-size: 14px; color: var(--muted);">No facts match current filters</div>
+                <div id="evidenceEmptyHint" style="font-size: 12px; color: var(--muted); margin-top: 4px;">Search currently matches summary text only.</div>
+                <div id="evidenceEmptyActions" class="hidden" style="margin-top: 12px; display: flex; gap: 8px; justify-content: center;">
+                  <button id="btnEvidenceEmptyClearSearch" style="padding: 6px 12px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">Clear Search</button>
+                  <button id="btnEvidenceEmptyClearFilters" style="padding: 6px 12px; font-size: 11px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">Clear All Filters</button>
+                </div>
               </div>
-              <div id="factsContent" class="hidden">
-                <!-- Fact Totals Summary -->
-                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px;">
-                  <div class="metric-tile">
-                    <div id="factsTotalCount" class="metric-value">—</div>
-                    <div class="metric-label">Total Facts<span id="infoBubbleTotalFacts"></span></div>
-                  </div>
-                  <div class="metric-tile">
-                    <div id="factsTypeCount" class="metric-value">—</div>
-                    <div class="metric-label">Fact Types<span id="infoBubbleFactTypes"></span></div>
-                  </div>
-                  <div class="metric-tile">
-                    <div id="factsHostCount" class="metric-value">—</div>
-                    <div class="metric-label">Hosts<span id="infoBubbleFactHosts"></span></div>
-                  </div>
+              
+              <!-- Evidence Table Container (stable shell - content changes, not container) -->
+              <div id="evidenceTableContainer" class="hidden" style="background: var(--panel2); border-radius: var(--radius-sm); overflow: hidden;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                  <thead>
+                    <tr id="evidenceTableHeader" style="background: var(--panel); border-bottom: 1px solid var(--border);">
+                      <!-- Header changes based on Grouped/Raw mode - populated by JS -->
+                    </tr>
+                  </thead>
+                  <tbody id="evidenceTableBody" style="max-height: 400px; overflow-y: auto;">
+                    <!-- Populated by JS: Grouped shows group rows, Raw shows individual facts -->
+                  </tbody>
+                </table>
+              </div>
+              
+              <!-- Evidence Pagination -->
+              <div id="evidencePagination" class="hidden" style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px;">
+                <span id="evidencePaginationInfo" style="color: var(--muted);">Showing 0-0 of 0</span>
+                <div style="display: flex; gap: 8px;">
+                  <button id="evidencePrevBtn" disabled style="padding: 4px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); cursor: pointer;">← Prev</button>
+                  <button id="evidenceNextBtn" disabled style="padding: 4px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); cursor: pointer;">Next →</button>
                 </div>
-                
-                <!-- Top Fact Types Table -->
-                <div style="margin-bottom: 20px;">
-                  <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">Top Fact Types</h4>
-                  <div id="factsTypeTable" style="background: var(--panel2); border-radius: var(--radius-sm); overflow: hidden;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-                      <thead>
-                        <tr style="background: var(--panel); border-bottom: 1px solid var(--border);">
-                          <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Fact Type</th>
-                          <th style="text-align: right; padding: 8px 12px; font-weight: 600; color: var(--muted);">Count</th>
-                          <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted); width: 40%;">Distribution</th>
-                        </tr>
-                      </thead>
-                      <tbody id="factsTypeRows">
-                        <!-- Populated by JS -->
-                      </tbody>
-                    </table>
-                  </div>
+              </div>
+              
+              <!-- Evidence Detail Drawer (right-side panel for selected fact) -->
+              <div id="evidenceDetailDrawer" class="hidden" style="position: fixed; right: 0; top: 0; bottom: 0; width: 400px; background: var(--bg); border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.3); z-index: 100; display: flex; flex-direction: column;">
+                <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; background: var(--bg); z-index: 1;">
+                  <h4 style="font-size: 14px; font-weight: 600; margin: 0;">Fact Details</h4>
+                  <button id="evidenceDrawerClose" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted); padding: 4px;">&times;</button>
                 </div>
-                
-                <!-- Top Hosts -->
-                <div id="factsHostsSection" style="margin-bottom: 20px;">
-                  <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">Top Hosts</h4>
-                  <div id="factsHostsList" style="display: flex; flex-wrap: wrap; gap: 8px;">
-                    <!-- Populated by JS -->
-                  </div>
+                <div id="evidenceDetailContent" style="flex: 1; overflow-y: auto; padding: 16px;">
+                  <!-- Populated by JS when a fact is clicked -->
                 </div>
-                
-                <!-- Active Sensors Section -->
-                <div id="factsSensorsSection" class="hidden" style="margin-bottom: 20px;">
-                  <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">Sensors</h4>
-                  <div id="factsSensorsList" style="display: flex; flex-direction: column; gap: 8px;">
-                    <!-- Populated by JS -->
-                  </div>
-                </div>
-                
-                <!-- Playbook Summary Section -->
-                <div id="playbookSummarySection" class="hidden" style="margin-bottom: 20px;">
-                  <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0;">Detection Coverage</h4>
-                  <div id="playbookSummaryContent" style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px;">
-                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px;">
-                      <div style="text-align: center;">
-                        <div id="playbookLoadedCount" style="font-size: 18px; font-weight: 600; color: var(--text);">—</div>
-                        <div style="font-size: 11px; color: var(--muted);">Loaded</div>
-                      </div>
-                      <div style="text-align: center;">
-                        <div id="playbookEnabledCount" style="font-size: 18px; font-weight: 600; color: var(--text);">—</div>
-                        <div style="font-size: 11px; color: var(--muted);">Enabled</div>
-                      </div>
-                      <div style="text-align: center;">
-                        <div id="playbookFiredCount" style="font-size: 18px; font-weight: 600; color: var(--accent);">—</div>
-                        <div style="font-size: 11px; color: var(--muted);">Fired</div>
-                      </div>
-                    </div>
-                    <div id="playbookCategoriesList" style="display: flex; flex-wrap: wrap; gap: 6px;">
-                      <!-- Populated by JS -->
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- Why No Signals? Panel (shown when signal_count=0 but facts > 0) -->
-                <div id="whyNoSignalsPanel" class="hidden" style="background: rgba(255, 193, 7, 0.1); border: 1px solid rgba(255, 193, 7, 0.3); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 20px;">
-                  <h4 style="font-size: 13px; font-weight: 600; color: var(--warn); margin: 0 0 8px 0;">💡 Why no signals?</h4>
-                  <div id="whyNoSignalsContent" style="font-size: 13px; color: var(--text); line-height: 1.6;">
-                    <!-- Populated by JS -->
-                  </div>
-                </div>
-                
-                <!-- Pipeline Diagnostics (collapsible) -->
-                <div style="margin-bottom: 20px;">
-                  <details style="background: var(--panel2); border-radius: var(--radius-sm); overflow: hidden;">
-                    <summary style="padding: 10px 12px; cursor: pointer; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">
-                      Pipeline Diagnostics
-                    </summary>
-                    <div id="pipelineDiagnostics" style="padding: 12px; border-top: 1px solid var(--border); font-size: 13px;">
-                      <!-- Populated by JS -->
-                    </div>
-                  </details>
-                </div>
-                
-                <!-- Fact Inspector Section -->
-                <div id="factInspectorSection" style="margin-bottom: 20px;">
-                  <h4 style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 10px 0; display: flex; align-items: center; gap: 8px;">
-                    <span>🔍 Fact Inspector</span>
-                    <span id="factInspectorCount" style="font-size: 11px; background: var(--accent); color: white; padding: 2px 6px; border-radius: 10px;">0</span>
-                  </h4>
-                  
-                  <!-- Filter Controls -->
-                  <div id="factInspectorFilters" style="display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">
-                    <select id="factTypeFilter" style="background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; color: var(--text); min-width: 140px;">
-                      <option value="">All Fact Types</option>
-                    </select>
-                    <select id="factHostFilter" style="background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; color: var(--text); min-width: 120px;">
-                      <option value="">All Hosts</option>
-                    </select>
-                    <input id="factSearchInput" type="text" placeholder="Search in details..." 
-                           style="background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 12px; color: var(--text); flex: 1; min-width: 150px;">
-                    <button id="factInspectorRefresh" style="background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); padding: 6px 12px; font-size: 12px; cursor: pointer;">
-                      Refresh
-                    </button>
-                  </div>
-                  
-                  <!-- Fact Table -->
-                  <div id="factInspectorTable" style="background: var(--panel2); border-radius: var(--radius-sm); overflow: hidden; max-height: 400px; overflow-y: auto;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                      <thead style="position: sticky; top: 0; z-index: 1;">
-                        <tr style="background: var(--panel); border-bottom: 1px solid var(--border);">
-                          <th style="text-align: left; padding: 8px 10px; font-weight: 600; color: var(--muted); width: 140px;">Timestamp</th>
-                          <th style="text-align: left; padding: 8px 10px; font-weight: 600; color: var(--muted); width: 120px;">Fact Type</th>
-                          <th style="text-align: left; padding: 8px 10px; font-weight: 600; color: var(--muted);">Summary</th>
-                          <th style="text-align: center; padding: 8px 10px; font-weight: 600; color: var(--muted); width: 60px;">Details</th>
-                        </tr>
-                      </thead>
-                      <tbody id="factInspectorRows">
-                        <tr>
-                          <td colspan="4" style="padding: 20px; text-align: center; color: var(--muted);">
-                            Click a fact type row above or use Refresh to load facts
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                  
-                  <!-- Pagination -->
-                  <div id="factInspectorPagination" class="hidden" style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px;">
-                    <span id="factPaginationInfo" style="color: var(--muted);">Showing 0-0 of 0</span>
-                    <div style="display: flex; gap: 8px;">
-                      <button id="factPrevBtn" disabled style="background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 10px; font-size: 11px; cursor: pointer; color: var(--text);">← Prev</button>
-                      <button id="factNextBtn" disabled style="background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px 10px; font-size: 11px; cursor: pointer; color: var(--text);">Next →</button>
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- Fact Detail Drawer (initially hidden) -->
-                <div id="factDetailDrawer" class="hidden" style="position: fixed; right: 0; top: 0; bottom: 0; width: 400px; background: var(--bg); border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.3); z-index: 100; overflow-y: auto;">
-                  <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-                    <h4 style="font-size: 14px; font-weight: 600; margin: 0;">Fact Details</h4>
-                    <button id="factDrawerClose" style="background: none; border: none; font-size: 20px; cursor: pointer; color: var(--muted); padding: 4px;">&times;</button>
-                  </div>
-                  <div id="factDetailContent" style="padding: 16px;">
-                    <!-- Populated by JS when a fact is clicked -->
+                <!-- Fact Actions -->
+                <div id="evidenceDetailActions" style="padding: 12px 16px; border-top: 1px solid var(--border); background: var(--panel2);">
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button id="btnEvidenceCopyRef" style="flex: 1; padding: 6px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">📋 Copy EvidenceRef</button>
+                    <button id="btnEvidenceOpenRaw" style="flex: 1; padding: 6px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">📄 Open Raw Event</button>
                   </div>
                 </div>
               </div>
-              <div id="factsUnavailable" class="hidden" style="padding: 24px 0; text-align: center;">
+              
+              <!-- Evidence Unavailable -->
+              <div id="evidenceUnavailable" class="hidden" style="padding: 24px 0; text-align: center;">
                 <div style="font-size: 14px; color: var(--warn);">Not available</div>
-                <div id="factsMissingEndpoint" style="font-size: 12px; color: var(--muted); margin-top: 4px; font-family: monospace;">(missing: /api/runs/:id/coverage)</div>
+                <div style="font-size: 12px; color: var(--muted); margin-top: 4px; font-family: monospace;">(missing: /api/runs/:id/coverage)</div>
               </div>
             </div>
 
@@ -1488,6 +2862,11 @@
               <div id="explainSelectPrompt" style="padding: 24px 0; text-align: center;">
                 <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;">💡</div>
                 <div style="font-size: 14px; color: var(--muted);">Select a finding from the Findings tab to see explanation</div>
+              </div>
+              
+              <!-- Part A: Subtle inline partial note for interrupted runs (not full banner) -->
+              <div id="explainPartialNote" class="hidden" style="font-size: 11px; color: var(--warn); margin-bottom: 12px; padding: 6px 10px; background: rgba(243, 156, 18, 0.08); border-radius: var(--radius-sm);">
+                ⚠️ <span id="explainPartialReason">Incomplete run — trace data may be partial</span>
               </div>
               
               <!-- Unavailable Banner (shown when available=false) -->
@@ -1533,6 +2912,12 @@
                     </div>
                     <span id="explainSeverity" class="badge badge-error">critical</span>
                   </div>
+                </div>
+                
+                <!-- Why This Fired (derived from playbook + matched slots) -->
+                <div id="explainWhyFiredSection" class="hidden" style="margin-bottom: 16px; padding: 10px 12px; background: rgba(139, 92, 246, 0.1); border-left: 3px solid var(--accent); border-radius: var(--radius-sm);">
+                  <div style="font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">💡 Why This Fired</div>
+                  <div id="explainWhyFired" style="font-size: 13px; color: var(--text);">Fired because matched slots: —</div>
                 </div>
                 
                 <!-- Narrative Summary -->
@@ -1725,8 +3110,9 @@
                 <pre id="rawJson" style="font-size: 11px; background: var(--panel2); padding: 12px; border-radius: var(--radius-sm); overflow: auto; max-height: 400px; white-space: pre-wrap; word-break: break-all; margin: 0;"></pre>
               </div>
             </div>
-          </div>
-        </div>
+            </div><!-- /runDetailContent (scrollable) -->
+          </div><!-- /runDetail -->
+        </div><!-- /run detail card -->
       </div>
     </section>
 
@@ -1777,6 +3163,21 @@
     <section id="tabSettings" class="tab-content hidden">
       <div class="card" style="overflow: hidden;">
 
+        <!-- Diagnostics & Coverage - Deep links to Mission -->
+        <div class="settings-row" id="settingsDiagnostics" style="cursor: pointer;" onclick="window.goToMissionDiagnostics()">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <span style="font-size: 24px;">🩺</span>
+            <div>
+              <div style="font-size: 15px; font-weight: 500;">Diagnostics & Coverage</div>
+              <div style="font-size: 13px; color: var(--muted);">Readiness checks, playbook catalog, coverage status</div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span id="settingsDiagStatus" class="badge badge-stopped">—</span>
+            <span style="color: var(--muted);">→</span>
+          </div>
+        </div>
+
         <!-- Integrations (Pro) -->
         <div class="settings-row" id="settingsIntegrations">
           <div style="display: flex; align-items: center; gap: 16px;">
@@ -1825,7 +3226,7 @@
         <!-- UI Wiring Audit (Diagnostics) -->
         <div class="settings-row" id="settingsWiring" style="cursor: default; flex-wrap: wrap;">
           <div style="display: flex; align-items: center; gap: 16px; flex: 1;">
-            <span style="font-size: 24px;">🔌</span>
+            <span style="font-size: 24px;">🔧</span>
             <div>
               <div style="font-size: 15px; font-weight: 500;">UI Wiring Audit</div>
               <div style="font-size: 13px; color: var(--muted);">Verify all UI buttons are connected to backend APIs (no run start)</div>
@@ -2067,12 +3468,51 @@
           </div>
         </div>
       </div>
+
+      <!-- Rerun Analysis Modal (guided recovery for interrupted runs) -->
+      <div id="rerunAnalysisModal" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000;">
+        <div style="background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; max-width: 520px; width: 90%;">
+          <h3 style="font-size: 18px; font-weight: 600; margin: 0 0 16px 0;">⚠️ Rerun to Complete Analysis</h3>
+          <p style="font-size: 13px; color: var(--muted); margin-bottom: 16px; line-height: 1.5;">
+            The previous run was <strong style="color: var(--warn);">interrupted</strong> before fact extraction completed. Rerunning will provide:
+          </p>
+          <ul style="font-size: 12px; color: var(--text); margin: 0 0 16px 16px; padding: 0; line-height: 1.8;">
+            <li><strong>Complete facts</strong> — all telemetry processed into queryable facts</li>
+            <li><strong>Full rollups</strong> — accurate counts and entity aggregations</li>
+            <li><strong>Complete trace</strong> — investigation paths won't be truncated</li>
+          </ul>
+          <div style="margin-bottom: 16px; padding: 12px; background: var(--panel2); border-radius: var(--radius-sm);">
+            <div style="font-size: 11px; color: var(--muted); margin-bottom: 4px;">RECOMMENDED PRESET</div>
+            <div id="rerunPresetName" style="font-size: 14px; font-weight: 600; color: var(--text);">Default</div>
+            <div id="rerunPresetReason" style="font-size: 11px; color: var(--muted); margin-top: 2px;">Same as previous run for consistency</div>
+          </div>
+          <details style="margin-bottom: 16px;">
+            <summary style="font-size: 12px; color: var(--muted); cursor: pointer;">API Commands (for automation)</summary>
+            <div style="margin-top: 8px; padding: 10px; background: var(--bg); border-radius: var(--radius-sm); font-family: monospace; font-size: 11px; overflow-x: auto;">
+              <div style="margin-bottom: 4px;"><span style="color: var(--muted);"># Start run:</span></div>
+              <div id="rerunApiStart" style="color: var(--accent); word-break: break-all;">curl -X POST http://localhost:3000/api/run/start</div>
+              <div style="margin: 8px 0 4px 0;"><span style="color: var(--muted);"># Stop run:</span></div>
+              <div id="rerunApiStop" style="color: var(--accent); word-break: break-all;">curl -X POST http://localhost:3000/api/run/stop</div>
+            </div>
+            <button id="btnCopyRerunApi" style="margin-top: 8px; padding: 4px 10px; font-size: 11px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); cursor: pointer;">
+              📋 Copy commands
+            </button>
+          </details>
+          <div style="display: flex; gap: 8px; justify-content: flex-end;">
+            <button id="btnCancelRerun" class="btn-secondary">Cancel</button>
+            <button id="btnGoToMission" class="btn-primary">🎯 Go to Mission Tab</button>
+          </div>
+        </div>
+      </div>
     </section>
 
   </main>
 
   <!-- Build stamp -->
-  <div class="build-stamp">BUILD 2026-01-10-SHIP</div>
+  <div class="build-stamp">BUILD 2026-01-27-RUNS_OVERVIEW_PIVOTS-2</div>
+
+  <!-- Modal Portal: All modals mount here, outside main content flow -->
+  <div id="modalPortal" style="position: fixed; inset: 0; pointer-events: none; z-index: 10000;"></div>
 
   <!-- Imported data banner (hidden by default) -->
   <div id="importedBanner" class="hidden" style="position: fixed; top: 0; left: 0; right: 0; background: var(--accent); color: #fff; text-align: center; padding: 6px 12px; font-size: 12px; font-weight: 600; z-index: 1000; display: flex; justify-content: center; align-items: center; gap: 16px;">
@@ -2089,6 +3529,6 @@
     <div id="debugApiLog" style="padding: 8px; overflow-y: auto; max-height: 260px; font-family: monospace;"></div>
   </div>
 
-  <script src="/ui/app.js?v=20260110-ship"></script>
+  <script src="/ui/app.js?v=2026-01-27-UI_ORIGIN_PROOF-1"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 /**
  * Incident Compiler - UI Application
- * BUILD_STAMP: 2026-01-12T00:00:00Z_STATUS_SEMANTICS
+ * BUILD_STAMP: 2026-01-27T23:59:00Z_EVIDENCE_GRANULARITY_1
  * 
  * TRUTHFUL BY DEFAULT:
  * - All state comes from backend endpoints, never simulated
@@ -18,22 +18,360 @@
  * - Runs → Findings → Explain flow fully backend-driven
  * - Capability probe at boot to detect available endpoints
  * - Missing endpoints show "Not available (missing: ...)" - no blank screens
+ * 
+ * PLAYBOOK SCOPE (v2.0 - 2026-01-22):
+ * - Investigate tab now uses /api/runs/:id/playbooks/eval as single source of truth
+ * - Shows ONLY playbooks in scope for that run (via playbook_scope.effective_playbook_ids)
+ * - Scope banner shows mode: explicit, general_discovery, none, or legacy_unknown
+ * - Each playbook shows status (fired/candidate/no_match/blocked/skipped) + reason codes
+ * - Slot table shows per-slot status with search_hints for Evidence deep-link
+ * 
+ * MISSION (v2026-01-27 - MISSION_DONE):
+ * - Step status is backend-canonical via GET /api/runs/:run_id/step_status
+ * - States: not_observed, candidate, satisfied, blocked, unverified
+ * - satisfied requires signals + evidence_refs backing
+ * - is_live flag indicates if run is still capturing
+ * - Frontend polls step_status during live runs, fetches on run selection
+ * 
+ * INVESTIGATE_DRAWER (v2026-01-27):
+ * - Summary banner: "Playbooks: N total · Fired X · Candidate Y · Blocked Z"
+ * - Actionable-first sorting: fired > candidate > no_match > blocked
+ * - Search filter and actionable-only toggle
+ * - Evidence Drawer opens in-tab (no tab switch) for step evidence
+ * - Blocked steps show "Why blocked?" with capability hints
+ * 
+ * INVESTIGATE_CHAINS (v2026-01-27):
+ * - Chain Stack panel at top of Investigate tab
+ * - Shows active chains with step satisfaction status (✅/🟡/⚪/⛔/❓)
+ * - Chain IDs persisted with run for reload persistence
+ * - Click chain step opens Evidence Drawer with matched signals
+ * - Filter playbooks by selected chain
+ * 
+ * INVESTIGATE_EVIDENCE_WORKBENCH (v2026-01-27):
+ * - Investigation Workbench with Steps/Evidence mode toggle
+ * - Steps mode: playbook evaluation list with step details
+ * - Evidence mode: embedded facts browser (same as Evidence tab)
+ * - Shared rendering functions for Evidence tab and Investigate Evidence mode
+ * - Sticky filter toolbar in Evidence views
+ * - Improved empty state with "why no facts" explanation
+ * - Fact Details drawer with Copy EvidenceRef and Open Raw Event actions
+ * - Evidence tab becomes shortcut that opens Investigate in Evidence mode
+ * 
+ * QA CHECKLIST (must verify all combinations):
+ * A) Explicit selection (2+ playbooks) - shows exactly those playbooks only
+ * B) General Discovery (0 selected, default) - shows banner "General Discovery (default)"
+ * C) None mode (0 selected, no default) - shows empty state with CTA to Mission
+ * D) Partial visibility (blocked playbooks) - shows blocked status + reason_code
+ * E) Legacy run (no playbook_scope) - shows "Legacy (scope unknown)", falls back to eval results
+ * F) Chain run - shows Chain Stack panel with step status, persists after reload
+ * G) Investigate Steps/Evidence toggle - persists run selection, filters sync
+ * H) Evidence tab - redirects to Investigate Evidence mode
  */
 
 (function() {
   'use strict';
 
-  // ============ BUILD STAMP ============
-  const BUILD_STAMP = '2026-01-10-SHIP';
-  console.log('APP BOOT', BUILD_STAMP);
+  // ============ BUILD STAMP (UI_SYNC_HARDENED-1) ============
+  // SINGLE SOURCE OF TRUTH for UI version identification
+  const BUILD_STAMP = '2026-01-28-UI_SYNC_HARDENED-1';
+  console.log('[BOOT] app.js loaded BUILD_STAMP=' + BUILD_STAMP + ' src=' + document.currentScript?.src);
+  
+  // ============ UI SYNC CHECK (UI_SYNC_HARDENED-1) ============
+  // Fetches server-side UI info and warns if stale
+  (async function checkUiSync() {
+    try {
+      const res = await fetch('/api/meta/ui_dir');
+      const json = await res.json();
+      if (json.success && json.data) {
+        const d = json.data;
+        console.log('[UI ORIGIN] ui_dir=' + d.ui_dir);
+        console.log('[UI ORIGIN] sha(index.html)=' + (d.ui_index_sha256 || 'N/A').substring(0, 12) + '...');
+        console.log('[UI ORIGIN] sha(app.js)=' + (d.ui_app_js_sha256 || 'N/A').substring(0, 12) + '...');
+        console.log('[UI ORIGIN] dev_mode=' + (d.dev_mode ? 'YES' : 'no'));
+        console.log('[UI ORIGIN] source_ui_dir=' + (d.source_ui_dir || 'N/A'));
+        
+        // Check for mismatch: if server reports source_ui_sha and it differs from served
+        const servedSha = d.ui_app_js_sha256;
+        const sourceSha = d.source_ui_app_js_sha256;
+        
+        if (sourceSha && servedSha && sourceSha !== servedSha && !d.dev_mode) {
+          console.error('[UI MISMATCH] Source app.js SHA differs from served!');
+          console.error('[UI MISMATCH] Served:', servedSha.substring(0, 16) + '...');
+          console.error('[UI MISMATCH] Source:', sourceSha.substring(0, 16) + '...');
+          console.error('[UI MISMATCH] Fix: Set LOCINT_DEV_UI=1 or run scripts/sync_ui.ps1');
+          
+          // Show the red warning banner
+          const banner = document.getElementById('uiMismatchBanner');
+          if (banner) {
+            banner.style.display = 'block';
+          }
+        } else if (d.dev_mode) {
+          console.log('%c[UI DEV MODE] Serving directly from source: ' + d.ui_dir, 'color: #10b981; font-weight: bold;');
+        }
+        
+        // Update UI origin badge if ?debug_ui=1
+        if (location.search.includes('debug_ui=1')) {
+          const badge = document.getElementById('uiOriginBadge');
+          if (badge) {
+            badge.style.display = 'block';
+            badge.textContent = 'UI: ' + d.ui_dir.split(/[/\\]/).pop() + ' sha:' + (d.ui_app_js_sha256 || '').substring(0, 8);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[UI ORIGIN] Failed to fetch /api/meta/ui_dir:', e.message);
+    }
+  })();
+  
+  // ============ GLOBAL ERROR CAPTURE ============
+  window.addEventListener('error', function(e) {
+    console.error('[BOOT ERROR]', e.message, e.filename, e.lineno, e.colno);
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    console.error('[BOOT REJECTION]', e.reason);
+  });
+  
+  // ============ CAPTURE-PHASE CLICK PROBE ============
+  // Logs ALL clicks before any handler can stop propagation
+  document.addEventListener('click', function(e) {
+    const el = e.target;
+    const desc = el.tagName + (el.id ? '#'+el.id : '') + (el.className ? '.'+String(el.className).split(' ')[0] : '');
+    console.log('[CLICK]', desc, el);
+  }, true);
+
+  // ============ BUILD VERSION ============
+  // Single source of truth for UI build identification
+  // NOTE: BUILD_STAMP (above) is the canonical version - BUILD_VERSION kept for backward compat
+  const BUILD_VERSION = BUILD_STAMP; // Unified - always matches BUILD_STAMP
+  console.log(`%c[UI BUILD] ${BUILD_VERSION}`, 'color: #8b5cf6; font-weight: bold; font-size: 12px;');
 
   // ============ DEBUG MODE ============
   // Enable with ?debug=1 in URL
   const DEBUG_MODE = new URLSearchParams(window.location.search).get('debug') === '1';
+  // Enable DEBUG_UI for verbose backend response logging: ?debug_ui=1
+  const DEBUG_UI = new URLSearchParams(window.location.search).get('debug_ui') === '1';
   const apiCallLog = [];  // Last 10 API calls for debug panel
   const MAX_API_LOG = 10;
 
   const API_BASE = window.location.origin;
+
+  // ============ FORENSIC CLICK INSTRUMENTATION ============
+  // PHASE 1: Full forensic probe - capture phase for pointerdown + click
+  // This captures events BEFORE any handler can stopPropagation
+  // GATED: Only active when DEBUG_MODE is enabled (?debug=1)
+  
+  function stringifyEl(el) {
+    if (!el) return 'null';
+    if (!el.tagName) return String(el);
+    const tag = el.tagName;
+    const id = el.id ? '#' + el.id : '';
+    const cls = el.className && typeof el.className === 'string' 
+      ? '.' + el.className.split(' ').filter(c => c).slice(0, 3).join('.') 
+      : '';
+    return tag + id + cls;
+  }
+  
+  if (DEBUG_MODE) {
+    function forensicHandler(e) {
+      const target = e.target;
+      const topEl = document.elementFromPoint(e.clientX, e.clientY);
+      const path = e.composedPath().slice(0, 8).map(stringifyEl);
+      
+      const targetStyle = target.nodeType === 1 ? getComputedStyle(target) : null;
+      const topElStyle = topEl && topEl.nodeType === 1 ? getComputedStyle(topEl) : null;
+      
+      console.log(`[FORENSIC ${e.type.toUpperCase()}]`, {
+        type: e.type,
+        target: stringifyEl(target),
+        topElementAtPoint: stringifyEl(topEl),
+        INTERCEPTED: topEl !== target && topEl !== document.documentElement && topEl !== document.body,
+        path: path,
+        coords: { x: e.clientX, y: e.clientY },
+        defaultPrevented: e.defaultPrevented,
+        cancelBubble: e.cancelBubble,
+        eventPhase: e.eventPhase,
+        targetPointerEvents: targetStyle?.pointerEvents || 'N/A',
+        targetZIndex: targetStyle?.zIndex || 'N/A',
+        targetPosition: targetStyle?.position || 'N/A',
+        topElPointerEvents: topElStyle?.pointerEvents || 'N/A',
+        topElZIndex: topElStyle?.zIndex || 'N/A',
+      });
+      
+      // CRITICAL: If topEl differs from target, we have an interception
+      if (topEl !== target && topEl !== document.documentElement && topEl !== document.body) {
+        console.error(`[CLICK INTERCEPTED] Expected: ${stringifyEl(target)}, Got: ${stringifyEl(topEl)}`);
+        console.error(`  topEl z-index: ${topElStyle?.zIndex}, pointer-events: ${topElStyle?.pointerEvents}`);
+        console.error(`  topEl parent chain:`, topEl?.parentElement ? stringifyEl(topEl.parentElement) : 'none');
+      }
+    }
+    
+    // Attach to both pointerdown and click in CAPTURE phase
+    document.addEventListener('pointerdown', forensicHandler, true);
+    document.addEventListener('click', forensicHandler, true);
+  }
+  
+  // ============ HIT-TEST GRID PROBE ============
+  // Samples 20 points across viewport to detect full-page overlays
+  window.probeHitTest = function() {
+    console.log('=== HIT-TEST GRID PROBE ===');
+    const results = [];
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    
+    // Sample 5x4 grid
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < 5; col++) {
+        const x = Math.floor((col + 0.5) * vw / 5);
+        const y = Math.floor((row + 0.5) * vh / 4);
+        const el = document.elementFromPoint(x, y);
+        const elStr = stringifyEl(el);
+        results.push({ x, y, element: elStr });
+        console.log(`  (${x}, ${y}) -> ${elStr}`);
+      }
+    }
+    
+    // Summarize: if same element at most points, it's likely an overlay
+    const counts = {};
+    results.forEach(r => { counts[r.element] = (counts[r.element] || 0) + 1; });
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    console.log('Summary (by frequency):', sorted);
+    
+    if (sorted[0] && sorted[0][1] > 10) {
+      console.error(`LIKELY OVERLAY: ${sorted[0][0]} covers ${sorted[0][1]}/20 points`);
+    }
+    
+    return { results, counts: sorted };
+  };
+  
+  // ============ CHECK ORPHANED OVERLAYS ============
+  window.checkOverlays = function() {
+    console.log('=== CHECKING FOR OVERLAYS/MODALS ===');
+    
+    // Check all fixed/absolute positioned elements
+    const allEls = document.querySelectorAll('*');
+    const overlays = [];
+    
+    allEls.forEach(el => {
+      const style = getComputedStyle(el);
+      if ((style.position === 'fixed' || style.position === 'absolute') && 
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          !el.classList.contains('hidden')) {
+        const zIndex = parseInt(style.zIndex) || 0;
+        const pointerEvents = style.pointerEvents;
+        const rect = el.getBoundingClientRect();
+        
+        // Only care about elements covering significant area
+        if (rect.width > 100 && rect.height > 100 && zIndex > 0) {
+          overlays.push({
+            element: stringifyEl(el),
+            zIndex,
+            pointerEvents,
+            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height },
+            html: el.outerHTML.slice(0, 200)
+          });
+        }
+      }
+    });
+    
+    overlays.sort((a, b) => b.zIndex - a.zIndex);
+    console.log('Found overlays:', overlays.length);
+    overlays.forEach(o => {
+      const blocking = o.pointerEvents !== 'none';
+      console.log(`  ${blocking ? '🚫' : '✅'} z-index ${o.zIndex}: ${o.element} (pointer-events: ${o.pointerEvents})`);
+      if (blocking) {
+        console.log('    HTML:', o.html);
+      }
+    });
+    
+    return overlays;
+  };
+  
+  // ============ FULL DIAGNOSTIC ============
+  window.diagnoseClicks = function() {
+    console.log('========================================');
+    console.log('FULL CLICK DIAGNOSTIC');
+    console.log('========================================');
+    
+    // 1. Check if key elements exist
+    console.log('\n--- 1. DOM ELEMENT CHECK ---');
+    const btn = document.getElementById('btnStartRun');
+    console.log('btnStartRun exists:', !!btn);
+    if (btn) {
+      const style = getComputedStyle(btn);
+      console.log('  tagName:', btn.tagName);
+      console.log('  disabled:', btn.disabled);
+      console.log('  visibility:', style.visibility);
+      console.log('  display:', style.display);
+      console.log('  pointer-events:', style.pointerEvents);
+      console.log('  opacity:', style.opacity);
+      console.log('  position:', style.position);
+      console.log('  z-index:', style.zIndex);
+      
+      // Check parent chain
+      console.log('  Parent chain pointer-events:');
+      let parent = btn.parentElement;
+      let depth = 0;
+      while (parent && depth < 10) {
+        const pStyle = getComputedStyle(parent);
+        if (pStyle.pointerEvents === 'none') {
+          console.error(`    BLOCKING: ${stringifyEl(parent)} has pointer-events: none`);
+        }
+        parent = parent.parentElement;
+        depth++;
+      }
+    }
+    
+    // 2. Check what's at button center
+    console.log('\n--- 2. HIT TEST AT BUTTON ---');
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const topEl = document.elementFromPoint(centerX, centerY);
+      console.log(`  Button rect: (${rect.left}, ${rect.top}) ${rect.width}x${rect.height}`);
+      console.log(`  Center point: (${centerX}, ${centerY})`);
+      console.log(`  Element at center: ${stringifyEl(topEl)}`);
+      
+      if (topEl !== btn) {
+        console.error('  ⚠️ MISMATCH! Something is covering the button.');
+        if (topEl) {
+          const topStyle = getComputedStyle(topEl);
+          console.error(`    Blocker: ${stringifyEl(topEl)}`);
+          console.error(`    z-index: ${topStyle.zIndex}`);
+          console.error(`    position: ${topStyle.position}`);
+          console.error(`    pointer-events: ${topStyle.pointerEvents}`);
+        }
+      } else {
+        console.log('  ✅ Button is on top - hit test passes');
+      }
+    }
+    
+    // 3. Check overlays
+    console.log('\n--- 3. OVERLAY CHECK ---');
+    window.checkOverlays();
+    
+    // 4. Check hit test grid
+    console.log('\n--- 4. HIT TEST GRID ---');
+    window.probeHitTest();
+    
+    console.log('\n========================================');
+    console.log('END DIAGNOSTIC');
+    console.log('========================================');
+  };
+  
+  // ============ ERROR CAPTURE ============
+  // Catch runtime errors that might abort wiring
+  window.addEventListener('error', (e) => {
+    console.error('[RUNTIME ERROR]', e.message, 'at', e.filename, 'line', e.lineno);
+    console.error('  Stack:', e.error?.stack);
+  });
+  
+  window.addEventListener('unhandledrejection', (e) => {
+    console.error('[UNHANDLED REJECTION]', e.reason);
+  });
+  
+  console.log('[FORENSIC] Instrumentation loaded. Run window.probeHitTest() to check for overlays.');
   
   // ============ STATE ============
   // Single source of truth: all state comes from backend
@@ -59,6 +397,7 @@
     // Readiness
     readinessState: 'unknown',
     readinessSummary: null,
+    lastRunReadinessState: null, // Readiness state captured when run started (for outcome result display)
     // Telemetry readiness details
     telemetryReadiness: null,
     supportsRestartAdmin: false, // Whether restart-as-admin is supported
@@ -72,6 +411,40 @@
     signalExplanation: null,
     signalNarrative: null,
     runCoverage: null,     // Coverage data for selected run (facts, types, hosts, diagnostics)
+    // Investigate tab: playbook eval cache (NEW - source of truth for Investigate)
+    investigateEval: null,     // Full /api/runs/:id/playbooks/eval response
+    investigateEvalRunId: null, // Which run the cached eval belongs to
+    selectedPlaybookEvalId: null, // Currently selected playbook in Investigate left pane
+    // Investigate tab: UI state (NEW)
+    investigateShowActionableOnly: false, // Toggle to hide blocked playbooks
+    investigateSearchTerm: '',            // Search filter for playbook list
+    investigateBlockersExpanded: false,   // Whether blockers detail is expanded
+    investigateWorkbenchMode: 'observed',  // 'observed' | 'chains' | 'playbooks' | 'evidence' (INVESTIGATE_OBSERVED_FIRST-1)
+    // Investigate Evidence mode state (shared with Evidence tab)
+    investigateEvidenceMode: 'grouped',   // 'grouped' or 'raw'
+    investigateEvidenceData: null,        // Coverage data cache
+    investigateEvidenceFacts: [],         // Raw facts for current filter
+    investigateEvidencePage: 0,
+    investigateEvidencePageSize: 50,
+    investigateEvidenceSearchTerm: '',
+    investigateEvidenceLensFilter: '',
+    investigateSelectedFact: null,        // Selected fact for detail drawer
+    // Evidence Drawer state (NEW)
+    evidenceDrawerOpen: false,
+    evidenceDrawerStep: null,  // { stepName, stepStatus, expectedFactTypes, searchHints, isBlocked, blockedReason }
+    evidenceDrawerFacts: [],   // Resolved facts for current step
+    // Chain Stack state (INVESTIGATE_CHAINS-1)
+    chainStackExpanded: true,         // Whether chain stack is expanded
+    chainStackData: null,             // step_status response from backend
+    chainStackSelectedChain: null,    // Currently selected chain ID for filtering
+    chainStackFilterActive: false,    // Whether playbook filter by chain is active
+    // Chain Lens state (INVESTIGATE_CHAIN_LENS-1)
+    chainLensSelectedIds: [],         // Array of chain IDs user has selected
+    chainLensPickerOpen: false,       // Whether picker dropdown is visible
+    chainLensStepStatus: null,        // step_status response from backend (cached)
+    chainLensLoading: false,          // Loading indicator
+    // Evidence Context state (INVESTIGATE_CHAIN_LENS-1) - for proof banner
+    evidenceContext: null,            // { source: 'chain_step'|'episode'|'finding', label: string, stepId?: string, chainId?: string }
     // Run isolation tracking
     signalsRunId: null,    // Which run the current signals belong to (for strict isolation verification)
     signalsCursor: null,   // Cursor for incremental signal polling (since_ts_ms)
@@ -82,6 +455,8 @@
     explorePivotResult: null,  // Pivot query result for selected entity
     exploreTypeFilter: 'all',  // Current type filter: all, processes, files, ips, users, hosts
     exploreSearchQuery: '',    // Current search filter
+    // Pro Diff UX state
+    currentDiffGoal: 'all',    // Current diff goal preset: all, suspicious, persistence, credential, network, software
     // Capability probe results (which endpoints exist)
     capabilities: {
       signals: null,      // null = unknown, true = available, false = 404
@@ -102,6 +477,15 @@
     tier: 'Free',           // Current tier: Free, Pro, Team, Dev
     features: {},           // Feature flags from server
     upgradeUrl: 'https://locint.io/upgrade',
+    // ── Explicit Baseline Anchor (set only by user action, never inferred) ──
+    // Supports stacked chains: multiple chains can be active simultaneously
+    baseline: {
+      type: null,           // 'stack' | 'preset' | null (null = pure custom, no anchor)
+      presetId: null,       // If type='preset', the preset ID
+      presetTitle: null,    // Human-readable preset title
+      chains: [],           // Array of stacked chains: [{ chainId, title, definition, compiledPlaybookIds, stepToPlaybooks }]
+      baselinePlaybookIds: [], // Union of all compiledPlaybookIds across chains (+ preset if used)
+    },
     // Playbook selection state
     playbookSelection: {
       mode: 'preset',       // 'preset' or 'custom'
@@ -113,7 +497,56 @@
       runnableCount: 0,
       blockedCount: 0,
       showUnselected: false, // Toggle to show/hide non-selected playbooks in UI
+      listVisible: false,   // Is the inline playbook list expanded
+      listFilter: 'all',    // all | selected | runnable | blocked
     },
+    // Path of Work state
+    pathOfWork: {
+      selected: 'discovery', // Current path: discovery, threat-hunt, credential, network, custom
+    },
+    // Outcome Preview UI state
+    outcomeFamiliesExpanded: false, // Toggle for showing all families vs top 3
+    // Outcome Checklist state (satisfaction tracker)
+    outcome: {
+      mode: 'preview',      // 'preview' | 'tracking' | 'tracking-final'
+      verbose: false,       // Show descriptions + matched items
+      expanded: false,      // Show all steps vs collapsed
+      steps: [],            // Computed steps from selection (macro or micro)
+      microSteps: [],       // Micro-steps if narrow selection
+      useMicroSteps: false, // True if <=3 micro-steps detected (show micro as primary)
+      chainSteps: [],       // Chain steps when a micro chain is applied
+      useChainSteps: false, // True if baseline.type==='chain' - chain steps take precedence
+      preferMicroView: false, // UI hint: when true, modal/checklist defaults to micro-step view
+      stepStatus: {},       // Status per step: { stepId: { status, evidenceCount, matchedPlaybooks } }
+      lastComputeKey: null, // For freshness tracking
+    },
+    // Playbook Catalog state (Single Source of Truth)
+    catalog: {
+      status: 'idle',       // 'idle' | 'loading' | 'ready' | 'error'
+      error: null,          // Error message if status === 'error'
+      playbooks: [],        // Array of playbook objects from /api/playbooks/catalog
+      playbooksById: {},    // Dictionary for quick lookup
+    },
+    // Evidence tab state (Grouped/Raw toggle) - EVIDENCE_GRANULARITY-1 upgrades
+    evidenceMode: 'summary', // 'summary' | 'grouped' | 'raw' (Summary is new default)
+    evidenceData: null,      // Coverage data cache for evidence
+    evidenceFacts: [],       // Raw facts for current filter
+    evidencePage: 0,
+    evidencePageSize: 50,
+    evidenceSearchTerm: '',
+    evidenceLensFilter: '',
+    evidenceHostFilter: '',  // Host filter from Investigate deep-link
+    evidenceTimeRange: null, // { center: timestamp, window: ms } from Investigate
+    selectedFact: null,
+    // EVIDENCE_GRANULARITY-1: Summary mode state
+    evidenceSummary: null,   // Cached evidence_summary API response
+    evidenceEntityFilter: null, // { category: 'processes'|'scripts'|etc, entity: 'xxx' }
+    evidenceTimelineFilter: null, // { bucket: N, start_ts, end_ts }
+    evidenceChainStepFilter: null, // Chain step ID for pinned evidence mode
+    evidencePlaybookFilter: null, // Playbook ID for context filter
+    evidenceShowRelated: false, // Toggle for ±5min related facts
+    // Pivot context (for "Back to Overview" functionality)
+    pivotContext: null, // { from: 'overview', filter: 'powershell', label: 'PowerShell' }
     // Team Case Store state
     teamStore: {
       status: null,         // Store status object from /api/team/store/status
@@ -391,24 +824,24 @@
     {
       id: 'settings.selfcheck',
       label: 'Run Checks',
-      buttonSelector: '#btnRunChecks',
+      buttonSelector: '#btnMissionRerunReadiness', // Moved to Mission tab
       request: { method: 'GET', path: '/api/selfcheck' },
       expects: { json: true, wrapper: true, requiredKeys: ['overall_status'] },
       safeToCall: true,
       tier: 'core',
       required: true,
-      notes: 'System readiness check'
+      notes: 'System readiness check (Mission tab)'
     },
     {
       id: 'settings.detectionPlan',
       label: 'Detection Plan',
-      buttonSelector: '#btnLoadDetectionPlan',
+      buttonSelector: '#btnMissionLoadPlan', // Moved to Mission tab
       request: { method: 'GET', path: '/api/playbooks/catalog' },
       expects: { json: true, wrapper: true, requiredKeys: ['playbooks'] },
       safeToCall: true,
       tier: 'core',
       required: true,
-      notes: 'Playbook catalog showing enabled/blocked detections'
+      notes: 'Playbook catalog showing enabled/blocked detections (Mission tab)'
     },
     // Run Control
     {
@@ -583,7 +1016,7 @@
     {
       id: 'bundle.exportRun',
       label: 'Export Run',
-      buttonSelector: '#btnExportRun',
+      buttonSelector: '#btnExportRunHeader', // Run header button
       request: { method: 'POST', path: '/api/export/bundle' },
       expects: { json: false, binary: true, contentType: 'application/zip' },
       safeToCall: false,
@@ -630,7 +1063,7 @@
     {
       id: 'baselines.set',
       label: 'Mark as Baseline',
-      buttonSelector: '#btnMarkBaseline',
+      buttonSelector: '#btnMarkBaselineHeader', // Run header button
       request: { method: 'POST', path: '/api/runs/:run_id/baseline' },
       expects: { json: true, wrapper: true, requiredKeys: ['run_id', 'scope'] },
       safeToCall: false,
@@ -676,7 +1109,7 @@
       label: 'Case Summary Export',
       buttonSelector: '#btnExportCaseSummary',
       request: { method: 'GET', path: '/api/runs/:run_id/case_summary' },
-      expects: { json: true, wrapper: true, requiredKeys: ['contract_version', 'run_id', 'run_story', 'summary'] },
+      expects: { json: true, wrapper: true, requiredKeys: ['contract_version', 'run_id', 'summary'] },
       safeToCall: true,
       tier: 'pro',
       required: false,
@@ -1107,6 +1540,347 @@
     }
   };
 
+  // ============ OUTCOME CHECKLIST STEP MAPPING ============
+  // Maps playbook categories/IDs to attack chain steps for the Outcome Checklist
+  // Each step represents a user-meaningful phase in an attack chain
+  const OUTCOME_STEP_MAPPING = {
+    'initial-access': {
+      id: 'initial-access',
+      title: 'Initial Access / Execution',
+      description: 'Malicious code execution via documents, scripts, or download cradles',
+      icon: '🎯',
+      categories: ['Execution'],
+      playbookPatterns: ['encoded_powershell', 'powershell_download', 'wscript', 'cscript', 'mshta', 'office_child', 'lolbin'],
+      order: 1
+    },
+    'credential-access': {
+      id: 'credential-access',
+      title: 'Credential Access',
+      description: 'Credential dumping, token theft, LSASS access, SAM extraction',
+      icon: '🔑',
+      categories: ['Credential Access'],
+      playbookPatterns: ['credential', 'lsass', 'mimikatz', 'token', 'sam'],
+      order: 2
+    },
+    'privilege-escalation': {
+      id: 'privilege-escalation',
+      title: 'Privilege Escalation',
+      description: 'Elevation via service abuse, token manipulation, or exploits',
+      icon: '⬆️',
+      categories: [],
+      playbookPatterns: ['privilege', 'elevation', 'uac', 'token_manipulation'],
+      order: 3
+    },
+    'persistence': {
+      id: 'persistence',
+      title: 'Persistence',
+      description: 'Registry run keys, scheduled tasks, services, startup modifications',
+      icon: '📌',
+      categories: ['Persistence'],
+      playbookPatterns: ['persistence', 'registry', 'service', 'schtasks', 'task', 'startup', 'sc_abuse'],
+      order: 4
+    },
+    'defense-evasion': {
+      id: 'defense-evasion',
+      title: 'Defense Evasion',
+      description: 'Log tampering, security tool disabling, process injection, obfuscation',
+      icon: '🛡️',
+      categories: ['Defense Evasion'],
+      playbookPatterns: ['evasion', 'injection', 'dll_side', 'log_tamper', 'security_tool', 'certutil', 'bitsadmin', 'regsvr32', 'rundll32'],
+      order: 5
+    },
+    'discovery': {
+      id: 'discovery',
+      title: 'Discovery / Reconnaissance',
+      description: 'System enumeration, network discovery, user/group reconnaissance',
+      icon: '🔍',
+      categories: ['Discovery'],
+      playbookPatterns: ['discovery', 'net_command', 'group_membership', 'whoami', 'systeminfo'],
+      order: 6
+    },
+    'lateral-movement': {
+      id: 'lateral-movement',
+      title: 'Lateral Movement',
+      description: 'Remote execution, RDP, admin shares, pass-the-hash, WMI',
+      icon: '↔️',
+      categories: ['Lateral Movement'],
+      playbookPatterns: ['lateral', 'logon_anomaly', 'wmic', 'psexec', 'remote'],
+      order: 7
+    },
+    'collection': {
+      id: 'collection',
+      title: 'Collection / Staging',
+      description: 'File staging, archive creation, data collection before exfil',
+      icon: '📦',
+      categories: ['Collection'],
+      playbookPatterns: ['collection', 'staging', 'archive', 'compress'],
+      order: 8
+    },
+    'exfiltration': {
+      id: 'exfiltration',
+      title: 'Exfiltration',
+      description: 'Data transfer to external destinations, DNS tunneling, cloud upload',
+      icon: '📤',
+      categories: ['Exfiltration'],
+      playbookPatterns: ['exfil', 'transfer', 'upload', 'dns_tunnel'],
+      order: 9
+    }
+  };
+
+  // ============ MICRO-STEP MAPPING ============
+  // Fine-grained steps for narrow/focused selections (≤3 distinct micro-steps)
+  // These provide first-class visibility when users select only specific techniques
+  const MICRO_STEP_MAPPING = {
+    'file-staging': {
+      id: 'file-staging',
+      title: 'File Staging',
+      description: 'Archive creation, data compression, staging for exfiltration',
+      icon: '📁',
+      patterns: ['staging', 'archive', 'compress', 'collect', 'zip', 'rar', '7z'],
+      parentStep: 'collection',
+      order: 1
+    },
+    'process-injection': {
+      id: 'process-injection',
+      title: 'Process Injection',
+      description: 'Code injection via ptrace, rwx, mprotect, DLL injection, process hollowing',
+      icon: '💉',
+      patterns: ['injection', 'ptrace', 'rwx', 'mprotect', 'proc_hollow', 'process_hollow', 'dll_inject', 'shellcode'],
+      parentStep: 'defense-evasion',
+      order: 2
+    },
+    'credential-dump': {
+      id: 'credential-dump',
+      title: 'Credential Dumping',
+      description: 'LSASS access, SAM extraction, sekurlsa, mimikatz-style techniques',
+      icon: '🔓',
+      patterns: ['lsass', 'sam', 'sekurlsa', 'mimikatz', 'credential_dump', 'hashdump', 'ntds'],
+      parentStep: 'credential-access',
+      order: 3
+    },
+    'persistence-registry': {
+      id: 'persistence-registry',
+      title: 'Registry Persistence',
+      description: 'Autoruns, registry run keys, startup modifications',
+      icon: '📋',
+      patterns: ['registry', 'autorun', 'run_key', 'startup', 'hklm', 'hkcu'],
+      parentStep: 'persistence',
+      order: 4
+    },
+    'persistence-schtasks': {
+      id: 'persistence-schtasks',
+      title: 'Scheduled Tasks',
+      description: 'Scheduled task creation/modification for persistence',
+      icon: '⏰',
+      patterns: ['schtasks', 'scheduled_task', 'task_scheduler', 'at_job'],
+      parentStep: 'persistence',
+      order: 5
+    },
+    'dns-tunneling': {
+      id: 'dns-tunneling',
+      title: 'DNS Tunneling',
+      description: 'Data exfiltration or C2 via DNS queries',
+      icon: '🌐',
+      patterns: ['dns_tunnel', 'dns_exfil', 'iodine', 'dnscat'],
+      parentStep: 'exfiltration',
+      order: 6
+    },
+    'lateral-wmi': {
+      id: 'lateral-wmi',
+      title: 'WMI Lateral Movement',
+      description: 'Remote execution via WMI/WMIC',
+      icon: '🔀',
+      patterns: ['wmi', 'wmic', 'wmiexec'],
+      parentStep: 'lateral-movement',
+      order: 7
+    },
+    'lateral-psremoting': {
+      id: 'lateral-psremoting',
+      title: 'PowerShell Remoting',
+      description: 'Remote execution via PS remoting, WinRM',
+      icon: '🔗',
+      patterns: ['psremoting', 'winrm', 'invoke_command', 'enter_pssession'],
+      parentStep: 'lateral-movement',
+      order: 8
+    },
+    'lateral-ssh': {
+      id: 'lateral-ssh',
+      title: 'SSH Pivot',
+      description: 'Lateral movement via SSH tunneling or pivoting',
+      icon: '🔐',
+      patterns: ['ssh_pivot', 'ssh_tunnel', 'plink'],
+      parentStep: 'lateral-movement',
+      order: 9
+    },
+    'defense-log-tamper': {
+      id: 'defense-log-tamper',
+      title: 'Log Tampering',
+      description: 'Clearing or modifying security/event logs',
+      icon: '🗑️',
+      patterns: ['log_tamper', 'log_clear', 'wevtutil', 'event_log'],
+      parentStep: 'defense-evasion',
+      order: 10
+    },
+    'defense-av-disable': {
+      id: 'defense-av-disable',
+      title: 'Security Tool Disable',
+      description: 'Disabling antivirus, EDR, or security tools',
+      icon: '🛡️',
+      patterns: ['security_tool', 'av_disable', 'defender_disable', 'tamper_protection'],
+      parentStep: 'defense-evasion',
+      order: 11
+    }
+  };
+
+  // ============ MICRO CHAINS ============
+  // Chains are now fetched from backend via GET /api/chains
+  // Compilation happens server-side via POST /api/chains/compile
+  // This ensures the backend is the canonical source of truth
+  
+  // Cache for chains loaded from backend
+  let _chainsCache = null;
+  let _chainsCacheTime = 0;
+  const CHAINS_CACHE_TTL = 60000; // 60 seconds
+  
+  /**
+   * Fetch chain definitions from backend
+   * @returns {Promise<Object[]>} Array of chain definitions
+   */
+  async function fetchChainDefinitions() {
+    const now = Date.now();
+    if (_chainsCache && (now - _chainsCacheTime) < CHAINS_CACHE_TTL) {
+      return _chainsCache;
+    }
+    
+    try {
+      const resp = await fetch(`${API_BASE}/api/chains`);
+      const json = await resp.json();
+      if (json.success && json.data?.chains) {
+        _chainsCache = json.data.chains;
+        _chainsCacheTime = now;
+        console.log('[fetchChainDefinitions] Loaded', json.data.count, 'chains from backend');
+        return _chainsCache;
+      } else {
+        console.error('[fetchChainDefinitions] Backend error:', json);
+        return [];
+      }
+    } catch (err) {
+      console.error('[fetchChainDefinitions] Failed:', err);
+      return [];
+    }
+  }
+  
+  /**
+   * Compile chain stack via backend API
+   * @param {string[]} chainIds - Array of chain IDs to compile
+   * @returns {Promise<Object>} Compiled baseline from backend
+   */
+  async function compileChainStackViaBackend(chainIds) {
+    try {
+      const resp = await fetch(`${API_BASE}/api/chains/compile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chain_ids: chainIds })
+      });
+      const json = await resp.json();
+      if (json.success) {
+        console.log('[compileChainStackViaBackend]', chainIds.length, 'chains →', json.baseline?.baselinePlaybookIds?.length || 0, 'playbooks');
+        return json.baseline;
+      } else {
+        console.error('[compileChainStackViaBackend] Backend errors:', json.errors);
+        showToast(json.errors?.join(', ') || 'Chain compilation failed', 'error');
+        return null;
+      }
+    } catch (err) {
+      console.error('[compileChainStackViaBackend] Failed:', err);
+      showToast('Failed to compile chains', 'error');
+      return null;
+    }
+  }
+
+  /**
+   * Fetch step status from backend (canonical source of truth)
+   * This replaces frontend-side guesswork with backend-computed satisfaction
+   * @param {string} runId - Run ID to get status for
+   * @param {string[]} chainIds - Chain IDs in the stack
+   * @returns {Promise<Object|null>} Step status response from backend
+   */
+  async function fetchStepStatusFromBackend(runId, chainIds) {
+    if (!runId || !chainIds || chainIds.length === 0) {
+      return null;
+    }
+    
+    try {
+      const url = `${API_BASE}/api/runs/${encodeURIComponent(runId)}/step_status?chain_ids=${encodeURIComponent(chainIds.join(','))}`;
+      const resp = await fetch(url);
+      const json = await resp.json();
+      
+      if (json.success) {
+        console.log('[fetchStepStatusFromBackend] Got status for', json.chains?.length || 0, 'chains, is_live:', json.is_live);
+        return json;
+      } else {
+        console.warn('[fetchStepStatusFromBackend] Backend error:', json.error);
+        return null;
+      }
+    } catch (err) {
+      console.warn('[fetchStepStatusFromBackend] Failed:', err);
+      return null;
+    }
+  }
+  
+  /**
+   * Update outcome step statuses from backend step_status endpoint
+   * This is the canonical source of truth - replaces frontend guesswork
+   * Call this during run polling and after run stops
+   */
+  async function updateStepStatusFromBackend() {
+    const runId = state.runId;
+    const chainIds = state.selection.chainStack || [];
+    
+    if (!runId || chainIds.length === 0) {
+      return;
+    }
+    
+    const backendStatus = await fetchStepStatusFromBackend(runId, chainIds);
+    if (!backendStatus || !backendStatus.chains) {
+      return;
+    }
+    
+    // Convert backend response to frontend stepStatus format
+    const stepStatus = {};
+    
+    for (const chain of backendStatus.chains) {
+      for (const step of chain.steps) {
+        // Step ID format: chainId-stepId (e.g., "process-injection-alloc")
+        const fullStepId = `${chain.chain_id}-${step.step_id}`;
+        
+        stepStatus[fullStepId] = {
+          status: step.state,  // not_observed, candidate, satisfied, blocked, unverified
+          evidenceCount: step.evidence_refs_count || 0,
+          matchedPlaybooks: (step.matched_signals || []).map(sig => ({
+            id: sig.playbook_id,
+            title: sig.playbook_id,
+            signalCount: 1,
+            evidenceRefs: sig.evidence_count || 0
+          })),
+          signalCount: step.matched_signals?.length || 0,
+          why: step.why,
+          coverageGaps: step.coverage_gaps || []
+        };
+      }
+    }
+    
+    // Update state
+    state.outcome.stepStatus = stepStatus;
+    state.outcome.isLive = backendStatus.is_live;
+    state.outcome.lastStatusUpdate = backendStatus.generated_at;
+    
+    // Rerender if visible
+    if (state.currentTab === 'mission') {
+      rerenderMissionDerivedPanels('step-status-update');
+    }
+  }
+
   /**
    * Compute unified readiness label and score from telemetry data.
    * Returns { label, score, tooltip, isBlocked, isPartial } for consistent display.
@@ -1275,6 +2049,49 @@
     btnRestartAdmin: $('#btnRestartAdmin'),
     restartAdminHint: $('#restartAdminHint'),
     
+    // Mission - Path of Work (Step 1)
+    pathOfWorkChips: $('#pathOfWorkChips'),
+    pathDescription: $('#pathDescription'),
+    telemetryReadinessIndicator: $('#telemetryReadinessIndicator'),
+    telemetryReadinessLight: $('#telemetryReadinessLight'),
+    telemetryReadinessLabel: $('#telemetryReadinessLabel'),
+    telemetryReadinessDetail: $('#telemetryReadinessDetail'),
+    btnRefreshReadiness: $('#btnRefreshReadiness'),
+    customSelectionLabel: $('#customSelectionLabel'),
+    btnResetToPreset: $('#btnResetToPreset'),
+    
+    // Mission - Playbook Selection (Step 2)
+    playbookBlockedSummary: $('#playbookBlockedSummary'),
+    playbookUnverifiedSummary: $('#playbookUnverifiedSummary'),
+    playbookUnverifiedCount: $('#playbookUnverifiedCount'),
+    btnChoosePlaybooks: $('#btnChoosePlaybooks'),
+    
+    // Mission - Sidebar (collapsible)
+    missionSidebar: $('#missionSidebar'),
+    liveCountersDetails: $('#liveCountersDetails'),
+    liveCountersSummary: $('#liveCountersSummary'),
+    liveCountersStatus: $('#liveCountersStatus'),
+    liveCountersContent: $('#liveCountersContent'),
+    noiseDiagnosticsDetails: $('#noiseDiagnosticsDetails'),
+    noiseStatus: $('#noiseStatus'),
+    
+    // Mission - Run Plan (Step 3)
+    runPlanSummary: $('#runPlanSummary'),
+    runPlanPlaybookCount: $('#runPlanPlaybookCount'),
+    runPlanRunnableCount: $('#runPlanRunnableCount'),
+    runPlanBlockedCount: $('#runPlanBlockedCount'),
+    runPlanCoverageChips: $('#runPlanCoverageChips'),
+    runPlanBlockedWarning: $('#runPlanBlockedWarning'),
+    runPlanBlockedText: $('#runPlanBlockedText'),
+    btnFixCoverageGaps: $('#btnFixCoverageGaps'),
+    
+    // Mission - Coverage & Requirements
+    btnToggleCoverageSection: $('#btnToggleCoverageSection'),
+    coverageSummaryBadge: $('#coverageSummaryBadge'),
+    coverageToggleIcon: $('#coverageToggleIcon'),
+    coverageRequirementsPanel: $('#coverageRequirementsPanel'),
+    missionReadinessIssuesText: $('#missionReadinessIssuesText'),
+    
     // Mission System Readiness & Detection Plan Card
     missionReadinessLabel: $('#missionReadinessLabel'),
     missionReadinessStatus: $('#missionReadinessStatus'),
@@ -1323,6 +2140,19 @@
     runDetail: $('#runDetail'),
     runDetailTitle: $('#runDetailTitle'),
     runDetailTime: $('#runDetailTime'),
+    // Enhanced header elements
+    runDetailHost: $('#runDetailHost'),
+    runDetailPreset: $('#runDetailPreset'),
+    runTelemetryPill: $('#runTelemetryPill'),
+    runCompilePill: $('#runCompilePill'),
+    btnExportRunHeader: $('#btnExportRunHeader'),
+    btnMarkBaselineHeader: $('#btnMarkBaselineHeader'),
+    // Run status pill (FINALIZED/COMPILING/INTERRUPTED)
+    runStatusPill: $('#runStatusPill'),
+    // Compile status indicator
+    runCompileStatus: $('#runCompileStatus'),
+    compileStatusIcon: $('#compileStatusIcon'),
+    compileStatusText: $('#compileStatusText'),
     detailEvents: $('#detailEvents'),
     detailSegments: $('#detailSegments'),
     detailFacts: $('#detailFacts'),
@@ -1330,6 +2160,12 @@
     btnGoToMission: $('#btnGoToMission'),
     btnViewFindings: $('#btnViewFindings'),
     btnExportRun: $('#btnExportRun'),
+    btnMarkBaseline: $('#btnMarkBaseline'),
+    btnExportCaseSummary: $('#btnExportCaseSummary'),
+    // Primary CTA buttons (new compact row)
+    btnPrimaryInvestigate: $('#btnPrimaryInvestigate'),
+    btnPrimaryEvidence: $('#btnPrimaryEvidence'),
+    btnPrimaryExport: $('#btnPrimaryExport'),
     
     // Run detail tabs & content
     runTabs: $$('.run-tab[data-run-tab]'),
@@ -1348,6 +2184,12 @@
     detailDuration: $('#detailDuration'),
     detailHosts: $('#detailHosts'),
     detailMode: $('#detailMode'),
+    // Overview fact types histogram
+    overviewFactTypesSection: $('#overviewFactTypesSection'),
+    overviewFactTypesCount: $('#overviewFactTypesCount'),
+    overviewFactTypesList: $('#overviewFactTypesList'),
+    overviewFactTypesCompiling: $('#overviewFactTypesCompiling'),
+    overviewFactTypesEmpty: $('#overviewFactTypesEmpty'),
     // Discovery Workflow panels
     discoverySummaryPanel: $('#discoverySummaryPanel'),
     discoverySummaryCount: $('#discoverySummaryCount'),
@@ -1384,6 +2226,28 @@
     diffCaveatsList: $('#diffCaveatsList'),
     diffCategoryFilter: $('#diffCategoryFilter'),
     diffDirectionFilter: $('#diffDirectionFilter'),
+    // Diff Goal presets (Pro Diff UX)
+    diffGoalSection: $('#diffGoalSection'),
+    diffGoalPresets: $('#diffGoalPresets'),
+    diffGoalDescription: $('#diffGoalDescription'),
+    btnClearFilters: $('#btnClearFilters'),
+    diffWhatNextSection: $('#diffWhatNextSection'),
+    diffWhatNextContent: $('#diffWhatNextContent'),
+    // Observed Structure Map
+    observedStructureSection: $('#observedStructureSection'),
+    observedStructureToggle: $('#observedStructureToggle'),
+    observedStructureContent: $('#observedStructureContent'),
+    observedStructureTiles: $('#observedStructureTiles'),
+    observedStructureEmpty: $('#observedStructureEmpty'),
+    // Structure Snapshot (Pro Diff)
+    structureSnapshotSection: $('#structureSnapshotSection'),
+    structureSnapshotCards: $('#structureSnapshotCards'),
+    structureSnapshotEmpty: $('#structureSnapshotEmpty'),
+    structureSnapshotSampleNote: $('#structureSnapshotSampleNote'),
+    // Desired Outcome (Pro Diff)
+    desiredOutcomeSelect: $('#desiredOutcomeSelect'),
+    desiredOutcomeGuidance: $('#desiredOutcomeGuidance'),
+    btnShowOutcomeWhy: $('#btnShowOutcomeWhy'),
     
     // Playbooks tab
     playbooksLoading: $('#playbooksLoading'),
@@ -1408,27 +2272,42 @@
     playbooksEvalList: $('#playbooksEvalList'),
     playbooksStatusFilter: $('#playbooksStatusFilter'),
     
-    // System State panel (Part A)
+    // System State panel (Part A - now collapsible)
     runStatePanel: $('#runStatePanel'),
-    stateTelemetryBadge: $('#stateTelemetryBadge'),
+    stateQuickStats: $('#stateQuickStats'),
     stateSensorsList: $('#stateSensorsList'),
-    stateFactsCount: $('#stateFactsCount'),
-    stateSignalsCount: $('#stateSignalsCount'),
     stateTopProcess: $('#stateTopProcess'),
     stateEntitiesSection: $('#stateEntitiesSection'),
     stateEntitiesList: $('#stateEntitiesList'),
     stateNotesSection: $('#stateNotesSection'),
     stateNotesList: $('#stateNotesList'),
     
-    // Next Steps panel (Workflow Guidance)
-    runNextStepsPanel: $('#runNextStepsPanel'),
-    nextStepsSeverityBadge: $('#nextStepsSeverityBadge'),
-    nextStepsSummary: $('#nextStepsSummary'),
-    nextStepsActions: $('#nextStepsActions'),
-    coverageChecklist: $('#coverageChecklist'),
-    coverageChecklistItems: $('#coverageChecklistItems'),
+    // Overview-only panels (should only show on Overview tab)
+    runSummaryGrid: $('#runSummaryGrid'),
     
-    // Findings tab
+    // REMOVED: Highlights and Next Steps panels (not authoritative)
+    // runHighlightsPanel, runNextStepsPanel - kept but hidden/unused
+    
+    // NEW: Authoritative capability snapshot panel
+    runCapabilitySnapshot: $('#runCapabilitySnapshot'),
+    capabilitySnapshotStatus: $('#capabilitySnapshotStatus'),
+    capabilitySnapshotContent: $('#capabilitySnapshotContent'),
+    capabilitySnapshotMissing: $('#capabilitySnapshotMissing'),
+    
+    // NEW: Authoritative blockers panel (from step_status)
+    runBlockersPanel: $('#runBlockersPanel'),
+    blockersCount: $('#blockersCount'),
+    blockersList: $('#blockersList'),
+    
+    // Visibility limits count badge (legacy - may remove)
+    limitsBlockedCount: $('#limitsBlockedCount'),
+    
+    // Interrupt banner (single authoritative)
+    runInterruptBanner: $('#runInterruptBanner'),
+    interruptReason: $('#interruptReason'),
+    interruptRecoveryTip: $('#interruptRecoveryTip'),
+    
+    // Findings tab (now Investigate split-pane)
     findingsEmpty: $('#findingsEmpty'),
     findingsContent: $('#findingsContent'),
     findingsUnavailable: $('#findingsUnavailable'),
@@ -1436,6 +2315,201 @@
     findingsCount: $('#findingsCount'),
     findingsSeverityFilter: $('#findingsSeverityFilter'),
     findingsList: $('#findingsList'),
+    findingsGrouped: $('#findingsGrouped'),
+    findingsShowAllGroups: $('#findingsShowAllGroups'),
+    // Investigate summary banner (NEW)
+    investigateSummaryBanner: $('#investigateSummaryBanner'),
+    investigateTotalCount: $('#investigateTotalCount'),
+    investigateFiredCount: $('#investigateFiredCount'),
+    investigateCandidateCount: $('#investigateCandidateCount'),
+    investigateBlockedCount: $('#investigateBlockedCount'),
+    investigateNoMatchCount: $('#investigateNoMatchCount'),
+    investigateBlockersSummary: $('#investigateBlockersSummary'),
+    investigateBlockerReason: $('#investigateBlockerReason'),
+    btnWhyBlocked: $('#btnWhyBlocked'),
+    investigateBlockerDetail: $('#investigateBlockerDetail'),
+    investigateBlockerList: $('#investigateBlockerList'),
+    // Investigate search and filter controls (NEW)
+    investigateSearchInput: $('#investigateSearchInput'),
+    btnShowActionableOnly: $('#btnShowActionableOnly'),
+    // Investigate scope banner (playbook scope header)
+    investigateScopeBanner: $('#investigateScopeBanner'),
+    investigateScopeLabel: $('#investigateScopeLabel'),
+    investigateScopeCount: $('#investigateScopeCount'),
+    investigateScopeRationale: $('#investigateScopeRationale'),
+    btnInvestigateGoToMission: $('#btnInvestigateGoToMission'),
+    // Investigate split-pane elements
+    investigateSplitPane: $('#investigateSplitPane'),
+    investigateLeftPane: $('#investigateLeftPane'),
+    investigateRightPane: $('#investigateRightPane'),
+    investigateDetailHeader: $('#investigateDetailHeader'),
+    investigateDetailTitle: $('#investigateDetailTitle'),
+    investigateNavControls: $('#investigateNavControls'),
+    investigateDetailContent: $('#investigateDetailContent'),
+    investigatePlaceholder: $('#investigatePlaceholder'),
+    investigateFindingPosition: $('#investigateFindingPosition'),
+    btnPrevFinding: $('#btnPrevFinding'),
+    btnNextFinding: $('#btnNextFinding'),
+    // Investigate sticky action bar
+    investigateActionBar: $('#investigateActionBar'),
+    btnInvestigateViewEvidence: $('#btnInvestigateViewEvidence'),
+    btnInvestigateRawJson: $('#btnInvestigateRawJson'),
+    // Investigate Workbench mode toggle (INVESTIGATE_OBSERVED_FIRST-1)
+    investigateModeToggle: $('#investigateModeToggle'),
+    btnInvestigateModeObserved: $('#btnInvestigateModeObserved'),
+    btnInvestigateModeChains: $('#btnInvestigateModeChains'),
+    btnInvestigateModePlaybooks: $('#btnInvestigateModePlaybooks'),
+    btnInvestigateModeEvidence: $('#btnInvestigateModeEvidence'),
+    // Legacy button refs (kept for backward compat)
+    btnInvestigateModeSteps: $('#btnInvestigateModeSteps'),
+    // Mode containers
+    investigateObservedMode: $('#investigateObservedMode'),
+    investigateChainsMode: $('#investigateChainsMode'),
+    investigatePlaybooksMode: $('#investigatePlaybooksMode'),
+    investigateStepsMode: $('#investigateStepsMode'),
+    investigateEvidenceModeContainer: $('#investigateEvidenceMode'),
+    // Observed mode elements (INVESTIGATE_OBSERVED_FIRST-1)
+    investigateObservedLoading: $('#investigateObservedLoading'),
+    investigateObservedContent: $('#investigateObservedContent'),
+    investigateObservedEmpty: $('#investigateObservedEmpty'),
+    investigateObservedCoverage: $('#investigateObservedCoverage'),
+    investigateObservedCoverageDetail: $('#investigateObservedCoverageDetail'),
+    investigateObservedCoverageGaps: $('#investigateObservedCoverageGaps'),
+    investigateObservedFindingsCount: $('#investigateObservedFindingsCount'),
+    investigateObservedFindingsList: $('#investigateObservedFindingsList'),
+    investigateObservedEpisodesCount: $('#investigateObservedEpisodesCount'),
+    investigateObservedEpisodesList: $('#investigateObservedEpisodesList'),
+    investigateObservedUnmappedList: $('#investigateObservedUnmappedList'),
+    investigateObservedStatEvents: $('#investigateObservedStatEvents'),
+    investigateObservedStatFacts: $('#investigateObservedStatFacts'),
+    investigateObservedStatSignals: $('#investigateObservedStatSignals'),
+    investigateObservedStatTopEntity: $('#investigateObservedStatTopEntity'),
+    // Chain Lens elements (INVESTIGATE_CHAIN_LENS-1)
+    chainLensSection: $('#chainLensSection'),
+    chainLensHeader: $('#chainLensHeader'),
+    chainLensActiveCount: $('#chainLensActiveCount'),
+    btnChainLensEdit: $('#btnChainLensEdit'),
+    chainLensDescription: $('#chainLensDescription'),
+    chainLensPicker: $('#chainLensPicker'),
+    chainLensPickerList: $('#chainLensPickerList'),
+    chainLensPickerCount: $('#chainLensPickerCount'),
+    btnChainLensPickerClose: $('#btnChainLensPickerClose'),
+    btnChainLensApply: $('#btnChainLensApply'),
+    chainLensEmpty: $('#chainLensEmpty'),
+    btnChainLensQuickApply: $('#btnChainLensQuickApply'),
+    chainLensResults: $('#chainLensResults'),
+    chainLensSuggested: $('#chainLensSuggested'),
+    chainLensSuggestedList: $('#chainLensSuggestedList'),
+    chainLensChecklist: $('#chainLensChecklist'),
+    // Evidence context banner (INVESTIGATE_CHAIN_LENS-1)
+    evidenceContextBanner: $('#evidenceContextBanner'),
+    evidenceContextSource: $('#evidenceContextSource'),
+    evidenceContextCounts: $('#evidenceContextCounts'),
+    evidenceContextExact: $('#evidenceContextExact'),
+    evidenceContextRelated: $('#evidenceContextRelated'),
+    evidenceContextUnresolved: $('#evidenceContextUnresolved'),
+    btnEvidenceBackToInvestigate: $('#btnEvidenceBackToInvestigate'),
+    // Chains mode elements (INVESTIGATE_OBSERVED_FIRST-1)
+    investigateChainsStack: $('#investigateChainsStack'),
+    chainsStackCount: $('#chainsStackCount'),
+    chainsStackCards: $('#chainsStackCards'),
+    chainsStackEmpty: $('#chainsStackEmpty'),
+    btnChainsFilterEvidence: $('#btnChainsFilterEvidence'),
+    chainsStepEvidence: $('#chainsStepEvidence'),
+    chainsStepEvidenceTitle: $('#chainsStepEvidenceTitle'),
+    chainsStepEvidenceContent: $('#chainsStepEvidenceContent'),
+    btnChainsCloseStepEvidence: $('#btnChainsCloseStepEvidence'),
+    // Playbooks mode elements (INVESTIGATE_OBSERVED_FIRST-1)
+    playbooksSummaryBanner: $('#investigatePlaybooksSummaryBanner'),
+    playbooksTotalCount: $('#playbooksTotalCount'),
+    playbooksFiredCount: $('#playbooksFiredCount'),
+    playbooksCandidateCount: $('#playbooksCandidateCount'),
+    playbooksBlockedCount: $('#playbooksBlockedCount'),
+    playbooksNoMatchCount: $('#playbooksNoMatchCount'),
+    playbooksBlockersSummary: $('#playbooksBlockersSummary'),
+    playbooksBlockerReason: $('#playbooksBlockerReason'),
+    btnPlaybooksWhyBlocked: $('#btnPlaybooksWhyBlocked'),
+    playbooksBlockerDetail: $('#playbooksBlockerDetail'),
+    playbooksBlockerList: $('#playbooksBlockerList'),
+    playbooksSplitPane: $('#playbooksSplitPane'),
+    playbooksLeftPane: $('#playbooksLeftPane'),
+    playbooksSearchInput: $('#playbooksSearchInput'),
+    playbooksCount: $('#playbooksCount'),
+    btnPlaybooksActionableOnly: $('#btnPlaybooksActionableOnly'),
+    playbooksStatusFilter: $('#playbooksStatusFilter'),
+    playbooksGrouped: $('#playbooksGrouped'),
+    playbooksListPane: $('#playbooksGrouped'),  // Alias for INVESTIGATE_OBSERVED_FIRST-2
+    playbooksRightPane: $('#playbooksRightPane'),
+    playbooksDetailHeader: $('#playbooksDetailHeader'),
+    playbooksDetailTitle: $('#playbooksDetailTitle'),
+    playbooksNavControls: $('#playbooksNavControls'),
+    btnPlaybooksPrev: $('#btnPlaybooksPrev'),
+    playbooksPosition: $('#playbooksPosition'),
+    btnPlaybooksNext: $('#btnPlaybooksNext'),
+    playbooksDetailContent: $('#playbooksDetailContent'),
+    playbooksPlaceholder: $('#playbooksPlaceholder'),
+    playbooksActionBar: $('#playbooksActionBar'),
+    btnPlaybooksViewEvidence: $('#btnPlaybooksViewEvidence'),
+    btnPlaybooksRawJson: $('#btnPlaybooksRawJson'),
+    // Investigate Evidence Mode elements
+    investigateEvidenceFilterBanner: $('#investigateEvidenceFilterBanner'),
+    investigateEvidenceFilterStatus: $('#investigateEvidenceFilterStatus'),
+    btnClearInvestigateEvidenceFilters: $('#btnClearInvestigateEvidenceFilters'),
+    investigateEvidenceToolbar: $('#investigateEvidenceToolbar'),
+    investigateEvidenceLensSelect: $('#investigateEvidenceLensSelect'),
+    investigateEvidenceSearchInput: $('#investigateEvidenceSearchInput'),
+    investigateEvidenceSearchReset: $('#investigateEvidenceSearchReset'),
+    investigateEvidenceTotalCount: $('#investigateEvidenceTotalCount'),
+    investigateEvidenceTypeCount: $('#investigateEvidenceTypeCount'),
+    investigateEvidenceHostCount: $('#investigateEvidenceHostCount'),
+    btnInvestigateEvidenceGrouped: $('#btnInvestigateEvidenceGrouped'),
+    btnInvestigateEvidenceRaw: $('#btnInvestigateEvidenceRaw'),
+    investigateEvidenceLoading: $('#investigateEvidenceLoading'),
+    investigateEvidenceEmpty: $('#investigateEvidenceEmpty'),
+    investigateEvidenceEmptyTitle: $('#investigateEvidenceEmptyTitle'),
+    investigateEvidenceEmptyHint: $('#investigateEvidenceEmptyHint'),
+    btnInvestigateEvidenceClearSearch: $('#btnInvestigateEvidenceClearSearch'),
+    btnInvestigateEvidenceClearFilters: $('#btnInvestigateEvidenceClearFilters'),
+    investigateEvidenceTableContainer: $('#investigateEvidenceTableContainer'),
+    investigateEvidenceTableHeader: $('#investigateEvidenceTableHeader'),
+    investigateEvidenceTableBody: $('#investigateEvidenceTableBody'),
+    investigateEvidencePagination: $('#investigateEvidencePagination'),
+    investigateEvidencePaginationInfo: $('#investigateEvidencePaginationInfo'),
+    investigateEvidencePrevBtn: $('#investigateEvidencePrevBtn'),
+    investigateEvidenceNextBtn: $('#investigateEvidenceNextBtn'),
+    investigateFactDetailDrawer: $('#investigateFactDetailDrawer'),
+    investigateFactDrawerClose: $('#investigateFactDrawerClose'),
+    investigateFactDetailContent: $('#investigateFactDetailContent'),
+    btnCopyEvidenceRef: $('#btnCopyEvidenceRef'),
+    btnOpenRawEvent: $('#btnOpenRawEvent'),
+    // Investigate Evidence Drawer (NEW)
+    investigateEvidenceDrawer: $('#investigateEvidenceDrawer'),
+    evidenceDrawerStepName: $('#evidenceDrawerStepName'),
+    evidenceDrawerContent: $('#evidenceDrawerContent'),
+    evidenceDrawerLoading: $('#evidenceDrawerLoading'),
+    evidenceDrawerFacts: $('#evidenceDrawerFacts'),
+    evidenceDrawerEmpty: $('#evidenceDrawerEmpty'),
+    evidenceDrawerEmptyReason: $('#evidenceDrawerEmptyReason'),
+    evidenceDrawerEmptyHint: $('#evidenceDrawerEmptyHint'),
+    btnCloseEvidenceDrawer: $('#btnCloseEvidenceDrawer'),
+    btnOpenInEvidenceTab: $('#btnOpenInEvidenceTab'),
+    btnCloseEvidenceDrawerFooter: $('#btnCloseEvidenceDrawerFooter'),
+    // Evidence tab empty state actions
+    evidenceEmptyTitle: $('#evidenceEmptyTitle'),
+    evidenceEmptyHint: $('#evidenceEmptyHint'),
+    evidenceEmptyActions: $('#evidenceEmptyActions'),
+    btnEvidenceEmptyClearSearch: $('#btnEvidenceEmptyClearSearch'),
+    btnEvidenceEmptyClearFilters: $('#btnEvidenceEmptyClearFilters'),
+    // Evidence tab fact detail actions
+    btnEvidenceCopyRef: $('#btnEvidenceCopyRef'),
+    btnEvidenceOpenRaw: $('#btnEvidenceOpenRaw'),
+    // Investigate Chain Stack (INVESTIGATE_CHAINS-1)
+    investigateChainStack: $('#investigateChainStack'),
+    chainStackCount: $('#chainStackCount'),
+    chainStackCards: $('#chainStackCards'),
+    chainStackEmpty: $('#chainStackEmpty'),
+    btnFilterByChain: $('#btnFilterByChain'),
+    btnExpandChainStack: $('#btnExpandChainStack'),
     
     // Timeline tab
     timelineEmpty: $('#timelineEmpty'),
@@ -1444,9 +2518,15 @@
     timelineMissingEndpoint: $('#timelineMissingEndpoint'),
     timelineList: $('#timelineList'),
     
-    // Facts tab
+    // Evidence tab (formerly Facts)
     runTabFacts: $('#runTabFacts'),
+    evidenceFilterHint: $('#evidenceFilterHint'),
+    evidenceFilterValue: $('#evidenceFilterValue'),
     factsLoading: $('#factsLoading'),
+    factsCompiling: $('#factsCompiling'),
+    factsCompilingBanner: $('#factsCompilingBanner'),
+    factsPartialNote: $('#factsPartialNote'),
+    factsPartialReason: $('#factsPartialReason'),
     factsEmpty: $('#factsEmpty'),
     factsNoTelemetry: $('#factsNoTelemetry'),
     factsNoTelemetryReasons: $('#factsNoTelemetryReasons'),
@@ -1461,6 +2541,10 @@
     factsHostsList: $('#factsHostsList'),
     factsSensorsSection: $('#factsSensorsSection'),
     factsSensorsList: $('#factsSensorsList'),
+    // Evidence tab: Start here chips and sample count
+    evidenceStartHere: $('#evidenceStartHere'),
+    evidenceTypeChips: $('#evidenceTypeChips'),
+    evidenceSampleCount: $('#evidenceSampleCount'),
     playbookSummarySection: $('#playbookSummarySection'),
     playbookSummaryContent: $('#playbookSummaryContent'),
     playbookLoadedCount: $('#playbookLoadedCount'),
@@ -1470,12 +2554,60 @@
     whyNoSignalsPanel: $('#whyNoSignalsPanel'),
     whyNoSignalsContent: $('#whyNoSignalsContent'),
     pipelineDiagnostics: $('#pipelineDiagnostics'),
+    // NEW Evidence tab elements (Grouped/Raw toggle) - EVIDENCE_GRANULARITY-1 upgrades
+    evidenceFilterBanner: $('#evidenceFilterBanner'),
+    evidenceFilterStatus: $('#evidenceFilterStatus'),
+    btnClearEvidenceFilters: $('#btnClearEvidenceFilters'),
+    evidenceChainStepBanner: $('#evidenceChainStepBanner'),
+    evidenceChainStepName: $('#evidenceChainStepName'),
+    chkEvidenceShowRelated: $('#chkEvidenceShowRelated'),
+    btnClearChainStepFilter: $('#btnClearChainStepFilter'),
+    evidenceToolbar: $('#evidenceToolbar'),
+    evidenceChainSelect: $('#evidenceChainSelect'),
+    evidencePlaybookSelect: $('#evidencePlaybookSelect'),
+    evidenceLensSelect: $('#evidenceLensSelect'),
+    evidenceSearchInput: $('#evidenceSearchInput'),
+    evidenceSearchReset: $('#evidenceSearchReset'),
+    btnEvidenceSummary: $('#btnEvidenceSummary'),
+    btnEvidenceGrouped: $('#btnEvidenceGrouped'),
+    btnEvidenceRaw: $('#btnEvidenceRaw'),
+    evidenceSummary: $('#evidenceSummary'),
+    evidenceTotalCount: $('#evidenceTotalCount'),
+    evidenceTypeCount: $('#evidenceTypeCount'),
+    evidenceHostCount: $('#evidenceHostCount'),
+    evidenceLoading: $('#evidenceLoading'),
+    evidenceSummaryContainer: $('#evidenceSummaryContainer'),
+    evidenceTopEntities: $('#evidenceTopEntities'),
+    evidenceTopProcesses: $('#evidenceTopProcesses'),
+    evidenceTopScripts: $('#evidenceTopScripts'),
+    evidenceTopDestinations: $('#evidenceTopDestinations'),
+    evidenceTopRegistry: $('#evidenceTopRegistry'),
+    evidenceTopFiles: $('#evidenceTopFiles'),
+    evidenceTimelineChart: $('#evidenceTimelineChart'),
+    evidenceTimelineRange: $('#evidenceTimelineRange'),
+    evidenceTimelineBuckets: $('#evidenceTimelineBuckets'),
+    evidenceQuickStats: $('#evidenceQuickStats'),
+    evidenceEmpty: $('#evidenceEmpty'),
+    evidenceTableContainer: $('#evidenceTableContainer'),
+    evidenceTableHeader: $('#evidenceTableHeader'),
+    evidenceTableBody: $('#evidenceTableBody'),
+    evidencePagination: $('#evidencePagination'),
+    evidencePaginationInfo: $('#evidencePaginationInfo'),
+    evidencePrevBtn: $('#evidencePrevBtn'),
+    evidenceNextBtn: $('#evidenceNextBtn'),
+    evidenceDetailDrawer: $('#evidenceDetailDrawer'),
+    evidenceDrawerClose: $('#evidenceDrawerClose'),
+    evidenceDetailContent: $('#evidenceDetailContent'),
+    evidenceUnavailable: $('#evidenceUnavailable'),
     
     // Explain tab
     explainSelectPrompt: $('#explainSelectPrompt'),
     explainContent: $('#explainContent'),
     explainUnavailable: $('#explainUnavailable'),
     explainMissingEndpoint: $('#explainMissingEndpoint'),
+    // Part A: Subtle partial note for interrupted runs
+    explainPartialNote: $('#explainPartialNote'),
+    explainPartialReason: $('#explainPartialReason'),
     // Explain Header (canonical summary)
     explainUnavailableBanner: $('#explainUnavailableBanner'),
     explainUnavailableReason: $('#explainUnavailableReason'),
@@ -1541,6 +2673,7 @@
     // Settings
     settingsReadinessStatus: $('#settingsReadinessStatus'),
     settingsLicenseStatus: $('#settingsLicenseStatus'),
+    settingsDiagStatus: $('#settingsDiagStatus'),
     btnRunChecks: $('#btnRunChecks'),
     readinessSummary: $('#readinessSummary'),
     connectionDetails: $('#connectionDetails'),
@@ -1628,7 +2761,29 @@
     teamPublishRunModal: $('#teamPublishRunModal'),
     teamPublishRunSelect: $('#teamPublishRunSelect'),
     btnCancelPublishRun: $('#btnCancelPublishRun'),
-    btnConfirmPublishRun: $('#btnConfirmPublishRun')
+    btnConfirmPublishRun: $('#btnConfirmPublishRun'),
+    // Rerun Analysis modal
+    rerunAnalysisModal: $('#rerunAnalysisModal'),
+    rerunPresetName: $('#rerunPresetName'),
+    rerunPresetReason: $('#rerunPresetReason'),
+    rerunApiStart: $('#rerunApiStart'),
+    rerunApiStop: $('#rerunApiStop'),
+    btnCopyRerunApi: $('#btnCopyRerunApi'),
+    btnCancelRerun: $('#btnCancelRerun'),
+    btnGoToMissionRerun: $('#btnGoToMission'),
+    // Coverage Delta chips
+    coverageDeltaRow: $('#coverageDeltaRow'),
+    chipProcess: $('#chipProcess'),
+    chipPowerShell: $('#chipPowerShell'),
+    chipNetwork: $('#chipNetwork'),
+    chipFile: $('#chipFile'),
+    chipRegistry: $('#chipRegistry'),
+    // Findings expand/collapse
+    btnExpandAllFindings: $('#btnExpandAllFindings'),
+    btnCollapseAllFindings: $('#btnCollapseAllFindings'),
+    // Explain "Why This Fired"
+    explainWhyFiredSection: $('#explainWhyFiredSection'),
+    explainWhyFired: $('#explainWhyFired')
   };
 
   // ============ UTILITIES ============
@@ -2131,6 +3286,71 @@ cargo build --release -p edr-locald --bin edr-locald`;
     }
   }
 
+  // ============ DEBUG_UI: Backend Response Shape Dump ============
+  // When DEBUG_UI=1 (?debug_ui=1), logs exact keys from backend for verification
+  async function debugDumpBackendResponses(runId) {
+    if (!DEBUG_UI) return;
+    console.log('=== DEBUG_UI: Backend Response Shape Dump ===');
+    console.log(`Run ID: ${runId}`);
+    
+    // 1. GET /api/runs (first item keys)
+    try {
+      const runsResp = await fetch(`${API_BASE}/api/runs`);
+      const runsData = await runsResp.json();
+      const runs = runsData.data?.runs || runsData.runs || runsData || [];
+      const firstRun = runs[0];
+      console.log('[DEBUG_UI] GET /api/runs - first item keys:', firstRun ? Object.keys(firstRun) : 'no runs');
+      if (firstRun?.playbook_scope) {
+        console.log('[DEBUG_UI]   playbook_scope keys:', Object.keys(firstRun.playbook_scope));
+      }
+    } catch (e) {
+      console.error('[DEBUG_UI] GET /api/runs failed:', e.message);
+    }
+    
+    // 2. GET /api/runs/:id (keys, especially playbook_scope)
+    try {
+      const runResp = await fetch(`${API_BASE}/api/runs/${runId}`);
+      const runData = await runResp.json();
+      const run = runData.data || runData;
+      console.log('[DEBUG_UI] GET /api/runs/:id keys:', Object.keys(run));
+      if (run.playbook_scope) {
+        console.log('[DEBUG_UI]   playbook_scope:', JSON.stringify(run.playbook_scope, null, 2));
+      } else {
+        console.log('[DEBUG_UI]   playbook_scope: NOT PRESENT (legacy run?)');
+      }
+    } catch (e) {
+      console.error('[DEBUG_UI] GET /api/runs/:id failed:', e.message);
+    }
+    
+    // 3. GET /api/runs/:id/playbooks/eval (keys: scope + results array)
+    try {
+      const evalResp = await fetch(`${API_BASE}/api/runs/${runId}/playbooks/eval`);
+      const evalData = await evalResp.json();
+      const evalResult = evalData.data || evalData;
+      console.log('[DEBUG_UI] GET /api/runs/:id/playbooks/eval keys:', Object.keys(evalResult));
+      if (evalResult.playbook_scope) {
+        console.log('[DEBUG_UI]   playbook_scope.mode:', evalResult.playbook_scope.mode);
+        console.log('[DEBUG_UI]   playbook_scope.effective_playbook_ids:', evalResult.playbook_scope.effective_playbook_ids);
+        console.log('[DEBUG_UI]   playbook_scope.rationale:', evalResult.playbook_scope.rationale);
+      }
+      if (evalResult.evaluations) {
+        console.log('[DEBUG_UI]   evaluations count:', evalResult.evaluations.length);
+        const firstEval = evalResult.evaluations[0];
+        if (firstEval) {
+          console.log('[DEBUG_UI]   first evaluation keys:', Object.keys(firstEval));
+          console.log('[DEBUG_UI]   first evaluation:', JSON.stringify(firstEval, null, 2));
+        }
+      }
+      if (evalResult.visibility) {
+        console.log('[DEBUG_UI]   visibility:', evalResult.visibility);
+      }
+    } catch (e) {
+      console.error('[DEBUG_UI] GET /api/runs/:id/playbooks/eval failed:', e.message);
+    }
+    
+    console.log('=== END DEBUG_UI Dump ===');
+  }
+
   // ============ BACKEND API CALLS ============
 
   /**
@@ -2188,6 +3408,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
       updateInstanceInfo(isAdmin);
       
       updateReadinessUI();
+      
+      // Rerender Mission derived panels (readiness affects blocked/unverified counts)
+      rerenderMissionDerivedPanels('selfcheck-complete');
       
       // Hide connection details when reachable
       if (els.connectionDetailsToggle) els.connectionDetailsToggle.classList.add('hidden');
@@ -2255,21 +3478,199 @@ cargo build --release -p edr-locald --bin edr-locald`;
   // ============ DETECTION PLAN ============
   // Stores the loaded playbook catalog for filtering
   let detectionPlanCatalog = null;
+  
+  // Track if Mission catalog auto-load has been attempted
+  let missionCatalogInitialized = false;
+
+  /**
+   * Initialize Mission catalog - auto-loads on first Mission tab visit
+   * This is the single entry point for Mission page catalog initialization
+   */
+  async function initMissionCatalog() {
+    // Only run once per session
+    if (missionCatalogInitialized) return;
+    missionCatalogInitialized = true;
+    
+    console.log('[initMissionCatalog] Auto-loading catalog for Mission tab...');
+    
+    // Load in sequence: presets first, then catalog
+    // Don't block on readiness - catalog can load independently
+    try {
+      // Load presets (needed for dropdown)
+      if (!state.playbookSelection.presets || state.playbookSelection.presets.length === 0) {
+        await loadPlaybookPresets();
+      }
+      
+      // Load catalog (SSoT for playbook data)
+      if (state.catalog.status !== 'ready' && state.catalog.status !== 'loading') {
+        await loadDetectionPlan();
+      }
+    } catch (err) {
+      console.error('[initMissionCatalog] Error during auto-load:', err);
+      // Errors are handled inside individual functions
+    }
+  }
+
+  /**
+   * Ensure catalog is loaded - returns a promise that resolves when catalog is ready
+   * This is the single entry point for all catalog-dependent operations
+   * @returns {Promise<boolean>} true if catalog loaded successfully, false otherwise
+   */
+  async function ensureCatalogLoaded() {
+    // Already ready
+    if (state.catalog.status === 'ready' && state.catalog.playbooks.length > 0) {
+      return true;
+    }
+    
+    // Currently loading - wait for it
+    if (state.catalog.status === 'loading') {
+      showToast('Waiting for catalog to load…', 'info');
+      // Wait up to 10 seconds for loading to complete
+      for (let i = 0; i < 100; i++) {
+        await new Promise(r => setTimeout(r, 100));
+        if (state.catalog.status !== 'loading') break;
+      }
+      return state.catalog.status === 'ready';
+    }
+    
+    // Not loaded or error - trigger load
+    showToast('Loading playbook catalog…', 'info');
+    await loadDetectionPlan();
+    return state.catalog.status === 'ready';
+  }
+
+  /**
+   * Compute playbook statistics from catalog and selection
+   * @returns {Object} { totalCount, selectedCount, runnableCount, blockedCount }
+   */
+  function computePlaybookStats() {
+    const playbooks = getEnrichedPlaybooks();
+    const ps = state.playbookSelection;
+    
+    const totalCount = playbooks.length;
+    const runnableInCatalog = playbooks.filter(p => !p.telemetry_blocked && p.enabled !== false).length;
+    const blockedInCatalog = playbooks.filter(p => p.telemetry_blocked).length;
+    
+    // Get selected IDs based on mode
+    let selectedIds = new Set();
+    if (ps.mode === 'custom') {
+      selectedIds = new Set(ps.selectedPlaybooks);
+    } else if (ps.presets) {
+      const preset = ps.presets.find(p => p.preset_id === ps.preset);
+      if (preset && preset.playbook_ids) {
+        selectedIds = new Set(preset.playbook_ids);
+      } else {
+        // Fallback: all enabled playbooks
+        selectedIds = new Set(playbooks.filter(p => p.enabled !== false).map(p => p.playbook_id));
+      }
+    }
+    
+    // Calculate stats for selected playbooks
+    let selectedCount = 0;
+    let runnableCount = 0;
+    let blockedCount = 0;
+    
+    for (const p of playbooks) {
+      if (selectedIds.has(p.playbook_id)) {
+        selectedCount++;
+        if (p.telemetry_blocked) {
+          blockedCount++;
+        } else if (p.enabled !== false) {
+          runnableCount++;
+        }
+      }
+    }
+    
+    return {
+      totalCount,
+      selectedCount,
+      runnableCount,
+      blockedCount,
+      runnableInCatalog,
+      blockedInCatalog
+    };
+  }
+
+  /**
+   * Get enriched playbooks - combines catalog with readiness data
+   * This is the Single Source of Truth for playbook data in UI
+   */
+  function getEnrichedPlaybooks() {
+    const catalog = state.catalog.playbooks || [];
+    const readiness = state.readiness;
+    
+    // If no readiness data, just return catalog with defaults
+    if (!readiness || !readiness.playbooks) {
+      return catalog.map(p => ({
+        ...p,
+        enabled: p.enabled !== false,
+        telemetry_blocked: p.telemetry_blocked || false,
+        blocked_reason: p.blocked_reason || null,
+        // Mark as unknown if no readiness
+        readiness_status: 'unknown'
+      }));
+    }
+    
+    // Merge catalog with readiness data
+    const readinessById = {};
+    for (const rp of readiness.playbooks) {
+      readinessById[rp.playbook_id] = rp;
+    }
+    
+    return catalog.map(p => {
+      const rp = readinessById[p.playbook_id];
+      if (rp) {
+        return {
+          ...p,
+          enabled: rp.enabled !== false,
+          telemetry_blocked: rp.telemetry_blocked || false,
+          blocked_reason: rp.blocked_reason || p.blocked_reason || null,
+          readiness_status: rp.telemetry_blocked ? 'blocked' : (rp.enabled ? 'runnable' : 'disabled')
+        };
+      }
+      return {
+        ...p,
+        enabled: p.enabled !== false,
+        telemetry_blocked: p.telemetry_blocked || false,
+        blocked_reason: p.blocked_reason || null,
+        readiness_status: 'unknown'
+      };
+    });
+  }
 
   /**
    * Load Detection Plan - GET /api/playbooks/catalog
    * Fetches the playbook catalog and shows which detections are enabled vs blocked
    */
   async function loadDetectionPlan() {
-    if (!els.btnLoadDetectionPlan) return;
+    // Set catalog status to loading
+    state.catalog.status = 'loading';
+    state.catalog.error = null;
+    updateCatalogStatusUI();
     
-    els.btnLoadDetectionPlan.disabled = true;
-    els.btnLoadDetectionPlan.textContent = '⏳ Loading...';
+    // Can be called from Settings (btnLoadDetectionPlan) or Mission (btnMissionLoadPlan) or on init
+    if (els.btnLoadDetectionPlan) {
+      els.btnLoadDetectionPlan.disabled = true;
+      els.btnLoadDetectionPlan.textContent = '⏳ Loading...';
+    }
     if (els.btnMissionLoadPlan) els.btnMissionLoadPlan.textContent = '⏳ Loading...';
     
     try {
       const data = await api('/api/playbooks/catalog');
-      detectionPlanCatalog = data.playbooks || [];
+      detectionPlanCatalog = data.playbooks || data.data?.playbooks || [];
+      
+      // Store catalog in state (Single Source of Truth)
+      state.catalog.playbooks = detectionPlanCatalog;
+      state.catalog.playbooksById = {};
+      for (const p of detectionPlanCatalog) {
+        state.catalog.playbooksById[p.playbook_id] = p;
+      }
+      state.catalog.status = 'ready';
+      state.catalog.error = null;
+      updateCatalogStatusUI();
+      
+      // Store catalog metadata for diagnostic display
+      state.playbookCatalogMeta = data.data || data;
       
       // Update summary stats - use counts from backend (enabled vs blocked vs runnable)
       const total = data.loaded_count ?? detectionPlanCatalog.length;
@@ -2353,7 +3754,15 @@ cargo build --release -p edr-locald --bin edr-locald`;
         els.missionPlanSearch.oninput = (e) => renderDetectionPlanList(e.target.value);
       }
       
+      // Rerender Mission derived panels now that catalog is ready
+      rerenderMissionDerivedPanels('catalog-ready');
+      
     } catch (err) {
+      // Set catalog error state
+      state.catalog.status = 'error';
+      state.catalog.error = err.message || 'Failed to load catalog';
+      updateCatalogStatusUI();
+      
       if (els.detectionPlanStatus) {
         els.detectionPlanStatus.innerHTML = getStatusBadge('blocked', 'Error', err.message);
         els.detectionPlanStatus.className = '';
@@ -2372,6 +3781,71 @@ cargo build --release -p edr-locald --bin edr-locald`;
         els.btnMissionLoadPlan.textContent = 'View';
       }
     }
+  }
+  
+  /**
+   * Update catalog status UI indicator
+   * Shows clear status for: Loading, Failed, Empty, All Blocked, Ready
+   */
+  function updateCatalogStatusUI() {
+    const statusEl = document.getElementById('catalogStatusIndicator');
+    if (!statusEl) return;
+    
+    const { status, error, playbooks } = state.catalog;
+    const catalogMeta = state.playbookCatalogMeta || {};
+    const expectedPath = catalogMeta.searched_paths?.[0] || catalogMeta.playbooks_dir || 'playbooks/windows/';
+    
+    if (status === 'loading') {
+      statusEl.innerHTML = `<span style="color: var(--muted);">⏳ Loading playbook catalog...</span>`;
+      statusEl.classList.remove('hidden');
+    } else if (status === 'error') {
+      statusEl.innerHTML = `
+        <span style="color: var(--warn);">⚠️ Catalog unavailable</span>
+        <button onclick="loadDetectionPlan()" style="margin-left: 8px; padding: 2px 8px; font-size: 10px; border-radius: 3px; border: 1px solid var(--warn); background: transparent; color: var(--warn); cursor: pointer;">Retry</button>
+        <button onclick="window.goToMissionDiagnostics()" style="margin-left: 4px; padding: 2px 8px; font-size: 10px; border-radius: 3px; border: 1px solid var(--muted); background: transparent; color: var(--muted); cursor: pointer;">Diagnostics</button>
+      `;
+      statusEl.classList.remove('hidden');
+    } else if (status === 'ready') {
+      if (playbooks.length === 0) {
+        // Empty catalog
+        statusEl.innerHTML = `
+          <span style="color: var(--warn);">📁 No playbooks found</span>
+          <span style="color: var(--muted); font-size: 10px; margin-left: 6px;">Check: ${escapeHtml(expectedPath)}</span>
+          <button onclick="loadDetectionPlan()" style="margin-left: 8px; padding: 2px 8px; font-size: 10px; border-radius: 3px; border: 1px solid var(--warn); background: transparent; color: var(--warn); cursor: pointer;">Retry</button>
+        `;
+        statusEl.classList.remove('hidden');
+      } else {
+        // Check if all blocked
+        const blockedCount = playbooks.filter(p => p.telemetry_blocked).length;
+        if (blockedCount === playbooks.length && blockedCount > 0) {
+          statusEl.innerHTML = `
+            <span style="color: var(--warn);">⚠️ All ${blockedCount} playbooks blocked by missing telemetry</span>
+            <button onclick="toggleCoverageRequirementsPanel()" style="margin-left: 8px; padding: 2px 8px; font-size: 10px; border-radius: 3px; border: 1px solid var(--warn); background: transparent; color: var(--warn); cursor: pointer;">Fix Coverage</button>
+          `;
+          statusEl.classList.remove('hidden');
+        } else {
+          // Normal ready state
+          const runnableCount = playbooks.filter(p => !p.telemetry_blocked && p.enabled !== false).length;
+          statusEl.innerHTML = `<span style="color: var(--good);">✓ ${runnableCount}/${playbooks.length} playbooks runnable</span>`;
+          // Hide after 3 seconds
+          setTimeout(() => {
+            if (state.catalog.status === 'ready' && playbooks.length > 0) {
+              statusEl.classList.add('hidden');
+            }
+          }, 3000);
+        }
+      }
+    } else {
+      statusEl.classList.add('hidden');
+    }
+    
+    // Also update inline playbook list if visible
+    if (state.playbookSelection.listVisible) {
+      renderInlinePlaybookList();
+    }
+    
+    // Update run plan summary to reflect catalog status
+    updateRunPlanSummary();
   }
 
   /**
@@ -2407,9 +3881,40 @@ cargo build --release -p edr-locald --bin edr-locald`;
     });
     
     // Generate HTML for the list
+    // Check if catalog has searched_paths info (meaning folder not found)
+    const catalogMeta = state.playbookCatalogMeta || {};
+    const playbooksNotFound = catalogMeta.available === false;
+    const searchedPaths = catalogMeta.searched_paths || [];
+    const expectedPath = searchedPaths[0] || 'playbooks/windows/';
+    
+    const diagnosticCard = `
+      <div style="padding: 16px; background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warn); border-radius: var(--radius-sm);">
+        <div style="font-size: 14px; font-weight: 600; color: var(--warn); margin-bottom: 8px;">📁 No playbooks found</div>
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">
+          This usually means the playbooks folder is missing in this VM or the server can't see it.
+        </div>
+        <div style="font-size: 11px; color: var(--muted); margin-bottom: 12px;">
+          <strong>Expected path:</strong> <code style="background: var(--panel2); padding: 2px 6px; border-radius: 3px;">${escapeHtml(expectedPath)}</code>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button onclick="loadDetectionPlan()" class="btn-secondary" style="padding: 6px 12px; font-size: 11px;">🔄 Reload</button>
+          <button onclick="copyPlaybooksPath()" class="btn-secondary" style="padding: 6px 12px; font-size: 11px;">📋 Copy Path</button>
+          <button onclick="showLocintLogPath()" class="btn-secondary" style="padding: 6px 12px; font-size: 11px;">📄 View Log</button>
+        </div>
+        ${searchedPaths.length > 1 ? `
+        <details style="margin-top: 12px;">
+          <summary style="font-size: 10px; color: var(--muted); cursor: pointer;">Searched ${searchedPaths.length} locations...</summary>
+          <div style="font-size: 10px; color: var(--muted); margin-top: 4px; font-family: monospace;">
+            ${searchedPaths.map(p => escapeHtml(p)).join('<br>')}
+          </div>
+        </details>
+        ` : ''}
+      </div>
+    `;
+    
     const emptyHtml = filter 
       ? `<div style="color: var(--muted); text-align: center; padding: 16px;">No playbooks match "${escapeHtml(filter)}"</div>`
-      : `<div style="color: var(--muted); text-align: center; padding: 12px;">No playbooks available</div>`;
+      : (playbooksNotFound ? diagnosticCard : `<div style="color: var(--muted); text-align: center; padding: 12px;">No playbooks available</div>`);
     
     const html = filtered.length === 0 ? emptyHtml : filtered.map(p => {
       // Use the playbook status badge helper - map telemetry_blocked to derived_status
@@ -2638,14 +4143,7 @@ cargo build --release -p edr-locald --bin edr-locald`;
           els.playbookPresetSelect.appendChild(opt);
         }
         
-        // Add Custom option
-        const customOpt = document.createElement('option');
-        customOpt.value = 'custom';
-        customOpt.textContent = '⚙️ Custom Selection...';
-        if (state.playbookSelection.mode === 'custom') {
-          customOpt.selected = true;
-        }
-        els.playbookPresetSelect.appendChild(customOpt);
+        // Note: Custom mode is triggered via 'Choose Playbooks' button, not dropdown
       }
       
       // Update counts from default preset
@@ -2658,7 +4156,6 @@ cargo build --release -p edr-locald --bin edr-locald`;
         els.playbookPresetSelect.innerHTML = `
           <option value="general" selected>🌐 General (System Changes)</option>
           <option value="extended">🔮 Extended (All)</option>
-          <option value="custom">⚙️ Custom Selection...</option>
         `;
       }
     } finally {
@@ -2668,25 +4165,34 @@ cargo build --release -p edr-locald --bin edr-locald`;
   
   /**
    * Handle preset dropdown change
+   * Note: Custom mode is triggered via 'Choose Playbooks' button, not dropdown
    */
   function handlePlaybookPresetChange(event) {
     const value = event.target.value;
     console.log('[handlePlaybookPresetChange] Selected:', value);
     
-    if (value === 'custom') {
-      state.playbookSelection.mode = 'custom';
-      // Show custom selection UI (modal or expand inline)
-      openPlaybookCustomSelectModal();
-    } else {
-      state.playbookSelection.mode = 'preset';
-      state.playbookSelection.preset = value;
-      state.playbookSelection.selectedPlaybooks = []; // Clear custom selection
-      
-      // Save as default
-      savePlaybookSelectionDefault();
+    // All dropdown values are presets now (Custom is via modal only)
+    state.playbookSelection.mode = 'preset';
+    state.playbookSelection.preset = value;
+    state.playbookSelection.selectedPlaybooks = []; // Clear custom selection
+    
+    // ── EXPLICIT BASELINE: Set baseline from preset (user-initiated action) ──
+    setBaselineFromPreset(value);
+    
+    // Clear any chain-related state (no longer in chain mode)
+    state.outcome.chainSteps = [];
+    state.outcome.useChainSteps = false;
+    
+    // Hide custom selection label since we're back to preset
+    if (els.customSelectionLabel) {
+      els.customSelectionLabel.classList.add('hidden');
     }
     
-    updatePlaybookSelectionSummary();
+    // Save as default
+    savePlaybookSelectionDefault();
+    
+    // Rerender all derived panels including Outcome Preview
+    rerenderMissionDerivedPanels('preset-change:' + value);
   }
   
   /**
@@ -2694,6 +4200,13 @@ cargo build --release -p edr-locald --bin edr-locald`;
    */
   function updatePlaybookSelectionSummary() {
     const ps = state.playbookSelection;
+    
+    // Use enriched playbooks (catalog + readiness) as source of truth
+    const playbooks = getEnrichedPlaybooks();
+    const playbooksById = {};
+    for (const p of playbooks) {
+      playbooksById[p.playbook_id] = p;
+    }
     
     // Find current preset info
     let selectedCount = 0;
@@ -2705,15 +4218,14 @@ cargo build --release -p edr-locald --bin edr-locald`;
       if (preset) {
         selectedCount = preset.count || 0;
         
-        // Calculate runnable/blocked from readiness data + preset's playbook_ids
-        const readiness = state.readiness;
-        if (readiness && readiness.playbooks && preset.playbook_ids) {
+        // Calculate runnable/blocked from enriched playbooks + preset's playbook_ids
+        if (playbooks.length > 0 && preset.playbook_ids) {
           for (const pid of preset.playbook_ids) {
-            const pb = readiness.playbooks.find(p => p.playbook_id === pid);
+            const pb = playbooksById[pid];
             if (pb) {
               if (pb.telemetry_blocked) {
                 blockedCount++;
-              } else if (pb.enabled) {
+              } else if (pb.enabled !== false) {
                 runnableCount++;
               }
             }
@@ -2726,21 +4238,20 @@ cargo build --release -p edr-locald --bin edr-locald`;
       }
     } else if (ps.mode === 'custom') {
       selectedCount = ps.selectedPlaybooks.length;
-      // Calculate runnable/blocked from readiness data
-      const readiness = state.readiness;
-      if (readiness && readiness.playbooks) {
+      // Calculate runnable/blocked from enriched playbooks
+      if (playbooks.length > 0) {
         for (const pid of ps.selectedPlaybooks) {
-          const pb = readiness.playbooks.find(p => p.playbook_id === pid);
+          const pb = playbooksById[pid];
           if (pb) {
             if (pb.telemetry_blocked) {
               blockedCount++;
-            } else if (pb.enabled) {
+            } else if (pb.enabled !== false) {
               runnableCount++;
             }
           }
         }
       } else {
-        // Fallback: assume all selected are runnable
+        // Fallback: assume all selected are runnable (catalog not loaded yet)
         runnableCount = selectedCount;
       }
     }
@@ -2760,13 +4271,17 @@ cargo build --release -p edr-locald --bin edr-locald`;
     }
     if (els.playbookBlockedCount) {
       els.playbookBlockedCount.textContent = blockedCount;
-      els.playbookBlockedCount.style.color = blockedCount > 0 ? 'var(--error)' : 'var(--muted)';
+      els.playbookBlockedCount.style.color = blockedCount > 0 ? 'var(--warn)' : 'var(--muted)';
     }
     
-    // Show/hide selection summary row
+    // Show/hide blocked reasons button
+    if (els.btnShowBlockedReasons) {
+      els.btnShowBlockedReasons.classList.toggle('hidden', blockedCount === 0);
+    }
+    
+    // Show/hide selection summary row - always show it now
     if (els.playbookSelectionSummary) {
-      const showSummary = ps.presets && ps.presets.length > 0;
-      els.playbookSelectionSummary.style.display = showSummary ? 'block' : 'none';
+      els.playbookSelectionSummary.style.display = 'block';
     }
     
     // Show upgrade hint for General preset
@@ -2795,7 +4310,129 @@ cargo build --release -p edr-locald --bin edr-locald`;
       }
     }
     
-    console.log('[updatePlaybookSelectionSummary]', { selectedCount, runnableCount, blockedCount });
+    // Update Run Plan summary
+    updateRunPlanSummary();
+    
+    // ── Selection state UI updates (using EXPLICIT baseline anchor) ──────
+    // This uses state.baseline which is only set by user actions, never inferred
+    const diff = computeDiffFromBaseline();
+    const baseline = state.baseline;
+    
+    // Elements
+    const presetDropdownRow = document.getElementById('presetDropdownRow');
+    const chainProvenanceLabel = document.getElementById('chainProvenanceLabel');
+    const customBasedOnLabel = document.getElementById('customBasedOnLabel');
+    const selectionModeBadge = document.getElementById('selectionModeBadge');
+    const btnModePreset = document.getElementById('btnModePreset');
+    const btnModeMicroChain = document.getElementById('btnModeMicroChain');
+    const btnResetToChain = document.getElementById('btnResetToChain');
+    const checklistCalloutText = document.getElementById('checklistCalloutText');
+    
+    // Reset all highlight states
+    if (btnModePreset) btnModePreset.classList.remove('highlight');
+    if (btnModeMicroChain) btnModeMicroChain.classList.remove('highlight');
+    
+    // Hide all state labels by default
+    if (chainProvenanceLabel) chainProvenanceLabel.classList.add('hidden');
+    if (customBasedOnLabel) customBasedOnLabel.classList.add('hidden');
+    if (selectionModeBadge) selectionModeBadge.classList.add('hidden');
+    
+    if (diff.hasBaseline && baseline.type === 'stack' && baseline.chains.length > 0) {
+      // STACKED CHAINS selection (explicit baseline)
+      // Chains are first-class: show chain label even when modified
+      if (chainProvenanceLabel) {
+        chainProvenanceLabel.classList.remove('hidden');
+        const chainTitleEl = document.getElementById('chainProvenanceTitle');
+        if (chainTitleEl) {
+          if (baseline.chains.length === 1) {
+            chainTitleEl.textContent = baseline.chains[0].title;
+          } else {
+            chainTitleEl.textContent = `${baseline.chains.length} chains`;
+          }
+        }
+      }
+      if (btnModeMicroChain) btnModeMicroChain.classList.add('highlight');
+      if (presetDropdownRow) presetDropdownRow.style.display = 'none';
+      
+      if (diff.isExact) {
+        // Exact chain match
+        if (btnResetToChain) btnResetToChain.classList.add('hidden');
+        if (checklistCalloutText) {
+          if (baseline.chains.length === 1) {
+            checklistCalloutText.textContent = `Chain: ${baseline.chains[0].title}`;
+          } else {
+            checklistCalloutText.textContent = `${baseline.chains.length} Chains Stacked`;
+          }
+        }
+      } else {
+        // Modified chain stack - show "modified" badge but keep chain label
+        if (selectionModeBadge) {
+          const parts = [];
+          if (diff.addedCount > 0) parts.push(`+${diff.addedCount}`);
+          if (diff.removedCount > 0) parts.push(`−${diff.removedCount}`);
+          selectionModeBadge.textContent = `Modified ${parts.length > 0 ? `(${parts.join(', ')})` : ''}`;
+          selectionModeBadge.classList.remove('hidden');
+        }
+        if (btnResetToChain) btnResetToChain.classList.remove('hidden');
+        if (checklistCalloutText) {
+          if (baseline.chains.length === 1) {
+            checklistCalloutText.textContent = `Chain: ${baseline.chains[0].title} (modified)`;
+          } else {
+            checklistCalloutText.textContent = `${baseline.chains.length} Chains (modified)`;
+          }
+        }
+      }
+    } else if (diff.hasBaseline && baseline.type === 'preset') {
+      // PRESET-BASED selection (explicit baseline)
+      if (diff.isExact || ps.mode === 'preset') {
+        // Exact preset match - show dropdown, highlight preset button
+        if (btnModePreset) btnModePreset.classList.add('highlight');
+        if (presetDropdownRow) presetDropdownRow.style.display = '';
+        if (checklistCalloutText) checklistCalloutText.textContent = 'Attack chain checklist';
+      } else {
+        // Modified preset - show "Custom (based on X)" label
+        if (customBasedOnLabel) {
+          customBasedOnLabel.classList.remove('hidden');
+          const titleEl = document.getElementById('customBasedOnTitle');
+          if (titleEl) titleEl.textContent = `${baseline.presetTitle} preset`;
+          const diffBadge = document.getElementById('customDiffBadge');
+          if (diffBadge) {
+            const parts = [];
+            if (diff.addedCount > 0) parts.push(`+${diff.addedCount}`);
+            if (diff.removedCount > 0) parts.push(`−${diff.removedCount}`);
+            diffBadge.textContent = parts.length > 0 ? `(${parts.join(', ')})` : '';
+          }
+        }
+        if (selectionModeBadge) {
+          selectionModeBadge.textContent = 'Custom';
+          selectionModeBadge.classList.remove('hidden');
+        }
+        if (presetDropdownRow) presetDropdownRow.style.display = 'none';
+        if (checklistCalloutText) checklistCalloutText.textContent = `Custom (based on ${baseline.presetTitle})`;
+      }
+    } else {
+      // NO EXPLICIT BASELINE - pure custom selection
+      if (ps.mode === 'custom' && ps.selectedPlaybooks.length > 0) {
+        if (selectionModeBadge) {
+          selectionModeBadge.textContent = 'Custom';
+          selectionModeBadge.classList.remove('hidden');
+        }
+        
+        // Optionally show "Closest to" hint for discovery
+        const closest = computeClosestBaselineSuggestion();
+        if (closest && checklistCalloutText) {
+          checklistCalloutText.innerHTML = `Custom selection <span style="color: var(--muted); font-size: 9px;">(closest to: ${closest.title} ${closest.similarity}%)</span>`;
+        } else if (checklistCalloutText) {
+          checklistCalloutText.textContent = 'Custom selection';
+        }
+      } else {
+        // Preset mode without explicit baseline (initial state)
+        if (btnModePreset) btnModePreset.classList.add('highlight');
+      }
+      if (presetDropdownRow) presetDropdownRow.style.display = '';
+    }
+    
+    console.log('[updatePlaybookSelectionSummary]', { selectedCount, runnableCount, blockedCount, baselineType: baseline.type, diff: { added: diff.addedCount, removed: diff.removedCount } });
   }
   
   /**
@@ -2843,79 +4480,96 @@ cargo build --release -p edr-locald --bin edr-locald`;
    * Open custom playbook selection modal
    * Shows all playbooks with checkboxes for multi-select
    */
-  function openPlaybookCustomSelectModal() {
-    // Check if we have readiness data with playbooks
-    const readiness = state.readiness;
-    if (!readiness || !readiness.playbooks || readiness.playbooks.length === 0) {
-      showToast('Playbook catalog not loaded. Run readiness check first.', 'warning');
-      // Revert to previous preset
-      if (els.playbookPresetSelect) {
-        els.playbookPresetSelect.value = state.playbookSelection.preset || 'extended';
+  async function openPlaybookCustomSelectModal() {
+    // Ensure catalog is loaded
+    const catalogReady = await ensureCatalogLoaded();
+    if (!catalogReady) {
+      if (state.catalog.status === 'loading') {
+        showToast('Catalog is still loading… Try again in a moment.', 'info');
+      } else {
+        showToast('Catalog failed to load. Click Retry in the playbook section.', 'warning');
       }
-      state.playbookSelection.mode = 'preset';
       return;
     }
     
-    // Create modal if it doesn't exist
-    let modal = document.getElementById('playbookSelectModal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'playbookSelectModal';
-      modal.className = 'modal-overlay';
-      modal.innerHTML = `
-        <div class="modal" style="max-width: 700px; max-height: 80vh; display: flex; flex-direction: column;">
-          <div class="modal-header" style="flex-shrink: 0;">
-            <h3>🎯 Select Playbooks</h3>
-            <button class="modal-close" id="playbookSelectModalClose">&times;</button>
+    if (state.catalog.playbooks.length === 0) {
+      // Empty catalog - show diagnostic
+      const catalogMeta = state.playbookCatalogMeta || {};
+      const expectedPath = catalogMeta.searched_paths?.[0] || 'playbooks/windows/';
+      showToast(`No playbooks found in ${expectedPath}. Check playbooks folder.`, 'warning');
+      return;
+    }
+    
+    // Use catalog playbooks (enriched with readiness data if available)
+    const playbooks = getEnrichedPlaybooks();
+    
+    // Create modal fresh each time (don't cache - cleaner lifecycle)
+    // First, destroy any existing modal
+    const existingModal = document.getElementById('playbookSelectModal');
+    if (existingModal) {
+      existingModal.remove();
+    }
+    
+    // Create new modal
+    const modal = document.createElement('div');
+    modal.id = 'playbookSelectModal';
+    modal.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10001; pointer-events: auto;';
+    modal.innerHTML = `
+      <div class="modal" style="max-width: 700px; max-height: 80vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);">
+        <div class="modal-header" style="flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; padding: 16px; border-bottom: 1px solid var(--border);">
+          <h3 style="margin: 0; font-size: 16px;">🎯 Select Playbooks</h3>
+          <button class="modal-close" id="playbookSelectModalClose" style="background: none; border: none; font-size: 24px; cursor: pointer; color: var(--muted); padding: 0; line-height: 1;">&times;</button>
+        </div>
+        <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 16px;">
+          <p style="color: var(--muted); margin-bottom: 12px;">
+            Choose which playbooks to include in your run. Blocked playbooks (missing telemetry) are shown but won't produce findings.
+          </p>
+          <div style="margin-bottom: 12px;">
+            <button id="btnSelectAllPlaybooks" class="btn btn-secondary btn-sm">Select All</button>
+            <button id="btnSelectNonePlaybooks" class="btn btn-secondary btn-sm">Select None</button>
+            <button id="btnSelectRunnable" class="btn btn-secondary btn-sm">Select Runnable Only</button>
           </div>
-          <div class="modal-body" style="flex: 1; overflow-y: auto; padding: 16px;">
-            <p style="color: var(--muted); margin-bottom: 12px;">
-              Choose which playbooks to include in your run. Blocked playbooks (missing telemetry) are shown but won't produce findings.
-            </p>
-            <div style="margin-bottom: 12px;">
-              <button id="btnSelectAllPlaybooks" class="btn btn-secondary btn-sm">Select All</button>
-              <button id="btnSelectNonePlaybooks" class="btn btn-secondary btn-sm">Select None</button>
-              <button id="btnSelectRunnable" class="btn btn-secondary btn-sm">Select Runnable Only</button>
-            </div>
-            <div id="playbookSelectList" style="display: flex; flex-direction: column; gap: 8px;"></div>
-          </div>
-          <div class="modal-footer" style="flex-shrink: 0; border-top: 1px solid var(--border); padding: 12px 16px;">
-            <span id="playbookSelectCount" style="color: var(--muted);">0 selected</span>
-            <div>
-              <button id="btnCancelPlaybookSelect" class="btn btn-secondary">Cancel</button>
-              <button id="btnApplyPlaybookSelect" class="btn btn-primary">Apply Selection</button>
-            </div>
+          <div id="playbookSelectList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        </div>
+        <div class="modal-footer" style="flex-shrink: 0; border-top: 1px solid var(--border); padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;">
+          <span id="playbookSelectCount" style="color: var(--muted);">0 selected</span>
+          <div style="display: flex; gap: 8px;">
+            <button id="btnCancelPlaybookSelect" class="btn btn-secondary">Cancel</button>
+            <button id="btnApplyPlaybookSelect" class="btn btn-primary">Apply Selection</button>
           </div>
         </div>
-      `;
-      document.body.appendChild(modal);
+      </div>
+    `;
+    
+    // Mount in portal (or body as fallback)
+    const portal = document.getElementById('modalPortal');
+    (portal || document.body).appendChild(modal);
       
-      // Bind close handlers
-      modal.querySelector('#playbookSelectModalClose').addEventListener('click', closePlaybookCustomSelectModal);
-      modal.querySelector('#btnCancelPlaybookSelect').addEventListener('click', closePlaybookCustomSelectModal);
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) closePlaybookCustomSelectModal();
+    // Bind close handlers (fresh each time since modal is recreated)
+    modal.querySelector('#playbookSelectModalClose').addEventListener('click', destroyPlaybookSelectModal);
+    modal.querySelector('#btnCancelPlaybookSelect').addEventListener('click', destroyPlaybookSelectModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) destroyPlaybookSelectModal();
+    });
+    
+    // Select all / none / runnable
+    modal.querySelector('#btnSelectAllPlaybooks').addEventListener('click', () => {
+      modal.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+      updatePlaybookSelectCount();
+    });
+    modal.querySelector('#btnSelectNonePlaybooks').addEventListener('click', () => {
+      modal.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+      updatePlaybookSelectCount();
+    });
+    modal.querySelector('#btnSelectRunnable').addEventListener('click', () => {
+      modal.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.checked = cb.dataset.runnable === 'true';
       });
-      
-      // Select all / none / runnable
-      modal.querySelector('#btnSelectAllPlaybooks').addEventListener('click', () => {
-        modal.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
-        updatePlaybookSelectCount();
-      });
-      modal.querySelector('#btnSelectNonePlaybooks').addEventListener('click', () => {
-        modal.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
-        updatePlaybookSelectCount();
-      });
-      modal.querySelector('#btnSelectRunnable').addEventListener('click', () => {
-        modal.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-          cb.checked = cb.dataset.runnable === 'true';
-        });
-        updatePlaybookSelectCount();
-      });
-      
-      // Apply button
-      modal.querySelector('#btnApplyPlaybookSelect').addEventListener('click', applyPlaybookCustomSelection);
-    }
+      updatePlaybookSelectCount();
+    });
+    
+    // Apply button
+    modal.querySelector('#btnApplyPlaybookSelect').addEventListener('click', applyPlaybookCustomSelectionAndDestroy);
     
     // Populate playbook list
     const listEl = modal.querySelector('#playbookSelectList');
@@ -2923,7 +4577,7 @@ cargo build --release -p edr-locald --bin edr-locald`;
     
     // Group by category
     const byCategory = {};
-    for (const pb of readiness.playbooks) {
+    for (const pb of playbooks) {
       const cat = PLAYBOOK_METADATA[pb.playbook_id]?.category || 'Other';
       if (!byCategory[cat]) byCategory[cat] = [];
       byCategory[cat].push(pb);
@@ -2933,19 +4587,19 @@ cargo build --release -p edr-locald --bin edr-locald`;
     const currentlySelected = new Set(
       state.playbookSelection.mode === 'custom' 
         ? state.playbookSelection.selectedPlaybooks 
-        : readiness.playbooks.filter(p => p.enabled).map(p => p.playbook_id)
+        : playbooks.filter(p => p.enabled !== false).map(p => p.playbook_id)
     );
     
-    for (const [category, playbooks] of Object.entries(byCategory).sort((a, b) => a[0].localeCompare(b[0]))) {
+    for (const [category, catPlaybooks] of Object.entries(byCategory).sort((a, b) => a[0].localeCompare(b[0]))) {
       // Category header
       const catHeader = document.createElement('div');
       catHeader.style.cssText = 'font-weight: 600; color: var(--text); margin-top: 12px; padding-bottom: 4px; border-bottom: 1px solid var(--border);';
       catHeader.textContent = category;
       listEl.appendChild(catHeader);
       
-      for (const pb of playbooks) {
+      for (const pb of catPlaybooks) {
         const isBlocked = pb.telemetry_blocked;
-        const isRunnable = pb.enabled && !isBlocked;
+        const isRunnable = pb.enabled !== false && !isBlocked;
         const isSelected = currentlySelected.has(pb.playbook_id);
         const meta = PLAYBOOK_METADATA[pb.playbook_id] || {};
         
@@ -2980,9 +4634,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
       }
     }
     
-    // Show modal
-    modal.classList.add('active');
+    // Modal is already visible (created with display:flex)
     updatePlaybookSelectCount();
+    console.log('[openPlaybookCustomSelectModal] Modal created and shown');
   }
   
   /**
@@ -3001,53 +4655,66 @@ cargo build --release -p edr-locald --bin edr-locald`;
   }
   
   /**
-   * Apply custom playbook selection from modal
+   * Apply custom playbook selection from modal (internal - doesn't close)
+   * Returns true if successful, false if validation failed
    */
   function applyPlaybookCustomSelection() {
     const modal = document.getElementById('playbookSelectModal');
-    if (!modal) return;
+    if (!modal) return false;
     
     const checked = modal.querySelectorAll('input[type="checkbox"]:checked');
     const selectedIds = Array.from(checked).map(cb => cb.value);
     
     if (selectedIds.length === 0) {
       showToast('Select at least one playbook', 'warning');
-      return;
+      return false;
     }
     
     state.playbookSelection.mode = 'custom';
     state.playbookSelection.selectedPlaybooks = selectedIds;
     
-    // Update dropdown to show "Custom"
-    if (els.playbookPresetSelect) {
-      els.playbookPresetSelect.value = 'custom';
-    }
+    // Show "Custom selection" label (replaces the dropdown 'Custom' option)
+    showCustomSelectionLabel();
     
     // Save as default
     savePlaybookSelectionDefault();
     
-    // Update summary
-    updatePlaybookSelectionSummary();
-    
-    // Close modal
-    closePlaybookCustomSelectModal();
+    // Rerender all derived panels including Outcome Preview
+    rerenderMissionDerivedPanels('custom-selection-applied:' + selectedIds.length);
     
     showToast(`Custom selection: ${selectedIds.length} playbooks`, 'success');
+    return true;
   }
   
   /**
-   * Close custom playbook selection modal
+   * Apply selection AND destroy modal (button handler)
    */
-  function closePlaybookCustomSelectModal() {
+  function applyPlaybookCustomSelectionAndDestroy() {
+    if (applyPlaybookCustomSelection()) {
+      destroyPlaybookSelectModal();
+    }
+  }
+  
+  /**
+   * Destroy (remove from DOM) the playbook selection modal
+   * This is the ONLY way to close the modal - ensures no leak
+   */
+  function destroyPlaybookSelectModal() {
     const modal = document.getElementById('playbookSelectModal');
     if (modal) {
-      modal.classList.remove('active');
+      modal.remove();
+      console.log('[destroyPlaybookSelectModal] Modal removed from DOM');
     }
     
     // If we were trying to switch to custom but cancelled, revert dropdown
     if (state.playbookSelection.mode !== 'custom' && els.playbookPresetSelect) {
       els.playbookPresetSelect.value = state.playbookSelection.preset || 'extended';
     }
+  }
+  
+  // Alias for backward compatibility
+  function closePlaybookCustomSelectModal() {
+    destroyPlaybookSelectModal();
   }
   
   /**
@@ -3061,6 +4728,1848 @@ cargo build --release -p edr-locald --bin edr-locald`;
       preset: ps.mode === 'preset' ? ps.preset : null,
       selected_playbooks: ps.mode === 'custom' ? ps.selectedPlaybooks : []
     };
+  }
+  
+  /**
+   * Get chain_ids for the current baseline (if any chains are active)
+   * INVESTIGATE_CHAINS-1: Persisted with run for Investigate tab context
+   */
+  function getChainIdsPayload() {
+    if (!state.baseline || !state.baseline.chains || state.baseline.chains.length === 0) {
+      return null;
+    }
+    return state.baseline.chains.map(c => c.chainId);
+  }
+
+  // ============ PATH OF WORK (Mission Step 1) ============
+  
+  /**
+   * Path of Work definitions - maps user intent to presets
+   */
+  const PATH_OF_WORK_CONFIG = {
+    'discovery': {
+      label: 'Discovery (System Changes)',
+      icon: '🔍',
+      description: '🔍 Discovery: Capture general system changes without requiring Admin or Sysmon.',
+      preset: 'general',
+      categories: null // All categories
+    },
+    'threat-hunt': {
+      label: 'Threat Hunt (Broad)',
+      icon: '🎯',
+      description: '🎯 Threat Hunt: Extended coverage with all available playbooks. Best with Admin + Sysmon.',
+      preset: 'extended',
+      categories: null
+    },
+    'credential': {
+      label: 'Credential / LoTL',
+      icon: '🔑',
+      description: '🔑 Credential / LoTL: Focus on authentication, credential access, and living-off-the-land techniques.',
+      preset: 'admin', // Requires security log
+      categories: ['credential-access', 'lateral-movement', 'defense-evasion', 'execution'],
+      warnIfBlocked: 'Credential detection requires Security Log (Admin). Some playbooks may be blocked.'
+    },
+    'network': {
+      label: 'Network Focus',
+      icon: '🌐',
+      description: '🌐 Network Focus: Emphasize network connections, DNS, and potential exfiltration.',
+      preset: 'sysmon', // Best with Sysmon for network events
+      categories: ['command-and-control', 'exfiltration', 'discovery'],
+      warnIfBlocked: 'Network visibility is best with Sysmon. Install Sysmon for full coverage.'
+    },
+    'custom': {
+      label: 'Custom',
+      icon: '⚙️',
+      description: '⚙️ Custom: Select specific playbooks manually. Opens the full playbook selector.',
+      preset: null, // Opens custom modal
+      categories: null
+    }
+  };
+  
+  /**
+   * Initialize Path of Work chip handlers
+   */
+  function initPathOfWorkChips() {
+    const chipsContainer = els.pathOfWorkChips;
+    if (!chipsContainer) return;
+    
+    chipsContainer.querySelectorAll('.path-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        selectPathOfWork(chip.dataset.path);
+      });
+    });
+  }
+  
+  /**
+   * Select a path of work and update UI accordingly
+   */
+  function selectPathOfWork(path) {
+    const config = PATH_OF_WORK_CONFIG[path];
+    if (!config) return;
+    
+    state.pathOfWork.selected = path;
+    
+    // Update chip styles
+    if (els.pathOfWorkChips) {
+      els.pathOfWorkChips.querySelectorAll('.path-chip').forEach(chip => {
+        const isActive = chip.dataset.path === path;
+        chip.classList.toggle('active', isActive);
+        chip.style.border = isActive ? '2px solid var(--accent)' : '2px solid var(--border)';
+        chip.style.background = isActive ? 'rgba(99, 102, 241, 0.15)' : 'var(--panel2)';
+      });
+    }
+    
+    // Update description
+    if (els.pathDescription) {
+      els.pathDescription.textContent = config.description;
+      
+      // Add warning if applicable
+      if (config.warnIfBlocked) {
+        const blockedCount = state.playbookSelection.blockedCount || 0;
+        if (blockedCount > 0) {
+          els.pathDescription.innerHTML = `${config.description}<br><span style="color: var(--warn); font-size: 10px;">⚠️ ${config.warnIfBlocked}</span>`;
+        }
+      }
+    }
+    
+    // Apply preset or open custom selector
+    if (path === 'custom') {
+      openPlaybookCustomSelectModal();
+    } else if (config.preset) {
+      // Set the preset dropdown and apply
+      state.playbookSelection.mode = 'preset';
+      state.playbookSelection.preset = config.preset;
+      
+      if (els.playbookPresetSelect) {
+        els.playbookPresetSelect.value = config.preset;
+      }
+      
+      savePlaybookSelectionDefault();
+      // Rerender all derived panels including Outcome Preview
+      rerenderMissionDerivedPanels('path-change:' + path);
+      renderInlinePlaybookList();
+    }
+    
+    console.log('[selectPathOfWork]', path, config);
+  }
+
+  // ============ INLINE PLAYBOOK LIST (Mission Step 2) ============
+  
+  /**
+   * Toggle the inline playbook list visibility
+   */
+  function togglePlaybookList() {
+    state.playbookSelection.listVisible = !state.playbookSelection.listVisible;
+    
+    if (els.playbookListSection) {
+      els.playbookListSection.classList.toggle('hidden', !state.playbookSelection.listVisible);
+    }
+    
+    if (els.btnTogglePlaybookList) {
+      els.btnTogglePlaybookList.textContent = state.playbookSelection.listVisible ? '▲ Hide List' : '▼ Show List';
+    }
+    
+    // Render list if showing
+    if (state.playbookSelection.listVisible) {
+      renderInlinePlaybookList();
+    }
+  }
+  
+  /**
+   * Render the inline playbook list with current filter
+   */
+  function renderInlinePlaybookList() {
+    if (!els.playbookListItems) return;
+    
+    // Check catalog status
+    if (state.catalog.status === 'loading') {
+      els.playbookListItems.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 12px;">
+          <div style="margin-bottom: 8px;">⏳ Loading playbook catalog...</div>
+        </div>
+      `;
+      return;
+    }
+    
+    if (state.catalog.status === 'error') {
+      els.playbookListItems.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 12px;">
+          <div style="margin-bottom: 8px; color: var(--warn);">⚠️ Catalog failed to load</div>
+          <button onclick="loadDetectionPlan()" class="btn-secondary" style="padding: 4px 12px; font-size: 11px;">🔄 Retry</button>
+        </div>
+      `;
+      return;
+    }
+    
+    if (state.catalog.status !== 'ready' || state.catalog.playbooks.length === 0) {
+      els.playbookListItems.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 12px;">
+          <div style="margin-bottom: 8px;">📋 No playbooks loaded</div>
+          <button onclick="loadDetectionPlan()" class="btn-secondary" style="padding: 4px 12px; font-size: 11px;">🔄 Load Catalog</button>
+        </div>
+      `;
+      return;
+    }
+    
+    // Use enriched playbooks (catalog + readiness data)
+    const allPlaybooks = getEnrichedPlaybooks();
+    
+    const ps = state.playbookSelection;
+    const filter = ps.listFilter || 'all';
+    
+    // Get selected playbook IDs based on mode
+    let selectedIds = new Set();
+    if (ps.mode === 'custom') {
+      selectedIds = new Set(ps.selectedPlaybooks);
+    } else if (ps.presets) {
+      const preset = ps.presets.find(p => p.preset_id === ps.preset);
+      if (preset && preset.playbook_ids) {
+        selectedIds = new Set(preset.playbook_ids);
+      } else {
+        // Fallback: all enabled playbooks
+        selectedIds = new Set(allPlaybooks.filter(p => p.enabled !== false).map(p => p.playbook_id));
+      }
+    }
+    
+    // Filter playbooks
+    let playbooks = allPlaybooks;
+    if (filter === 'selected') {
+      playbooks = playbooks.filter(p => selectedIds.has(p.playbook_id));
+    } else if (filter === 'runnable') {
+      playbooks = playbooks.filter(p => p.enabled && !p.telemetry_blocked);
+    } else if (filter === 'blocked') {
+      playbooks = playbooks.filter(p => p.telemetry_blocked);
+    }
+    
+    // Apply search filter
+    const searchTerm = (els.playbookListSearch?.value || '').toLowerCase();
+    if (searchTerm) {
+      playbooks = playbooks.filter(p => {
+        const meta = PLAYBOOK_METADATA[p.playbook_id] || {};
+        const searchable = `${p.playbook_id} ${meta.title || ''} ${meta.category || ''} ${meta.description || ''}`.toLowerCase();
+        return searchable.includes(searchTerm);
+      });
+    }
+    
+    if (playbooks.length === 0) {
+      els.playbookListItems.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 12px;">
+          No playbooks match the current filter
+        </div>
+      `;
+      return;
+    }
+    
+    // Group by category
+    const byCategory = {};
+    for (const pb of playbooks) {
+      const meta = PLAYBOOK_METADATA[pb.playbook_id] || {};
+      const cat = meta.category || 'Other';
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(pb);
+    }
+    
+    // Render grouped list
+    let html = '';
+    for (const [category, catPlaybooks] of Object.entries(byCategory).sort((a, b) => a[0].localeCompare(b[0]))) {
+      html += `<div style="padding: 6px 12px; background: var(--panel2); font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border);">${category}</div>`;
+      
+      for (const pb of catPlaybooks) {
+        const meta = PLAYBOOK_METADATA[pb.playbook_id] || {};
+        const isSelected = selectedIds.has(pb.playbook_id);
+        const isBlocked = pb.telemetry_blocked;
+        const isRunnable = pb.enabled && !isBlocked;
+        
+        const statusBadge = isBlocked 
+          ? '<span style="font-size: 9px; padding: 1px 4px; border-radius: 2px; background: var(--warn); color: white;">BLOCKED</span>'
+          : isRunnable 
+            ? '<span style="font-size: 9px; padding: 1px 4px; border-radius: 2px; background: var(--good); color: white;">RUNNABLE</span>'
+            : '<span style="font-size: 9px; padding: 1px 4px; border-radius: 2px; background: var(--muted); color: white;">DISABLED</span>';
+        
+        const blockedReason = isBlocked && pb.blocked_reason 
+          ? `<div style="font-size: 9px; color: var(--warn); margin-top: 2px;">⚠️ ${escapeHtml(pb.blocked_reason)}</div>`
+          : '';
+        
+        html += `
+          <label style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; background: ${isBlocked ? 'rgba(255,193,7,0.05)' : 'transparent'};"
+                 data-playbook-id="${pb.playbook_id}">
+            <input type="checkbox" 
+                   class="playbook-checkbox"
+                   value="${pb.playbook_id}" 
+                   ${isSelected ? 'checked' : ''}
+                   data-runnable="${isRunnable}"
+                   style="margin-top: 3px; accent-color: var(--accent);">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                <span style="font-size: 12px; font-weight: 500;">${meta.title || pb.playbook_id}</span>
+                ${statusBadge}
+              </div>
+              <div style="font-size: 10px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                ${pb.playbook_id}
+              </div>
+              ${blockedReason}
+            </div>
+            <button class="btn-secondary playbook-detail-btn" data-playbook-id="${pb.playbook_id}" style="padding: 2px 6px; font-size: 9px; flex-shrink: 0;">
+              Details
+            </button>
+          </label>
+        `;
+      }
+    }
+    
+    els.playbookListItems.innerHTML = html;
+    
+    // Bind checkbox change handlers
+    els.playbookListItems.querySelectorAll('.playbook-checkbox').forEach(cb => {
+      cb.addEventListener('change', handleInlinePlaybookToggle);
+    });
+    
+    // Bind detail button handlers
+    els.playbookListItems.querySelectorAll('.playbook-detail-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const pbId = btn.dataset.playbookId;
+        const pb = readiness.playbooks.find(p => p.playbook_id === pbId);
+        if (pb) openPlaybookDetailDrawer(pb, 'catalog');
+      });
+    });
+  }
+  
+  /**
+   * Handle inline playbook checkbox toggle
+   */
+  function handleInlinePlaybookToggle(e) {
+    const checkbox = e.target;
+    const playbookId = checkbox.value;
+    
+    // Switch to custom mode
+    state.playbookSelection.mode = 'custom';
+    if (els.playbookModeLabel) {
+      els.playbookModeLabel.textContent = 'Custom';
+      els.playbookModeLabel.style.background = 'var(--warn)';
+    }
+    
+    // Get current selection - use catalog as source
+    const playbooks = getEnrichedPlaybooks();
+    if (!state.playbookSelection.selectedPlaybooks.length && playbooks.length > 0) {
+      // Initialize from current preset
+      const ps = state.playbookSelection;
+      if (ps.presets) {
+        const preset = ps.presets.find(p => p.preset_id === ps.preset);
+        if (preset && preset.playbook_ids) {
+          state.playbookSelection.selectedPlaybooks = [...preset.playbook_ids];
+        } else {
+          state.playbookSelection.selectedPlaybooks = playbooks.filter(p => p.enabled !== false).map(p => p.playbook_id);
+        }
+      }
+    }
+    
+    // Toggle the playbook
+    if (checkbox.checked) {
+      if (!state.playbookSelection.selectedPlaybooks.includes(playbookId)) {
+        state.playbookSelection.selectedPlaybooks.push(playbookId);
+      }
+    } else {
+      state.playbookSelection.selectedPlaybooks = state.playbookSelection.selectedPlaybooks.filter(id => id !== playbookId);
+    }
+    
+    // Update dropdown to show custom
+    if (els.playbookPresetSelect) {
+      els.playbookPresetSelect.value = 'custom';
+    }
+    
+    // Save and update UI
+    savePlaybookSelectionDefault();
+    updatePlaybookSelectionSummary();
+    updateRunPlanSummary();
+  }
+  
+  /**
+   * Set filter for inline playbook list
+   */
+  function setPlaybookListFilter(filter) {
+    state.playbookSelection.listFilter = filter;
+    
+    // Update filter chip styles
+    document.querySelectorAll('.playbook-filter-chip').forEach(chip => {
+      const isActive = chip.dataset.filter === filter;
+      chip.classList.toggle('active', isActive);
+      chip.style.background = isActive ? 'var(--accent)' : 'var(--panel)';
+      chip.style.color = isActive ? 'white' : 'var(--text)';
+    });
+    
+    renderInlinePlaybookList();
+  }
+  
+  /**
+   * Select all runnable playbooks
+   */
+  async function selectAllRunnablePlaybooks() {
+    // Ensure catalog is loaded
+    const catalogReady = await ensureCatalogLoaded();
+    if (!catalogReady) {
+      if (state.catalog.status === 'loading') {
+        showToast('Catalog is still loading… Try again in a moment.', 'info');
+      } else {
+        showToast('Catalog failed to load. Click Retry in the playbook section.', 'warning');
+      }
+      return;
+    }
+    
+    if (state.catalog.playbooks.length === 0) {
+      // Empty catalog - show diagnostic
+      const catalogMeta = state.playbookCatalogMeta || {};
+      const expectedPath = catalogMeta.searched_paths?.[0] || 'playbooks/windows/';
+      showToast(`No playbooks found in ${expectedPath}. Check playbooks folder.`, 'warning');
+      return;
+    }
+    
+    // Get enriched playbooks (catalog + readiness data)
+    const playbooks = getEnrichedPlaybooks();
+    
+    // Runnable = enabled AND not blocked
+    // If readiness not available, treat non-blocked as runnable
+    const runnablePlaybooks = playbooks.filter(p => !p.telemetry_blocked && p.enabled !== false);
+    const runnableIds = runnablePlaybooks.map(p => p.playbook_id);
+    
+    // Provide feedback if 0 runnable
+    if (runnableIds.length === 0) {
+      const blockedCount = playbooks.filter(p => p.telemetry_blocked).length;
+      if (blockedCount > 0) {
+        showToast(`0 runnable: All ${blockedCount} playbooks blocked by missing telemetry. Check Coverage.`, 'warning');
+      } else {
+        showToast('0 runnable: No enabled playbooks found in catalog.', 'warning');
+      }
+      return;
+    }
+    
+    state.playbookSelection.mode = 'custom';
+    state.playbookSelection.selectedPlaybooks = runnableIds;
+    
+    if (els.playbookPresetSelect) els.playbookPresetSelect.value = 'custom';
+    if (els.playbookModeLabel) {
+      els.playbookModeLabel.textContent = 'Custom';
+      els.playbookModeLabel.style.background = 'var(--warn)';
+    }
+    
+    savePlaybookSelectionDefault();
+    updatePlaybookSelectionSummary();
+    updateRunPlanSummary();
+    renderInlinePlaybookList();
+    
+    showToast(`Selected ${runnableIds.length} runnable playbooks`, 'success');
+  }
+  
+  /**
+   * Clear all playbook selection
+   */
+  function clearPlaybookSelection() {
+    state.playbookSelection.mode = 'custom';
+    state.playbookSelection.selectedPlaybooks = [];
+    
+    if (els.playbookPresetSelect) els.playbookPresetSelect.value = 'custom';
+    if (els.playbookModeLabel) {
+      els.playbookModeLabel.textContent = 'Custom';
+      els.playbookModeLabel.style.background = 'var(--warn)';
+    }
+    
+    savePlaybookSelectionDefault();
+    updatePlaybookSelectionSummary();
+    updateRunPlanSummary();
+    renderInlinePlaybookList();
+  }
+  
+  // ============ RUN PLAN SUMMARY (Mission Step 3) ============
+  
+  /**
+   * Update the Run Plan summary based on current selection
+   */
+  function updateRunPlanSummary() {
+    const ps = state.playbookSelection;
+    const catalogStatus = state.catalog.status;
+    
+    // Handle catalog not ready states
+    if (catalogStatus !== 'ready') {
+      // Show pending state
+      if (els.runPlanPlaybookCount) {
+        els.runPlanPlaybookCount.textContent = '—';
+      }
+      if (els.runPlanRunnableCount) {
+        els.runPlanRunnableCount.textContent = '—';
+      }
+      if (els.runPlanBlockedCount) {
+        els.runPlanBlockedCount.textContent = '—';
+      }
+      
+      // Update Start button to show pending state
+      if (els.btnStartRun) {
+        if (catalogStatus === 'loading') {
+          els.btnStartRun.innerHTML = `⏳ Loading catalog...`;
+          els.btnStartRun.disabled = true;
+        } else if (catalogStatus === 'error') {
+          els.btnStartRun.innerHTML = `⚠️ Catalog failed — click Retry`;
+          els.btnStartRun.disabled = true;
+        } else {
+          els.btnStartRun.innerHTML = `▶️ Start Run <span style="font-size: 12px; opacity: 0.8;">(pending)</span>`;
+          els.btnStartRun.disabled = true;
+        }
+      }
+      return;
+    }
+    
+    // Catalog is ready - enable Start button
+    if (els.btnStartRun) {
+      els.btnStartRun.disabled = false;
+    }
+    
+    // Update counts
+    if (els.runPlanPlaybookCount) {
+      els.runPlanPlaybookCount.textContent = ps.selectedCount || 0;
+    }
+    if (els.runPlanRunnableCount) {
+      els.runPlanRunnableCount.textContent = ps.runnableCount || 0;
+    }
+    if (els.runPlanBlockedCount) {
+      els.runPlanBlockedCount.textContent = ps.blockedCount || 0;
+    }
+    
+    // Disable Start if nothing selected
+    if ((ps.selectedCount || 0) === 0 && els.btnStartRun) {
+      els.btnStartRun.disabled = true;
+    }
+    
+    // Update coverage chips
+    if (els.runPlanCoverageChips) {
+      const coverageTypes = [];
+      const telemetry = state.telemetryReadiness;
+      
+      // Determine coverage from selfcheck telemetry data
+      if (telemetry) {
+        // Check for Sysmon (deep visibility)
+        if (telemetry.sysmon_installed) {
+          coverageTypes.push({ name: 'Process', color: 'var(--good)' });
+          coverageTypes.push({ name: 'Network', color: 'var(--good)' });
+          coverageTypes.push({ name: 'File', color: 'var(--good)' });
+        } else {
+          coverageTypes.push({ name: 'Process', color: 'var(--muted)' });
+        }
+        
+        // Check for PowerShell logging
+        if (telemetry.channels_accessible >= 4 || telemetry.channels?.some(c => c.accessible && c.name?.includes('PowerShell'))) {
+          coverageTypes.push({ name: 'PowerShell', color: 'var(--good)' });
+        }
+        
+        // Check for Security log
+        if (telemetry.security_log_accessible) {
+          coverageTypes.push({ name: 'Auth', color: 'var(--good)' });
+        }
+      }
+      
+      if (coverageTypes.length === 0) {
+        coverageTypes.push({ name: 'Checking...', color: 'var(--muted)' });
+      }
+      
+      els.runPlanCoverageChips.innerHTML = coverageTypes.map(c => 
+        `<span style="padding: 1px 5px; background: ${c.color}22; border: 1px solid ${c.color}44; border-radius: 2px; font-size: 9px; color: ${c.color};">${c.name}</span>`
+      ).join(' ');
+    }
+    
+    // Determine confidence level based on readiness and counts
+    const telemetry = state.telemetryReadiness;
+    let confidenceLabel = '';
+    let confidenceColor = 'var(--muted)';
+    
+    if (!telemetry) {
+      confidenceLabel = 'Unverified Coverage';
+      confidenceColor = 'var(--muted)';
+    } else if ((ps.blockedCount || 0) > (ps.runnableCount || 0)) {
+      confidenceLabel = 'Limited Coverage';
+      confidenceColor = 'var(--warn)';
+    } else if (ps.blockedCount > 0) {
+      confidenceLabel = 'Partial Coverage';
+      confidenceColor = 'var(--warn)';
+    } else if (telemetry.readiness_score >= 80) {
+      confidenceLabel = 'High Confidence';
+      confidenceColor = 'var(--good)';
+    } else {
+      confidenceLabel = 'Standard Coverage';
+      confidenceColor = 'var(--accent)';
+    }
+    
+    // Update the coverage line to show confidence
+    const coverageLine = document.getElementById('runPlanCoverageLine');
+    if (coverageLine) {
+      coverageLine.innerHTML = `Confidence: <span style="color: ${confidenceColor}; font-weight: 500;">${confidenceLabel}</span>`;
+    }
+    
+    // Show/hide blocked warning
+    if (els.runPlanBlockedWarning) {
+      const hasBlocked = (ps.blockedCount || 0) > 0;
+      const hasUnverified = (ps.unverifiedCount || 0) > 0;
+      els.runPlanBlockedWarning.classList.toggle('hidden', !hasBlocked && !hasUnverified);
+      
+      if (els.runPlanBlockedText) {
+        const issues = [];
+        if (hasBlocked) {
+          issues.push(`${ps.blockedCount} blocked (missing telemetry)`);
+        }
+        if (hasUnverified) {
+          issues.push(`${ps.unverifiedCount} unverified (run readiness check)`);
+        }
+        els.runPlanBlockedText.textContent = issues.join(' · ');
+      }
+    }
+    
+    // Update Start button text
+    if (els.btnStartRun) {
+      const modeText = ps.mode === 'custom' ? 'Custom' : (ps.preset || 'Preset');
+      const countText = ps.selectedCount || 0;
+      els.btnStartRun.innerHTML = `▶️ Start Run <span style="font-size: 12px; opacity: 0.8;">(${modeText}: ${countText})</span>`;
+    }
+    
+    // Update mode label
+    if (els.playbookModeLabel) {
+      if (ps.mode === 'custom') {
+        els.playbookModeLabel.textContent = 'Custom';
+        els.playbookModeLabel.style.background = 'var(--warn)';
+      } else {
+        els.playbookModeLabel.textContent = 'Preset';
+        els.playbookModeLabel.style.background = 'var(--accent)';
+      }
+    }
+    
+    // Update coverage summary badge
+    updateCoverageSummaryBadge();
+    
+    // Update Outcome Preview card
+    renderOutcomePreview();
+    
+    // Update Contract Receipt Strip
+    renderContractReceiptStrip();
+  }
+  
+  /**
+   * Toggle the Coverage & Requirements panel
+   */
+  function toggleCoverageRequirementsPanel() {
+    if (!els.coverageRequirementsPanel) return;
+    
+    const isHidden = els.coverageRequirementsPanel.classList.contains('hidden');
+    els.coverageRequirementsPanel.classList.toggle('hidden', !isHidden);
+    
+    if (els.coverageToggleIcon) {
+      els.coverageToggleIcon.textContent = isHidden ? '▲' : '▼';
+    }
+  }
+  
+  /**
+   * Update the Coverage Summary badge based on readiness state
+   */
+  function updateCoverageSummaryBadge() {
+    if (!els.coverageSummaryBadge) return;
+    
+    const readiness = state.readiness;
+    const ps = state.playbookSelection;
+    
+    if (!readiness) {
+      els.coverageSummaryBadge.textContent = 'Checking...';
+      els.coverageSummaryBadge.style.background = 'var(--muted)';
+      return;
+    }
+    
+    const blockedCount = ps.blockedCount || 0;
+    const runnableCount = ps.runnableCount || 0;
+    
+    if (blockedCount === 0 && runnableCount > 0) {
+      els.coverageSummaryBadge.textContent = 'Ready';
+      els.coverageSummaryBadge.style.background = 'var(--good)';
+    } else if (runnableCount > 0) {
+      els.coverageSummaryBadge.textContent = `${blockedCount} blocked`;
+      els.coverageSummaryBadge.style.background = 'var(--warn)';
+    } else {
+      els.coverageSummaryBadge.textContent = 'Limited';
+      els.coverageSummaryBadge.style.background = 'var(--error)';
+    }
+  }
+
+  // ============ MISSION DERIVED PANELS ============
+  
+  /**
+   * Central rerender function for all Mission-tab derived panels.
+   * Call this whenever state changes that affects playbook selection, readiness, or outcome preview.
+   * Ensures all dependent UI stays in sync.
+   * @param {string} reason - Debug label for why this rerender was triggered
+   */
+  function rerenderMissionDerivedPanels(reason) {
+    // Debug logging when ?debug_ui=1
+    const isDebugUI = window.location.search.includes('debug_ui=1');
+    if (isDebugUI) {
+      console.log(`%c[rerenderMissionDerivedPanels] reason: ${reason}`, 'color: #f59e0b');
+    }
+    
+    // Update all derived panels in dependency order
+    updatePlaybookSelectionSummary();  // Computes counts, updates receipt strip
+    updateRunPlanSummary();            // Uses counts for run button state
+    updateMissionReadinessCard();      // Uses readiness state
+    // Render outcome checklist (replaces old renderOutcomePreview)
+    renderOutcomeChecklist();
+    renderContractReceiptStrip();
+  }
+
+  // ============ OUTCOME CHECKLIST (Satisfaction Tracker) ============
+  
+  /**
+   * Compute effective playbook selection (IDs)
+   * Returns array of playbook IDs that are currently selected
+   */
+  function computeEffectiveSelectionIds() {
+    const ps = state.playbookSelection;
+    const catalog = state.catalog;
+    
+    if (catalog.status !== 'ready' || !catalog.playbooks) return [];
+    
+    if (ps.mode === 'custom' && ps.selectedPlaybooks && ps.selectedPlaybooks.length > 0) {
+      return [...ps.selectedPlaybooks];
+    }
+    
+    // Preset mode: return all playbook IDs that would be selected
+    // Use effectivePlaybooks if computed, else all non-blocked
+    if (ps.effectivePlaybooks && ps.effectivePlaybooks.length > 0) {
+      return [...ps.effectivePlaybooks];
+    }
+    
+    return catalog.playbooks
+      .filter(pb => !pb.telemetry_blocked)
+      .map(pb => pb.playbook_id || pb.name);
+  }
+  
+  /**
+   * Compute diff from the explicit baseline anchor (state.baseline)
+   * Baselines are set by backend compile - no frontend guessing
+   * @returns {Object} { hasBaseline, type, title, baselineIds, currentIds, addedCount, removedCount, added, removed, isExact, chainCount }
+   */
+  function computeDiffFromBaseline() {
+    const catalog = state.catalog;
+    const baseline = state.baseline;
+    
+    if (catalog.status !== 'ready') {
+      return { hasBaseline: false, type: null, title: null, baselineIds: [], currentIds: [], addedCount: 0, removedCount: 0, added: [], removed: [], isExact: true, chainCount: 0 };
+    }
+    
+    const currentIds = computeEffectiveSelectionIds();
+    
+    // If no explicit baseline was set, return null baseline
+    if (!baseline.type || !baseline.baselinePlaybookIds || baseline.baselinePlaybookIds.length === 0) {
+      return {
+        hasBaseline: false,
+        type: null,
+        title: null,
+        baselineIds: [],
+        currentIds,
+        addedCount: 0,
+        removedCount: 0,
+        added: [],
+        removed: [],
+        isExact: false,
+        chainCount: 0
+      };
+    }
+    
+    const currentSet = new Set(currentIds);
+    const baselineSet = new Set(baseline.baselinePlaybookIds);
+    
+    // Compute diff against explicit baseline (union of all chains or preset)
+    const added = currentIds.filter(id => !baselineSet.has(id));
+    const removed = baseline.baselinePlaybookIds.filter(id => !currentSet.has(id));
+    const isExact = added.length === 0 && removed.length === 0;
+    
+    // Build title based on type
+    let title;
+    if (baseline.type === 'stack' && baseline.chains?.length > 0) {
+      if (baseline.chains.length === 1) {
+        title = baseline.chains[0].title;
+      } else {
+        title = `${baseline.chains.length} chains`;
+      }
+    } else if (baseline.type === 'preset') {
+      title = baseline.presetTitle || baseline.presetId;
+    } else {
+      title = null;
+    }
+    
+    return {
+      hasBaseline: true,
+      type: baseline.type,
+      title,
+      baselineIds: baseline.baselinePlaybookIds,
+      currentIds,
+      addedCount: added.length,
+      removedCount: removed.length,
+      added,
+      removed,
+      isExact,
+      chainCount: baseline.chains?.length || 0
+    };
+  }
+  
+  /**
+   * Find the closest matching baseline - DEPRECATED
+   * Backend is canonical source of truth; we don't guess baselines
+   * @returns {Object|null} Always returns null - baselines are explicit
+   */
+  function computeClosestBaselineSuggestion() {
+    // No longer used - baselines come from explicit backend compile
+    return null;
+  }
+  
+  // ════════════════════════════════════════════════════════════════════════════
+  // CHAIN STACK MANAGEMENT - Supports multiple chains stacked simultaneously
+  // All compilation is done by the backend via POST /api/chains/compile
+  // ════════════════════════════════════════════════════════════════════════════
+  
+  /**
+   * Add a chain to the stack (keeps existing chains)
+   * Calls backend to recompile the entire stack
+   * @param {string} chainId - The chain ID
+   * @returns {Promise<boolean>} true if added, false if already present or invalid
+   */
+  async function addChainToStack(chainId) {
+    // Check if already in stack
+    if (state.baseline.chains.some(c => c.chainId === chainId)) {
+      console.log('[addChainToStack] Chain already in stack:', chainId);
+      showToast(`Chain "${chainId}" is already in the stack`, 'info');
+      return false;
+    }
+    
+    // Build new chain list
+    const currentChainIds = state.baseline.chains.map(c => c.chainId);
+    const newChainIds = [...currentChainIds, chainId];
+    
+    // Call backend to compile
+    const result = await compileChainStackViaBackend(newChainIds);
+    if (!result.success) {
+      console.error('[addChainToStack] Backend compile failed:', result.errors);
+      showToast('Failed to add chain: ' + (result.errors?.[0] || 'compile error'), 'error');
+      return false;
+    }
+    
+    // Apply backend result to state
+    state.baseline.type = 'stack';
+    state.baseline.presetId = null;
+    state.baseline.presetTitle = null;
+    state.baseline.chains = result.baseline.chains;
+    state.baseline.baselinePlaybookIds = result.baseline.baselinePlaybookIds;
+    state.baseline.stepToPlaybooks = result.baseline.stepToPlaybooks || {};
+    
+    // Update selection to union
+    state.playbookSelection.mode = 'custom';
+    state.playbookSelection.selectedPlaybooks = [...state.baseline.baselinePlaybookIds];
+    
+    // Force chain-first view
+    state.outcome.useChainSteps = true;
+    
+    const addedChain = state.baseline.chains.find(c => c.chainId === chainId);
+    showToast(`Added "${addedChain?.title || chainId}" to stack`, 'success');
+    console.log('[addChainToStack]', chainId, '→ stack now has', state.baseline.chains.length, 'chains,', state.baseline.baselinePlaybookIds.length, 'playbooks');
+    return true;
+  }
+  
+  /**
+   * Replace the entire chain stack with a single chain
+   * Calls backend to compile
+   * @param {string} chainId - The chain ID
+   * @returns {Promise<boolean>} true if successful
+   */
+  async function replaceChainStack(chainId) {
+    // Call backend to compile single chain
+    const result = await compileChainStackViaBackend([chainId]);
+    if (!result.success) {
+      console.error('[replaceChainStack] Backend compile failed:', result.errors);
+      showToast('Failed to select chain: ' + (result.errors?.[0] || 'compile error'), 'error');
+      return false;
+    }
+    
+    // Apply backend result to state
+    state.baseline.type = 'stack';
+    state.baseline.presetId = null;
+    state.baseline.presetTitle = null;
+    state.baseline.chains = result.baseline.chains;
+    state.baseline.baselinePlaybookIds = result.baseline.baselinePlaybookIds;
+    state.baseline.stepToPlaybooks = result.baseline.stepToPlaybooks || {};
+    
+    // Update selection to union
+    state.playbookSelection.mode = 'custom';
+    state.playbookSelection.selectedPlaybooks = [...state.baseline.baselinePlaybookIds];
+    
+    // Force chain-first view
+    state.outcome.useChainSteps = true;
+    
+    const addedChain = state.baseline.chains[0];
+    showToast(`Selected "${addedChain?.title || chainId}"`, 'success');
+    console.log('[replaceChainStack]', chainId, '→ stack replaced with', state.baseline.baselinePlaybookIds.length, 'playbooks');
+    return true;
+  }
+  
+  /**
+   * Remove a specific chain from the stack
+   * Calls backend to recompile remaining chains
+   * @param {string} chainId - The chain ID to remove
+   * @returns {Promise<boolean>} true if removed
+   */
+  async function removeChainFromStack(chainId) {
+    const idx = state.baseline.chains.findIndex(c => c.chainId === chainId);
+    if (idx === -1) {
+      console.warn('[removeChainFromStack] Chain not in stack:', chainId);
+      return false;
+    }
+    
+    const removed = state.baseline.chains[idx];
+    
+    // Build new chain list without this one
+    const newChainIds = state.baseline.chains
+      .filter(c => c.chainId !== chainId)
+      .map(c => c.chainId);
+    
+    // If stack will be empty, clear baseline
+    if (newChainIds.length === 0) {
+      clearBaseline();
+      showToast(`Removed "${removed.title}"`, 'info');
+      return true;
+    }
+    
+    // Call backend to recompile
+    const result = await compileChainStackViaBackend(newChainIds);
+    if (!result.success) {
+      console.error('[removeChainFromStack] Backend compile failed:', result.errors);
+      showToast('Failed to update stack: ' + (result.errors?.[0] || 'compile error'), 'error');
+      return false;
+    }
+    
+    // Apply backend result to state
+    state.baseline.chains = result.baseline.chains;
+    state.baseline.baselinePlaybookIds = result.baseline.baselinePlaybookIds;
+    state.baseline.stepToPlaybooks = result.baseline.stepToPlaybooks || {};
+    
+    // Update selection to new union
+    state.playbookSelection.mode = 'custom';
+    state.playbookSelection.selectedPlaybooks = [...state.baseline.baselinePlaybookIds];
+    
+    showToast(`Removed "${removed.title}"`, 'info');
+    console.log('[removeChainFromStack] Removed:', removed.title, '→ stack now has', state.baseline.chains.length, 'chains');
+    return true;
+  }
+  
+  /**
+   * Clear the entire chain stack and baseline
+   */
+  function clearBaseline() {
+    state.baseline = {
+      type: null,
+      presetId: null,
+      presetTitle: null,
+      chains: [],
+      baselinePlaybookIds: []
+    };
+    state.outcome.useChainSteps = false;
+    state.outcome.chainSteps = [];
+    console.log('[clearBaseline] Baseline and chain stack cleared');
+  }
+  
+  /**
+   * Set explicit baseline anchor from a preset (clears any chain stack)
+   * Called when user explicitly changes the preset dropdown
+   */
+  function setBaselineFromPreset(presetId) {
+    const ps = state.playbookSelection;
+    const preset = ps.presets?.find(p => p.preset_id === presetId);
+    
+    if (!preset) {
+      console.warn('[setBaselineFromPreset] Unknown preset:', presetId);
+      return;
+    }
+    
+    const presetLabels = { 'general': 'General', 'extended': 'Extended', 'admin': 'Admin', 'sysmon': 'Sysmon' };
+    
+    // Clear chain stack when switching to preset
+    state.baseline = {
+      type: 'preset',
+      presetId: presetId,
+      presetTitle: presetLabels[presetId] || presetId,
+      chains: [],
+      baselinePlaybookIds: preset.playbook_ids || []
+    };
+    
+    state.outcome.useChainSteps = false;
+    state.outcome.chainSteps = [];
+    
+    console.log('[setBaselineFromPreset]', presetId, '→', state.baseline.baselinePlaybookIds.length, 'playbooks anchored');
+  }
+  
+  /**
+   * Legacy compatibility: Set baseline from a single chain (replaces stack)
+   * @deprecated Use addChainToStack or replaceChainStack instead
+   */
+  function setBaselineFromChain(chainId) {
+    replaceChainStack(chainId);
+  }
+  
+  /**
+   * Get the total chain count in the stack
+   */
+  function getChainStackCount() {
+    return state.baseline.chains?.length || 0;
+  }
+  
+  /**
+   * Check if a specific chain is in the stack
+   */
+  function isChainInStack(chainId) {
+    return state.baseline.chains?.some(c => c.chainId === chainId) || false;
+  }
+  
+  /**
+   * Map a playbook to its outcome step ID based on category and patterns
+   */
+  function mapPlaybookToStep(playbook) {
+    const pbId = (playbook.playbook_id || playbook.name || '').toLowerCase();
+    const category = (playbook.category || PLAYBOOK_METADATA[playbook.playbook_id]?.category || '').toLowerCase();
+    
+    // Check each step's patterns and categories
+    for (const [stepId, stepDef] of Object.entries(OUTCOME_STEP_MAPPING)) {
+      // Check category match
+      if (stepDef.categories.some(c => c.toLowerCase() === category)) {
+        return stepId;
+      }
+      // Check playbook ID pattern match
+      if (stepDef.playbookPatterns.some(pattern => pbId.includes(pattern))) {
+        return stepId;
+      }
+    }
+    
+    // Default: map to defense-evasion if category matches loosely, else null
+    if (category.includes('evasion') || category.includes('defense')) {
+      return 'defense-evasion';
+    }
+    if (category.includes('execution') || category.includes('initial')) {
+      return 'initial-access';
+    }
+    
+    return null; // Doesn't map to any step
+  }
+  
+  /**
+   * Map a playbook to a micro-step ID if it matches fine-grained patterns
+   * Returns { microStepId, parentStepId } or null
+   */
+  function mapPlaybookToMicroStep(playbook) {
+    const pbId = (playbook.playbook_id || playbook.name || '').toLowerCase();
+    const title = (playbook.title || PLAYBOOK_METADATA[playbook.playbook_id]?.title || '').toLowerCase();
+    const searchText = pbId + ' ' + title;
+    
+    for (const [microId, microDef] of Object.entries(MICRO_STEP_MAPPING)) {
+      if (microDef.patterns.some(pattern => searchText.includes(pattern))) {
+        return { microStepId: microId, parentStepId: microDef.parentStep };
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Compute outcome steps from current selection
+   * Returns array of step objects with playbook mappings and status
+   * Also computes micro-steps and sets state.outcome.useMicroSteps
+   */
+  function computeOutcomeSteps() {
+    const selectedIds = computeEffectiveSelectionIds();
+    const catalog = state.catalog;
+    const readiness = state.telemetryReadiness;
+    
+    if (catalog.status !== 'ready' || selectedIds.length === 0) {
+      state.outcome.microSteps = [];
+      state.outcome.useMicroSteps = false;
+      return [];
+    }
+    
+    // Get playbook details for selected IDs
+    const playbooksById = catalog.playbooksById || {};
+    const enrichedPlaybooks = getEnrichedPlaybooks();
+    const enrichedById = {};
+    enrichedPlaybooks.forEach(pb => {
+      enrichedById[pb.playbook_id || pb.name] = pb;
+    });
+    
+    // Group selected playbooks by macro step AND micro step
+    const stepPlaybooks = {};
+    const microStepPlaybooks = {};
+    
+    for (const pbId of selectedIds) {
+      const pb = enrichedById[pbId] || playbooksById[pbId] || { playbook_id: pbId };
+      const stepId = mapPlaybookToStep(pb);
+      const microMapping = mapPlaybookToMicroStep(pb);
+      
+      const pbInfo = {
+        id: pbId,
+        title: PLAYBOOK_METADATA[pbId]?.title || pb.name || pbId,
+        blocked: pb.telemetry_blocked === true,
+        unverified: pb.telemetry_unverified === true,
+        category: pb.category || PLAYBOOK_METADATA[pbId]?.category || 'Detection'
+      };
+      
+      // Map to macro step
+      if (stepId) {
+        if (!stepPlaybooks[stepId]) {
+          stepPlaybooks[stepId] = [];
+        }
+        stepPlaybooks[stepId].push(pbInfo);
+      }
+      
+      // Map to micro step if matched
+      if (microMapping) {
+        if (!microStepPlaybooks[microMapping.microStepId]) {
+          microStepPlaybooks[microMapping.microStepId] = [];
+        }
+        microStepPlaybooks[microMapping.microStepId].push(pbInfo);
+      }
+    }
+    
+    // Build step objects only for steps that have playbooks
+    const steps = [];
+    for (const [stepId, stepDef] of Object.entries(OUTCOME_STEP_MAPPING)) {
+      const pbs = stepPlaybooks[stepId];
+      if (!pbs || pbs.length === 0) continue;
+      
+      const runnableCount = pbs.filter(p => !p.blocked && !p.unverified).length;
+      const blockedCount = pbs.filter(p => p.blocked).length;
+      const unverifiedCount = pbs.filter(p => p.unverified && !p.blocked).length;
+      
+      // Determine step readiness status
+      let readinessStatus = 'ready';
+      let readinessReason = '';
+      
+      if (blockedCount === pbs.length) {
+        readinessStatus = 'blocked';
+        readinessReason = 'All playbooks blocked by missing telemetry';
+      } else if (blockedCount > 0) {
+        readinessStatus = 'partial';
+        readinessReason = `${blockedCount} of ${pbs.length} playbooks blocked`;
+      } else if (unverifiedCount > 0) {
+        readinessStatus = 'unverified';
+        readinessReason = 'Telemetry not yet verified';
+      }
+      
+      steps.push({
+        id: stepId,
+        title: stepDef.title,
+        description: stepDef.description,
+        icon: stepDef.icon,
+        order: stepDef.order,
+        playbooks: pbs,
+        playbookCount: pbs.length,
+        runnableCount,
+        blockedCount,
+        unverifiedCount,
+        readinessStatus,
+        readinessReason
+      });
+    }
+    
+    // Sort by order
+    steps.sort((a, b) => a.order - b.order);
+    
+    // Build micro-steps array
+    const microSteps = [];
+    for (const [microId, microDef] of Object.entries(MICRO_STEP_MAPPING)) {
+      const pbs = microStepPlaybooks[microId];
+      if (!pbs || pbs.length === 0) continue;
+      
+      const runnableCount = pbs.filter(p => !p.blocked && !p.unverified).length;
+      const blockedCount = pbs.filter(p => p.blocked).length;
+      const unverifiedCount = pbs.filter(p => p.unverified && !p.blocked).length;
+      
+      let readinessStatus = 'ready';
+      if (blockedCount === pbs.length) {
+        readinessStatus = 'blocked';
+      } else if (blockedCount > 0) {
+        readinessStatus = 'partial';
+      } else if (unverifiedCount > 0) {
+        readinessStatus = 'unverified';
+      }
+      
+      microSteps.push({
+        id: microId,
+        title: microDef.title,
+        description: microDef.description,
+        icon: microDef.icon,
+        order: microDef.order,
+        parentStep: microDef.parentStep,
+        playbooks: pbs,
+        playbookCount: pbs.length,
+        runnableCount,
+        blockedCount,
+        unverifiedCount,
+        readinessStatus,
+        isMicro: true
+      });
+    }
+    microSteps.sort((a, b) => a.order - b.order);
+    
+    // Determine if we should use micro-steps as primary view
+    // Use micro-steps if: <=3 distinct micro-steps AND micro-steps cover most playbooks
+    const uniqueMicroSteps = microSteps.length;
+    const microCoveredPlaybooks = microSteps.reduce((sum, s) => sum + s.playbookCount, 0);
+    const useMicro = uniqueMicroSteps > 0 && uniqueMicroSteps <= 3 && microCoveredPlaybooks >= selectedIds.length * 0.5;
+    
+    state.outcome.microSteps = microSteps;
+    state.outcome.useMicroSteps = useMicro;
+    
+    // ── Chain Steps: Build from STACKED chains in baseline ──
+    // If baseline.type === 'stack', render steps from ALL chains in the stack
+    const baseline = state.baseline;
+    if (baseline.type === 'stack' && baseline.chains && baseline.chains.length > 0) {
+      const chainSteps = [];
+      const currentSet = new Set(selectedIds);
+      
+      // Get readiness info for all selected playbooks
+      let runnableTotal = 0;
+      let blockedTotal = 0;
+      let unverifiedTotal = 0;
+      
+      for (const pbId of selectedIds) {
+        const pb = enrichedById[pbId] || playbooksById[pbId] || {};
+        if (pb.telemetry_blocked) blockedTotal++;
+        else if (pb.telemetry_unverified) unverifiedTotal++;
+        else runnableTotal++;
+      }
+      
+      // Process each chain in the stack
+      for (const chainEntry of baseline.chains) {
+        const chain = chainEntry.definition;
+        if (!chain || !chain.steps) continue;
+        
+        // Check if any compiled playbooks from this chain have been removed
+        const chainPlaybookSet = new Set(chainEntry.compiledPlaybookIds);
+        const removedFromChain = chainEntry.compiledPlaybookIds.filter(id => !currentSet.has(id));
+        const chainModified = removedFromChain.length > 0;
+        
+        // Calculate playbook distribution for this chain's steps
+        const chainPlaybooksInSelection = selectedIds.filter(id => chainPlaybookSet.has(id)).length;
+        const stepsPerChain = chain.steps.length;
+        const avgPerStep = Math.ceil(chainPlaybooksInSelection / stepsPerChain) || 1;
+        
+        chain.steps.forEach((step, idx) => {
+          // Proportionally assign playbooks to steps
+          const stepPlaybookCount = idx < stepsPerChain - 1 ? avgPerStep : 
+            Math.max(1, chainPlaybooksInSelection - (avgPerStep * (stepsPerChain - 1)));
+          const adjustedCount = Math.max(1, Math.min(stepPlaybookCount, chainPlaybooksInSelection - idx * avgPerStep));
+          
+          // Proportionally assign blocked/runnable
+          const fraction = chainPlaybooksInSelection > 0 ? adjustedCount / chainPlaybooksInSelection : 1 / stepsPerChain;
+          const stepBlocked = Math.round(blockedTotal * fraction);
+          const stepUnverified = Math.round(unverifiedTotal * fraction);
+          const stepRunnable = Math.max(0, adjustedCount - stepBlocked - stepUnverified);
+          
+          let readinessStatus = 'ready';
+          if (stepBlocked === adjustedCount && adjustedCount > 0) {
+            readinessStatus = 'blocked';
+          } else if (stepBlocked > 0) {
+            readinessStatus = 'partial';
+          } else if (stepUnverified > 0) {
+            readinessStatus = 'unverified';
+          }
+          
+          chainSteps.push({
+            id: `${chainEntry.chainId}-${step.id}`,
+            title: step.title,
+            description: step.description,
+            icon: step.icon,
+            order: idx,
+            playbookCount: adjustedCount || 1,
+            runnableCount: stepRunnable,
+            blockedCount: stepBlocked,
+            unverifiedCount: stepUnverified,
+            readinessStatus,
+            isChainStep: true,
+            chainId: chainEntry.chainId,
+            chainTitle: chainEntry.title,
+            chainIcon: chainEntry.icon,
+            chainModified,
+            removedFromChain: removedFromChain.length
+          });
+        });
+      }
+      
+      // Store chain steps and force use as primary
+      state.outcome.chainSteps = chainSteps;
+      state.outcome.useChainSteps = true;
+    } else {
+      state.outcome.chainSteps = [];
+      state.outcome.useChainSteps = false;
+    }
+    
+    return steps;
+  }
+  
+  /**
+   * Update outcome step statuses from run data (signals/evals)
+   * Called during run and after stop to mark satisfied steps
+   * Updates both macro steps and micro steps
+   */
+  function updateOutcomeStatusesFromRun() {
+    const macroSteps = state.outcome.steps || [];
+    const microSteps = state.outcome.microSteps || [];
+    const chainSteps = state.outcome.chainSteps || [];
+    const allSteps = [...macroSteps, ...microSteps, ...chainSteps];
+    
+    if (allSteps.length === 0) return;
+    
+    const signals = state.signals || [];
+    const stepStatus = {};
+    
+    // Build mapping from playbook ID to signals
+    const signalsByPlaybook = {};
+    signals.forEach(sig => {
+      const pbId = sig.playbook_id || sig.playbook || sig.detection_id;
+      if (pbId) {
+        if (!signalsByPlaybook[pbId]) signalsByPlaybook[pbId] = [];
+        signalsByPlaybook[pbId].push(sig);
+      }
+    });
+    
+    // For chain steps, use all selected playbooks for signal matching
+    const selectedIds = computeEffectiveSelectionIds();
+    
+    // Update each step's status (macro, micro, AND chain)
+    for (const step of allSteps) {
+      let status = 'not-observed';
+      let evidenceCount = 0;
+      const matchedPlaybooks = [];
+      
+      // For chain steps, check signals from ANY selected playbook
+      const playbooksToCheck = step.isChainStep ? 
+        selectedIds.map(id => ({ id, title: id })) : 
+        (step.playbooks || []);
+      
+      // Check if any playbook in this step fired
+      for (const pb of playbooksToCheck) {
+        const sigs = signalsByPlaybook[pb.id] || [];
+        if (sigs.length > 0) {
+          matchedPlaybooks.push({
+            id: pb.id,
+            title: pb.title,
+            signalCount: sigs.length,
+            evidenceRefs: sigs.reduce((acc, s) => acc + (s.evidence_refs?.length || s.fact_ids?.length || 1), 0)
+          });
+          evidenceCount += sigs.reduce((acc, s) => acc + (s.evidence_refs?.length || s.fact_ids?.length || 1), 0);
+        }
+      }
+      
+      // For chain steps: satisfied if any playbook fires
+      // For regular steps: satisfied if at least one mapped playbook fires
+      if (matchedPlaybooks.length > 0) {
+        status = 'satisfied';
+      } else if (step.readinessStatus === 'blocked') {
+        status = 'blocked';
+      } else if (step.readinessStatus === 'unverified') {
+        status = 'unverified';
+      }
+      
+      stepStatus[step.id] = {
+        status,
+        evidenceCount,
+        matchedPlaybooks,
+        signalCount: matchedPlaybooks.reduce((acc, m) => acc + m.signalCount, 0)
+      };
+    }
+    
+    state.outcome.stepStatus = stepStatus;
+  }
+  
+  /**
+   * Get status icon for a step
+   */
+  function getStepStatusIcon(status) {
+    switch (status) {
+      case 'satisfied': return '✅';
+      case 'candidate': return '🟡';
+      case 'not-observed': return '⚪';
+      case 'blocked': return '⛔';
+      case 'unverified': return '❓';
+      default: return '⚪';
+    }
+  }
+  
+  /**
+   * Get status badge class for a step
+   */
+  function getStepStatusClass(status) {
+    switch (status) {
+      case 'satisfied': return 'step-satisfied';
+      case 'candidate': return 'step-candidate';
+      case 'blocked': return 'step-blocked';
+      case 'unverified': return 'step-unverified';
+      default: return 'step-pending';
+    }
+  }
+  
+  /**
+   * Main render function for Outcome Checklist
+   * Handles preview, tracking, and tracking-final modes
+   * Supports micro-step primary view for narrow selections
+   * Shows chain/preset/custom state in header
+   * Supports stacked chains with per-chain step rendering
+   */
+  function renderOutcomeChecklist() {
+    const container = document.getElementById('outcomeChecklistContainer');
+    if (!container) return;
+    
+    // Recompute steps from current selection
+    state.outcome.steps = computeOutcomeSteps();
+    const macroSteps = state.outcome.steps;
+    const microSteps = state.outcome.microSteps || [];
+    const chainSteps = state.outcome.chainSteps || [];
+    
+    // Use EXPLICIT baseline to determine if chain-first
+    // If baseline.type === 'stack', ALWAYS use chain steps (even when modified)
+    const baseline = state.baseline;
+    const diff = computeDiffFromBaseline();
+    const useChainStack = baseline.type === 'stack' && baseline.chains.length > 0 && chainSteps.length > 0;
+    const useMicro = !useChainStack && state.outcome.useMicroSteps;
+    
+    // Priority: chain steps (when stack exists) > micro steps > macro steps
+    const steps = useChainStack ? chainSteps : (useMicro ? microSteps : macroSteps);
+    const mode = state.outcome.mode;
+    const verbose = state.outcome.verbose;
+    
+    // Debug logging
+    const isDebugUI = window.location.search.includes('debug_ui=1');
+    if (isDebugUI) {
+      console.log('%c[OutcomeChecklist] render', 'color: #22c55e', { mode, useChainStack, useMicro, stepCount: steps.length, baselineType: baseline.type, chainCount: baseline.chains?.length, isExact: diff.isExact });
+    }
+    
+    // Update statuses if in tracking mode
+    if (mode === 'tracking' || mode === 'tracking-final') {
+      updateOutcomeStatusesFromRun();
+    }
+    
+    // Build HTML
+    let html = '';
+    
+    // Determine header title based on EXPLICIT baseline state
+    let typeLabel;
+    let showModifiedBadge = false;
+    
+    if (baseline.type === 'stack' && baseline.chains.length > 0) {
+      // Stacked chains - show count
+      if (baseline.chains.length === 1) {
+        typeLabel = `Chain: ${baseline.chains[0].title}`;
+      } else {
+        typeLabel = `Chains (${baseline.chains.length})`;
+      }
+      if (!diff.isExact) {
+        showModifiedBadge = true;
+      }
+    } else if (baseline.type === 'preset') {
+      if (diff.isExact || state.playbookSelection.mode === 'preset') {
+        typeLabel = 'Attack Chain (macro)';
+      } else {
+        typeLabel = `Custom (based on ${baseline.presetTitle})`;
+      }
+    } else if (useMicro) {
+      typeLabel = 'Focused Checklist';
+    } else {
+      typeLabel = 'Attack Chain';
+    }
+    
+    const modeLabel = mode === 'preview' ? `🎯 ${typeLabel}` : 
+                      mode === 'tracking' ? '📊 Tracking (Live)' : '📊 Run Complete';
+    
+    html += `<div class="outcome-header">`;
+    html += `<span class="outcome-title">${modeLabel}`;
+    if (showModifiedBadge) {
+      html += ` <span style="font-size: 9px; padding: 1px 5px; background: rgba(251, 191, 36, 0.2); border-radius: 3px; color: var(--warn);">modified</span>`;
+    }
+    html += `</span>`;
+    html += `<div class="outcome-controls">`;
+    if ((useChainStack || useMicro) && macroSteps.length > 0) {
+      html += `<button id="btnOutcomeViewMacro" class="linklike" style="font-size: 9px; margin-right: 6px;">Full Chain</button>`;
+    }
+    html += `<button id="btnOutcomeVerbose" class="linklike" style="font-size: 9px;">${verbose ? 'Compact' : 'Verbose'}</button>`;
+    html += `</div>`;
+    html += `</div>`;
+    
+    // Show diff warning if modified with removals
+    if (diff.hasBaseline && !diff.isExact && diff.removedCount > 0 && mode === 'preview') {
+      html += `<div style="font-size: 10px; padding: 6px 8px; background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: var(--radius-sm); margin-bottom: 8px; color: var(--warn);">`;
+      html += `⚠️ ${diff.removedCount} playbook${diff.removedCount > 1 ? 's' : ''} removed from baseline. Some steps may not fire.`;
+      html += `</div>`;
+    }
+    
+    if (steps.length === 0) {
+      html += `<div class="outcome-empty">`;
+      if (state.catalog.status === 'loading') {
+        html += `<span style="color: var(--muted);">Loading playbook catalog...</span>`;
+      } else if (state.catalog.status !== 'ready') {
+        html += `<span style="color: var(--muted);">Catalog not loaded</span>`;
+      } else {
+        html += `<span style="color: var(--muted);">No playbooks selected. Choose playbooks to build your attack chain.</span>`;
+      }
+      html += `</div>`;
+    } else if (useChainStack && baseline.chains.length > 1) {
+      // ── STACKED CHAINS: Group steps by chain ──
+      html += `<div class="outcome-steps outcome-stacked">`;
+      
+      for (const chainEntry of baseline.chains) {
+        const chainId = chainEntry.chainId;
+        const chainStepsForThis = steps.filter(s => s.chainId === chainId);
+        if (chainStepsForThis.length === 0) continue;
+        
+        // Check if this chain has been modified
+        const chainModified = chainStepsForThis.some(s => s.chainModified);
+        
+        // Chain header
+        html += `<div class="chain-section" data-chain-id="${chainId}">`;
+        html += `<div class="chain-section-header" style="
+          display: flex; align-items: center; gap: 8px;
+          padding: 6px 8px;
+          background: rgba(99, 102, 241, 0.05);
+          border-radius: var(--radius-sm);
+          margin-bottom: 6px;
+        ">`;
+        html += `<span style="font-size: 14px;">${chainEntry.icon || '🔗'}</span>`;
+        html += `<span style="font-size: 11px; font-weight: 600; color: var(--text);">${escapeHtml(chainEntry.title)}</span>`;
+        if (chainModified) {
+          html += `<span style="font-size: 9px; padding: 1px 5px; background: rgba(251, 191, 36, 0.2); border-radius: 3px; color: var(--warn);">modified</span>`;
+        }
+        html += `<button class="btn-chain-stack-remove linklike" data-chain-id="${chainId}" style="margin-left: auto; font-size: 9px; color: var(--muted);">✕</button>`;
+        html += `</div>`;
+        
+        // Chain steps
+        for (const step of chainStepsForThis) {
+          const stepStatus = state.outcome.stepStatus[step.id] || { status: 'not-observed', evidenceCount: 0 };
+          const statusForDisplay = mode === 'preview' ? 
+            (step.readinessStatus === 'blocked' ? 'blocked' : 
+             step.readinessStatus === 'unverified' ? 'unverified' : 'not-observed') :
+            stepStatus.status;
+          
+          const statusIcon = getStepStatusIcon(statusForDisplay);
+          const statusClass = getStepStatusClass(statusForDisplay);
+          
+          html += `<div class="outcome-step ${statusClass}" data-step-id="${step.id}" style="margin-left: 16px;">`;
+          html += `<div class="step-main">`;
+          html += `<span class="step-icon">${step.icon}</span>`;
+          html += `<div class="step-content">`;
+          html += `<div class="step-title">${escapeHtml(step.title)} <span class="step-status">${statusIcon}</span></div>`;
+          
+          // Count badge
+          const countLabel = step.playbookCount === 1 ? '1 check' : `${step.playbookCount} checks`;
+          html += `<span class="step-count">${countLabel}</span>`;
+          
+          // Verbose: show description
+          if (verbose) {
+            html += `<div class="step-description">${escapeHtml(step.description)}</div>`;
+          }
+          
+          html += `</div></div></div>`; // .step-content, .step-main, .outcome-step
+        }
+        
+        html += `</div>`; // .chain-section
+      }
+      
+      html += `</div>`; // .outcome-steps
+      
+      // Summary line for stacked chains
+      if (mode === 'preview') {
+        const readyCount = steps.filter(s => s.readinessStatus === 'ready').length;
+        const blockedSteps = steps.filter(s => s.readinessStatus === 'blocked').length;
+        html += `<div class="outcome-summary">${baseline.chains.length} chains · ${readyCount} steps ready${blockedSteps > 0 ? ` · ${blockedSteps} blocked` : ''}</div>`;
+      } else {
+        const satisfiedCount = Object.values(state.outcome.stepStatus).filter(s => s.status === 'satisfied').length;
+        html += `<div class="outcome-summary">${satisfiedCount} of ${steps.length} steps satisfied</div>`;
+      }
+    } else {
+      // ── SINGLE CHAIN OR NON-CHAIN: Flat step list ──
+      // Determine display mode based on step count
+      const showExpanded = steps.length <= 5 || state.outcome.expanded;
+      const stepsToShow = showExpanded ? steps : steps.slice(0, 6);
+      const moreCount = steps.length - 6;
+      
+      html += `<div class="outcome-steps">`;
+      
+      for (const step of stepsToShow) {
+        const stepStatus = state.outcome.stepStatus[step.id] || { status: 'not-observed', evidenceCount: 0 };
+        const statusForDisplay = mode === 'preview' ? 
+          (step.readinessStatus === 'blocked' ? 'blocked' : 
+           step.readinessStatus === 'unverified' ? 'unverified' : 'not-observed') :
+          stepStatus.status;
+        
+        const statusIcon = getStepStatusIcon(statusForDisplay);
+        const statusClass = getStepStatusClass(statusForDisplay);
+        const microClass = step.isMicro ? 'micro-step' : '';
+        
+        html += `<div class="outcome-step ${statusClass} ${microClass}" data-step-id="${step.id}">`;
+        html += `<div class="step-main">`;
+        html += `<span class="step-icon">${step.icon}</span>`;
+        html += `<div class="step-content">`;
+        html += `<div class="step-title">${escapeHtml(step.title)} <span class="step-status">${statusIcon}</span></div>`;
+        
+        // Count badge
+        const countLabel = step.playbookCount === 1 ? '1 check' : `${step.playbookCount} checks`;
+        html += `<span class="step-count">${countLabel}</span>`;
+        
+        // Verbose: show description
+        if (verbose) {
+          html += `<div class="step-description">${escapeHtml(step.description)}</div>`;
+        }
+        
+        // Status-specific info
+        if (mode === 'preview') {
+          if (step.readinessStatus === 'blocked') {
+            html += `<div class="step-reason">⛔ ${step.blockedCount} blocked (missing telemetry)</div>`;
+          } else if (step.readinessStatus === 'partial') {
+            html += `<div class="step-reason">⚠️ ${step.blockedCount} of ${step.playbookCount} blocked</div>`;
+          } else if (step.readinessStatus === 'unverified') {
+            html += `<div class="step-reason">❓ Awaiting telemetry verification</div>`;
+          }
+        } else if (statusForDisplay === 'satisfied') {
+          html += `<div class="step-evidence">Evidence: ${stepStatus.evidenceCount} refs</div>`;
+          if (verbose && stepStatus.matchedPlaybooks.length > 0) {
+            html += `<ul class="step-matches">`;
+            for (const m of stepStatus.matchedPlaybooks) {
+              html += `<li>${escapeHtml(m.title)}: ${m.signalCount} signal${m.signalCount > 1 ? 's' : ''}</li>`;
+            }
+            html += `</ul>`;
+          }
+        }
+        
+        html += `</div>`; // .step-content
+        html += `</div>`; // .step-main
+        html += `</div>`; // .outcome-step
+      }
+      
+      html += `</div>`; // .outcome-steps
+      
+      // Show more toggle if needed
+      if (moreCount > 0 && !showExpanded) {
+        html += `<button id="btnOutcomeExpand" class="linklike" style="font-size: 10px; margin-top: 6px;">+ ${moreCount} more steps</button>`;
+      } else if (steps.length > 5 && showExpanded) {
+        html += `<button id="btnOutcomeExpand" class="linklike" style="font-size: 10px; margin-top: 6px;">Show less</button>`;
+      }
+      
+      // Summary line
+      if (mode === 'preview') {
+        const readyCount = steps.filter(s => s.readinessStatus === 'ready').length;
+        const blockedSteps = steps.filter(s => s.readinessStatus === 'blocked').length;
+        html += `<div class="outcome-summary">${readyCount} steps ready${blockedSteps > 0 ? ` · ${blockedSteps} blocked` : ''}</div>`;
+      } else {
+        const satisfiedCount = Object.values(state.outcome.stepStatus).filter(s => s.status === 'satisfied').length;
+        html += `<div class="outcome-summary">${satisfiedCount} of ${steps.length} steps satisfied</div>`;
+        
+        if (satisfiedCount === 0 && mode === 'tracking-final') {
+          html += `<div class="outcome-nofindings">No chain steps observed. Check Evidence/Events for raw telemetry.</div>`;
+        }
+      }
+    }
+    
+    container.innerHTML = html;
+    
+    // Wire up handlers
+    const btnVerbose = document.getElementById('btnOutcomeVerbose');
+    if (btnVerbose) {
+      btnVerbose.onclick = () => {
+        state.outcome.verbose = !state.outcome.verbose;
+        renderOutcomeChecklist();
+      };
+    }
+    
+    const btnExpand = document.getElementById('btnOutcomeExpand');
+    if (btnExpand) {
+      btnExpand.onclick = () => {
+        state.outcome.expanded = !state.outcome.expanded;
+        renderOutcomeChecklist();
+      };
+    }
+    
+    // Toggle to full macro chain view
+    const btnViewMacro = document.getElementById('btnOutcomeViewMacro');
+    if (btnViewMacro) {
+      btnViewMacro.onclick = () => {
+        state.outcome.useMicroSteps = false; // Force macro view
+        state.outcome.useChainSteps = false; // Clear chain view
+        clearBaseline();
+        renderOutcomeChecklist();
+      };
+    }
+    
+    // Remove chain from stack (in stacked view)
+    container.querySelectorAll('.btn-chain-stack-remove').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const chainId = btn.dataset.chainId;
+        removeChainFromStack(chainId);
+        updatePlaybookSelectionSummary();
+        rerenderMissionDerivedPanels('chain-removed-from-dock:' + chainId);
+      };
+    });
+  }
+  
+  /**
+   * Switch Outcome to tracking mode (called on run start)
+   */
+  function setOutcomeTrackingMode() {
+    state.outcome.mode = 'tracking';
+    state.outcome.stepStatus = {};
+    renderOutcomeChecklist();
+  }
+  
+  /**
+   * Switch Outcome to tracking-final mode (called on run stop)
+   */
+  function setOutcomeTrackingFinalMode() {
+    state.outcome.mode = 'tracking-final';
+    updateOutcomeStatusesFromRun();
+    renderOutcomeChecklist();
+  }
+  
+  /**
+   * Reset Outcome to preview mode (for new run preparation)
+   */
+  function resetOutcomeToPreview() {
+    state.outcome.mode = 'preview';
+    state.outcome.stepStatus = {};
+    renderOutcomeChecklist();
+  }
+  
+  // Legacy compatibility: keep renderOutcomePreview as alias
+  function renderOutcomePreview() {
+    renderOutcomeChecklist();
+  }
+  
+  /**
+   * Get effective playbooks based on current selection mode
+   */
+  function getEffectivePlaybooks() {
+    const ps = state.playbookSelection;
+    const catalog = state.catalog;
+    
+    if (catalog.status !== 'ready' || !catalog.playbooks) return [];
+    
+    if (ps.mode === 'custom' && ps.selectedPlaybooks && ps.selectedPlaybooks.length > 0) {
+      // Custom mode: return only selected playbooks
+      const selectedSet = new Set(ps.selectedPlaybooks);
+      return catalog.playbooks.filter(pb => selectedSet.has(pb.playbook_id || pb.name));
+    }
+    
+    // Preset mode: return playbooks matching the preset
+    // For simplicity, use the already-computed effective selection from preset
+    // This should match what applyPresetSelection computed
+    return catalog.playbooks.filter(pb => {
+      // If we have explicit selection tracking, use it
+      if (ps.effectivePlaybooks) {
+        return ps.effectivePlaybooks.includes(pb.playbook_id || pb.name);
+      }
+      // Otherwise return all non-blocked playbooks as a fallback
+      return !pb.telemetry_blocked;
+    });
+  }
+  
+  /**
+   * Render the Contract Receipt Strip above Launch button
+   * Shows compact summary: runnable · blocked · unverified · Confidence
+   */
+  function renderContractReceiptStrip() {
+    const receiptRunnable = document.getElementById('receiptRunnable');
+    const receiptBlocked = document.getElementById('receiptBlocked');
+    const receiptUnverified = document.getElementById('receiptUnverified');
+    const receiptConfidence = document.getElementById('receiptConfidence');
+    const receiptWarning = document.getElementById('receiptWarning');
+    const receiptWarningText = document.getElementById('receiptWarningText');
+    
+    if (!receiptRunnable) return; // Receipt strip not in DOM
+    
+    const ps = state.playbookSelection;
+    const readinessState = state.readinessState || 'unknown';
+    
+    // Counts
+    const runnableCount = ps.runnableCount || 0;
+    const blockedCount = ps.blockedCount || 0;
+    const unverifiedCount = ps.unverifiedCount || 0;
+    
+    receiptRunnable.textContent = runnableCount;
+    receiptBlocked.textContent = blockedCount;
+    receiptUnverified.textContent = unverifiedCount;
+    
+    // Confidence label based on readiness and blocked/unverified counts
+    let confidenceLabel = 'Good';
+    let confidenceColor = 'var(--good)';
+    
+    if (readinessState === 'unreachable' || readinessState === 'unknown') {
+      confidenceLabel = 'Unknown';
+      confidenceColor = 'var(--muted)';
+    } else if (readinessState === 'limited' || readinessState === 'degraded' || blockedCount > 0) {
+      confidenceLabel = 'Limited';
+      confidenceColor = 'var(--warn)';
+    } else if (unverifiedCount > 0) {
+      confidenceLabel = 'Unverified';
+      confidenceColor = 'var(--muted)';
+    }
+    
+    receiptConfidence.textContent = confidenceLabel;
+    receiptConfidence.style.color = confidenceColor;
+    
+    // Warning line
+    if (blockedCount > 0 || (readinessState === 'limited' || readinessState === 'degraded')) {
+      let warnings = [];
+      if (blockedCount > 0) warnings.push(`${blockedCount} playbook${blockedCount > 1 ? 's' : ''} blocked`);
+      if (readinessState === 'limited' || readinessState === 'degraded') warnings.push('telemetry access limited');
+      receiptWarningText.textContent = warnings.join(' · ');
+      receiptWarning.classList.remove('hidden');
+    } else {
+      receiptWarning.classList.add('hidden');
+    }
+  }
+  
+  /**
+  /**
+   * Show blocked reasons modal/panel
+   */
+  function showBlockedReasons() {
+    // Use enriched playbooks (catalog + readiness)
+    const playbooks = getEnrichedPlaybooks();
+    if (playbooks.length === 0) {
+      showToast('Catalog not loaded yet', 'info');
+      return;
+    }
+    
+    const blocked = playbooks.filter(p => p.telemetry_blocked);
+    if (blocked.length === 0) {
+      showToast('No blocked playbooks', 'info');
+      return;
+    }
+    
+    // Group by reason
+    const byReason = {};
+    for (const pb of blocked) {
+      const reason = pb.blocked_reason || 'Unknown reason';
+      if (!byReason[reason]) byReason[reason] = [];
+      byReason[reason].push(pb);
+    }
+    
+    let message = '<div style="max-height: 300px; overflow-y: auto;">';
+    for (const [reason, pbs] of Object.entries(byReason)) {
+      message += `<div style="margin-bottom: 12px;">`;
+      message += `<div style="font-weight: 600; color: var(--warn); margin-bottom: 4px;">⚠️ ${escapeHtml(reason)}</div>`;
+      message += `<div style="font-size: 11px; color: var(--muted); padding-left: 12px;">`;
+      message += pbs.map(p => PLAYBOOK_METADATA[p.playbook_id]?.title || p.playbook_id).join(', ');
+      message += `</div></div>`;
+    }
+    message += '</div>';
+    
+    showModal('Blocked Playbooks', message, [
+      { label: 'Fix Coverage', action: () => { toggleCoverageRequirementsPanel(); closeModal(); }, primary: true },
+      { label: 'Close', action: closeModal }
+    ]);
   }
 
   /**
@@ -3790,7 +7299,7 @@ cargo build --release -p edr-locald --bin edr-locald`;
     
     // Map reason codes to user-friendly guidance
     // Backend uses: MISSING_RUN_ID, MISSING_SEGMENT_ID, RUN_NOT_FOUND, SEGMENT_NOT_FOUND,
-    //               OFFSET_OUT_OF_BOUNDS, PARSE_ERROR, IO_ERROR, PATH_TRAVERSAL
+    //               OFFSET_OUT_OF_BOUNDS, PARSE_ERROR, IO_ERROR, PATH_TRAVERSAL, RUN_META_MISMATCH
     const guidance = {
       'RUN_NOT_FOUND': 'The run may have been deleted or the run_id is incorrect.',
       'SEGMENT_NOT_FOUND': 'The segment file was not found. It may have been deleted or the segment_id is incorrect.',
@@ -3806,6 +7315,7 @@ cargo build --release -p edr-locald --bin edr-locald`;
       'SCAN_LIMIT_EXCEEDED': 'The record is too deep in the file or the line is too large to retrieve safely.',
       'MISSING_RUN_ID': 'Missing required run_id parameter.',
       'MISSING_SEGMENT_ID': 'Missing required segment_id parameter.',
+      'RUN_META_MISMATCH': 'Run folder/metadata mismatch detected. This can happen if a run folder was moved manually, a partial write occurred during run creation, or data corruption. Try rescanning runs or verify the runs folder contents.',
     };
     
     // Build segment_id display
@@ -3925,6 +7435,8 @@ cargo build --release -p edr-locald --bin edr-locald`;
       // Stop explain refresh when run stops (explanation won't change anymore)
       if (wasRunning && !state.isRunning) {
         stopExplainRefresh();
+        // Run just completed - show final satisfaction status in checklist
+        setOutcomeTrackingFinalMode();
       }
       
       // Update UI based on backend state
@@ -4075,11 +7587,28 @@ cargo build --release -p edr-locald --bin edr-locald`;
     const profile = els.profileSelect?.value || 'extended';
     const durationMin = parseInt(els.durationSelect?.value || '10', 10);
     
+    // Warn if no playbooks available
+    const noPlaybooks = !detectionPlanCatalog || detectionPlanCatalog.length === 0;
+    if (noPlaybooks) {
+      const proceed = confirm(
+        'No detection playbooks available.\n\n' +
+        'Runs will capture telemetry, but Findings may be limited without playbooks.\n\n' +
+        'Do you want to start the run anyway?'
+      );
+      if (!proceed) return;
+    }
+    
     // Disable button and show spinner
     if (els.btnStartRun) {
       els.btnStartRun.disabled = true;
       els.btnStartRun.textContent = '⏳ Starting...';
     }
+    
+    // Capture current readiness state for later (to show "limited visibility" in results)
+    state.lastRunReadinessState = state.readinessState || 'unknown';
+    
+    // Prepare for new run - reset outcome to preview mode first
+    resetOutcomeToPreview();
     
     try {
       hideError();
@@ -4087,12 +7616,16 @@ cargo build --release -p edr-locald --bin edr-locald`;
       // Build playbook selection payload
       const playbookSelection = getPlaybookSelectionPayload();
       
+      // INVESTIGATE_CHAINS-1: Include chain_ids for persistence
+      const chainIds = getChainIdsPayload();
+      
       const data = await api('/api/run/start', {
         method: 'POST',
         body: JSON.stringify({
           profile: profile,
           duration_s: durationMin * 60,
-          playbook_selection: playbookSelection
+          playbook_selection: playbookSelection,
+          chain_ids: chainIds // Persisted for Investigate tab chain context
         })
       });
       
@@ -4101,8 +7634,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
       // DO NOT assume running - re-fetch status from backend
       await fetchRunStatus();
       
-      // If running, fetch initial metrics
+      // If running, switch to tracking mode and fetch initial metrics
       if (state.isRunning) {
+        setOutcomeTrackingMode();
         await fetchMetrics();
       }
       
@@ -4703,6 +8237,51 @@ cargo build --release -p edr-locald --bin edr-locald`;
       return true;
     }
     return false;
+  }
+
+  /**
+   * Handle RUN_META_MISMATCH error from API
+   * Shows a modal with explanation and actions
+   * Returns true if error was handled, false otherwise
+   */
+  function handleRunMetaMismatchError(err) {
+    const code = err?.code || err?.error?.code || err?.body?.code;
+    if (code !== 'RUN_META_MISMATCH') return false;
+    
+    const runId = err?.body?.run_id || err?.run_id || 'unknown';
+    const message = err?.message || err?.error?.message || 'Run metadata mismatch detected';
+    
+    // Create modal with explanation and actions
+    const modal = document.createElement('div');
+    modal.className = 'upgrade-modal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000';
+    modal.innerHTML = `
+      <div style="background:var(--panel);border-radius:8px;padding:24px;max-width:500px;width:90%;box-shadow:0 4px 20px rgba(0,0,0,0.3)">
+        <div style="text-align:center;margin-bottom:16px;">
+          <div style="font-size:48px;margin-bottom:8px;">⚠️</div>
+          <h2 style="margin:0;color:var(--warn);">Run Metadata Mismatch</h2>
+        </div>
+        <div style="margin-bottom:16px;padding:12px;background:var(--panel2);border-radius:4px;">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px;">Run ID</div>
+          <div style="font-family:monospace;font-size:12px;">${escapeHtml(runId)}</div>
+        </div>
+        <p style="margin-bottom:16px;color:var(--text);font-size:13px;">${escapeHtml(message)}</p>
+        <div style="margin-bottom:16px;padding:12px;background:rgba(59,130,246,0.1);border:1px solid rgba(59,130,246,0.3);border-radius:4px;">
+          <div style="font-size:12px;color:var(--accent);margin-bottom:8px;font-weight:600;">💡 Likely Causes:</div>
+          <ul style="margin:0;padding-left:20px;font-size:11px;color:var(--text);">
+            <li>Run folder was moved or renamed manually</li>
+            <li>Partial write occurred during run creation</li>
+            <li>Data corruption in run_meta.json</li>
+          </ul>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-secondary" onclick="refreshRunsList(); this.closest('.upgrade-modal').remove()">🔄 Rescan Runs</button>
+          <button class="btn btn-secondary" onclick="this.closest('.upgrade-modal').remove()">Close</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    return true;
   }
 
   // ============ TEAM CASE STORE FUNCTIONS ============
@@ -5416,6 +8995,37 @@ cargo build --release -p edr-locald --bin edr-locald`;
   }
   
   /**
+   * Show Rerun Analysis guided modal (for interrupted runs)
+   */
+  function showRerunAnalysisModal() {
+    if (!els.rerunAnalysisModal) return;
+    
+    // Populate preset info from current run
+    const run = state.currentRun || state.run || {};
+    const preset = run.preset || run.profile || 'default';
+    
+    if (els.rerunPresetName) {
+      els.rerunPresetName.textContent = capitalize(preset);
+    }
+    if (els.rerunPresetReason) {
+      els.rerunPresetReason.textContent = 'Same as previous run for consistency';
+    }
+    
+    // Populate API commands
+    const baseUrl = window.location.origin;
+    if (els.rerunApiStart) {
+      els.rerunApiStart.textContent = `curl -X POST ${baseUrl}/api/run/start -H "Content-Type: application/json" -d '{"preset":"${preset}"}'`;
+    }
+    if (els.rerunApiStop) {
+      els.rerunApiStop.textContent = `curl -X POST ${baseUrl}/api/run/stop`;
+    }
+    
+    els.rerunAnalysisModal.classList.remove('hidden');
+    // Fix display since class toggle doesn't work with inline display:flex
+    els.rerunAnalysisModal.style.display = 'flex';
+  }
+  
+  /**
    * Show publish run modal
    */
   async function showPublishRunModal() {
@@ -6033,6 +9643,114 @@ cargo build --release -p edr-locald --bin edr-locald`;
         }
       });
     }
+    
+    // === RERUN ANALYSIS MODAL HANDLERS ===
+    if (els.rerunAnalysisModal) {
+      els.rerunAnalysisModal.addEventListener('click', (e) => {
+        if (e.target === els.rerunAnalysisModal) {
+          els.rerunAnalysisModal.classList.add('hidden');
+        }
+      });
+    }
+    const btnCancelRerun = document.getElementById('btnCancelRerun');
+    if (btnCancelRerun) {
+      btnCancelRerun.addEventListener('click', () => {
+        if (els.rerunAnalysisModal) els.rerunAnalysisModal.classList.add('hidden');
+      });
+    }
+    const btnGoToMissionRerun = document.getElementById('btnGoToMission');
+    if (btnGoToMissionRerun) {
+      btnGoToMissionRerun.addEventListener('click', () => {
+        if (els.rerunAnalysisModal) els.rerunAnalysisModal.classList.add('hidden');
+        switchTab('mission');
+      });
+    }
+    const btnCopyRerunApi = document.getElementById('btnCopyRerunApi');
+    if (btnCopyRerunApi) {
+      btnCopyRerunApi.addEventListener('click', () => {
+        const startCmd = document.getElementById('rerunApiStart')?.textContent || '';
+        const stopCmd = document.getElementById('rerunApiStop')?.textContent || '';
+        const text = `# Start run:\n${startCmd}\n\n# Stop run:\n${stopCmd}`;
+        navigator.clipboard.writeText(text).then(() => {
+          btnCopyRerunApi.textContent = '✓ Copied!';
+          setTimeout(() => { btnCopyRerunApi.textContent = '📋 Copy commands'; }, 1500);
+        });
+      });
+    }
+    
+    // === FINDINGS EXPAND/COLLAPSE ALL ===
+    if (els.btnExpandAllFindings) {
+      els.btnExpandAllFindings.addEventListener('click', () => {
+        const groups = document.querySelectorAll('#findingsGrouped details.finding-group');
+        groups.forEach(g => g.open = true);
+        // Also show hidden groups
+        const hidden = document.getElementById('findingsHiddenGroups');
+        if (hidden) hidden.classList.remove('hidden');
+        const showAll = document.getElementById('findingsShowAllGroups');
+        if (showAll) showAll.classList.add('hidden');
+      });
+    }
+    if (els.btnCollapseAllFindings) {
+      els.btnCollapseAllFindings.addEventListener('click', () => {
+        const groups = document.querySelectorAll('#findingsGrouped details.finding-group');
+        groups.forEach(g => g.open = false);
+      });
+    }
+    
+    // === COVERAGE DELTA CHIPS ===
+    const coverageChips = document.querySelectorAll('.coverage-chip');
+    coverageChips.forEach(chip => {
+      chip.addEventListener('click', () => {
+        const surface = chip.dataset.surface;
+        handleCoverageChipClick(surface);
+      });
+    });
+  }
+  
+  /**
+   * Handle coverage chip click - navigate to relevant section
+   */
+  function handleCoverageChipClick(surface) {
+    const isObserved = chip => chip.style.background?.includes('var(--good)');
+    // If observed, scroll to Facts tab filtered by surface type
+    // If blocked, scroll to Coverage Checklist or Visibility Limits
+    const coverage = state.runCoverage || {};
+    const factTypes = coverage.fact_types || [];
+    
+    // Map surface to fact type
+    const surfaceToFactType = {
+      'process': 'ProcessExec',
+      'powershell': 'PowerShellExec',
+      'network': 'OutboundConnect',
+      'file': 'FileCreate',
+      'registry': 'RegistryMod'
+    };
+    const factType = surfaceToFactType[surface];
+    const hasData = factTypes.some(ft => ft.fact_type === factType && ft.count > 0);
+    
+    if (hasData) {
+      // Navigate to Facts tab with filter
+      switchRunTab('facts');
+      setTimeout(() => {
+        const filter = document.getElementById('factTypeFilter');
+        if (filter) {
+          filter.value = factType;
+          factInspectorState.filters.fact_type = factType;
+          factInspectorState.pagination.offset = 0;
+          loadFactInspectorData();
+        }
+      }, 100);
+    } else {
+      // Scroll to coverage checklist
+      const checklist = document.getElementById('coverageChecklist');
+      if (checklist) {
+        checklist.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Flash highlight
+        checklist.style.transition = 'box-shadow 0.3s';
+        checklist.style.boxShadow = '0 0 0 2px var(--accent)';
+        setTimeout(() => { checklist.style.boxShadow = ''; }, 1500);
+      }
+    }
   }
 
   /**
@@ -6157,6 +9875,12 @@ cargo build --release -p edr-locald --bin edr-locald`;
       // Auto-refresh Explain tab if a signal is selected and explain tab is visible
       if (state.selectedSignalId && state.currentRunTab === 'explain') {
         await refreshExplanationIfNeeded();
+      }
+      
+      // MISSION: Update step status from backend (canonical source of truth)
+      // This provides truthful satisfaction tracking based on actual run evidence
+      if (state.selection.chainStack?.length > 0) {
+        await updateStepStatusFromBackend();
       }
     } catch (err) {
       console.warn('[pollLiveSignals] Error:', err.message);
@@ -7091,21 +10815,28 @@ cargo build --release -p edr-locald --bin edr-locald`;
         
         // Check for tier-locked features (403 FEATURE_LOCKED)
         if (res.status === 403) {
-          try {
-            const errData = await res.json();
-            if (errData.error?.code === 'FEATURE_LOCKED') {
-              // This is expected for tier-locked features, not a bug
-              result.status = 'locked';
-              result.reason = errData.error.message || 'Feature requires higher tier';
-              result.requiredTier = errData.error.required_tier;
-              result.currentTier = errData.error.current_tier;
-              result.upgradeUrl = errData.error.upgrade_url;
-              results.summary.locked = (results.summary.locked || 0) + 1;
-              results.actions.push(result);
-              continue;
+          // For tier-gated endpoints, 403 is expected behavior, not a bug
+          if (action.tier === 'pro' || action.tier === 'team') {
+            result.status = 'locked';
+            try {
+              const errData = await res.json();
+              if (errData.error?.code === 'FEATURE_LOCKED') {
+                result.reason = errData.error.message || 'Feature requires higher tier';
+                result.requiredTier = errData.error.required_tier;
+                result.currentTier = errData.error.current_tier;
+                result.upgradeUrl = errData.error.upgrade_url;
+              } else {
+                result.reason = errData.error?.message || errData.message || `Requires ${action.tier} tier`;
+              }
+            } catch (e) {
+              result.reason = `Feature requires ${action.tier} tier`;
             }
-          } catch (e) {}
-          // Other 403s are actual errors
+            result.requiredTier = result.requiredTier || action.tier;
+            results.summary.locked = (results.summary.locked || 0) + 1;
+            results.actions.push(result);
+            continue;
+          }
+          // Other 403s on core endpoints are actual errors - fall through to broken handler
         }
         
         // Check for blocked/degraded from selfcheck
@@ -7643,6 +11374,22 @@ cargo build --release -p edr-locald --bin edr-locald`;
     if (els.missionChannelsTotal) {
       els.missionChannelsTotal.textContent = telemetry?.channels_total ?? '—';
     }
+    
+    // Settings Diagnostics & Coverage badge (mirrors readiness)
+    if (els.settingsDiagStatus) {
+      if (!telemetry) {
+        els.settingsDiagStatus.textContent = '—';
+        els.settingsDiagStatus.className = 'badge badge-stopped';
+      } else {
+        els.settingsDiagStatus.textContent = `${readiness.score}%`;
+        els.settingsDiagStatus.className = `badge ${readiness.cssClass}`;
+        els.settingsDiagStatus.title = readiness.tooltip;
+      }
+    }
+    
+    // Note: renderOutcomePreview() and renderContractReceiptStrip() are called
+    // by rerenderMissionDerivedPanels() which should be the caller.
+    // Only call directly if this function is invoked standalone.
   }
   
   /**
@@ -7730,6 +11477,556 @@ cargo build --release -p edr-locald --bin edr-locald`;
     } else {
       els.missionReadinessWarning.classList.add('hidden');
     }
+    
+    // Update the telemetry readiness traffic light
+    updateTelemetryReadinessIndicator();
+  }
+  
+  /**
+   * Update the telemetry readiness traffic light indicator in Mission tab
+   * Shows 🟢 (full), 🟡 (partial/unverified), 🔴 (blocked) based on selfcheck data
+   */
+  function updateTelemetryReadinessIndicator() {
+    if (!els.telemetryReadinessLight) return;
+    
+    const telemetry = state.telemetryReadiness;
+    
+    if (!telemetry) {
+      // Unknown / loading state
+      els.telemetryReadinessLight.textContent = '⚪';
+      if (els.telemetryReadinessLabel) els.telemetryReadinessLabel.textContent = 'Checking telemetry...';
+      if (els.telemetryReadinessDetail) els.telemetryReadinessDetail.textContent = 'Verifying sensor access';
+      return;
+    }
+    
+    const readiness = computeReadinessStatus(telemetry);
+    
+    if (readiness.isBlocked) {
+      // Red: Critical telemetry missing
+      els.telemetryReadinessLight.textContent = '🔴';
+      if (els.telemetryReadinessLabel) els.telemetryReadinessLabel.textContent = 'Limited Visibility';
+      if (els.telemetryReadinessDetail) {
+        const issues = [];
+        if (telemetry.security_log_accessible === false) issues.push('Security log blocked');
+        if (telemetry.is_admin === false) issues.push('Not admin');
+        els.telemetryReadinessDetail.textContent = issues.length > 0 ? issues.join(' · ') : 'Some sensors blocked';
+      }
+    } else if (readiness.isPartial) {
+      // Yellow: Partial / some optional sensors missing
+      els.telemetryReadinessLight.textContent = '🟡';
+      if (els.telemetryReadinessLabel) els.telemetryReadinessLabel.textContent = 'Partial Coverage';
+      if (els.telemetryReadinessDetail) {
+        const hints = [];
+        if (telemetry.sysmon_installed === false) hints.push('Sysmon not installed');
+        if (telemetry.sensors_available < telemetry.sensors_total) hints.push(`${telemetry.sensors_total - telemetry.sensors_available} sensors unavailable`);
+        els.telemetryReadinessDetail.textContent = hints.length > 0 ? hints.join(' · ') : 'Optional sensors missing';
+      }
+    } else {
+      // Green: Full access
+      els.telemetryReadinessLight.textContent = '🟢';
+      if (els.telemetryReadinessLabel) els.telemetryReadinessLabel.textContent = 'Full Visibility';
+      if (els.telemetryReadinessDetail) {
+        els.telemetryReadinessDetail.textContent = `${telemetry.sensors_available}/${telemetry.sensors_total} sensors · ${telemetry.channels_accessible}/${telemetry.channels_total} channels`;
+      }
+    }
+  }
+  
+  /**
+   * Update the Mission dock and sidebar (Live Counters + Noise Diagnostics) state
+   * Shows live panels when running, hides when idle
+   */
+  function updateMissionSidebarState() {
+    const isRunning = state.isRunning;
+    
+    // Toggle dock class for idle vs running
+    const dock = document.getElementById('missionDock');
+    if (dock) {
+      dock.classList.toggle('is-idle', !isRunning);
+      dock.classList.toggle('is-running', isRunning);
+    }
+    
+    // Live Counters details
+    if (els.liveCountersDetails) {
+      if (isRunning) {
+        els.liveCountersDetails.setAttribute('open', '');
+      } else {
+        els.liveCountersDetails.removeAttribute('open');
+      }
+    }
+    
+    // Live Counters status label
+    if (els.liveCountersStatus) {
+      els.liveCountersStatus.textContent = isRunning ? '● Recording' : 'Idle';
+      els.liveCountersStatus.style.color = isRunning ? 'var(--good)' : 'var(--muted)';
+    }
+    
+    // Noise Diagnostics details
+    if (els.noiseDiagnosticsDetails) {
+      if (isRunning) {
+        els.noiseDiagnosticsDetails.setAttribute('open', '');
+      } else {
+        els.noiseDiagnosticsDetails.removeAttribute('open');
+      }
+    }
+    
+    // Noise status label
+    if (els.noiseStatus) {
+      els.noiseStatus.textContent = isRunning ? '● Active' : '—';
+      els.noiseStatus.style.color = isRunning ? 'var(--good)' : 'var(--muted)';
+    }
+  }
+  
+  /**
+   * Reset to preset selection (from custom mode)
+   */
+  function resetToPresetSelection() {
+    const lastPreset = state.playbookSelection.preset || 'extended';
+    state.playbookSelection.mode = 'preset';
+    state.playbookSelection.preset = lastPreset;
+    state.playbookSelection.selectedPlaybooks = [];
+    
+    // Update dropdown
+    if (els.playbookPresetSelect) {
+      els.playbookPresetSelect.value = lastPreset;
+    }
+    
+    // Hide custom selection label
+    if (els.customSelectionLabel) {
+      els.customSelectionLabel.classList.add('hidden');
+    }
+    
+    // Save and update
+    savePlaybookSelectionDefault();
+    updatePlaybookSelectionSummary();
+    updateRunPlanSummary();
+    
+    console.log('[resetToPresetSelection] Reset to preset:', lastPreset);
+  }
+  
+  /**
+   * Show "Custom selection" label when user manually edits playbooks
+   */
+  function showCustomSelectionLabel() {
+    if (els.customSelectionLabel) {
+      els.customSelectionLabel.classList.remove('hidden');
+    }
+  }
+  
+  // ============ MICRO CHAINS FUNCTIONS ============
+  // Backend is canonical source of truth - all chain data fetched via /api/chains
+  
+  /**
+   * Apply a micro chain - adds to stack or replaces stack based on mode
+   * The chain becomes first-class: its steps persist in the dock even when selection is edited
+   * @param {string} chainId - The chain ID
+   * @param {string} mode - 'add' (default) to add to stack, 'replace' to clear stack first
+   */
+  async function applyMicroChain(chainId, mode = 'add') {
+    // Apply chain to stack via backend
+    let added = false;
+    if (mode === 'replace') {
+      added = await replaceChainStack(chainId);
+    } else {
+      added = await addChainToStack(chainId);
+    }
+    
+    if (!added && mode === 'add') {
+      // Already in stack or error, don't update UI
+      return;
+    }
+    
+    // Update all UI
+    updatePlaybookSelectionSummary();
+    rerenderMissionDerivedPanels('chain-applied:' + chainId);
+    
+    const stackCount = getChainStackCount();
+    const verb = mode === 'replace' ? 'replaced with' : 'added';
+    console.log(`[applyMicroChain] ${chainId} ${verb} → stack has ${stackCount} chain(s), ${state.baseline.baselinePlaybookIds.length} playbooks`);
+  }
+  
+  /**
+   * Reset to the baseline (chain stack or preset)
+   * Reapplies the original baseline selection without modifications
+   */
+  function resetToBaseline() {
+    const baseline = state.baseline;
+    
+    if (baseline.type === 'stack' && baseline.chains.length > 0) {
+      // Reset selection to baseline union
+      state.playbookSelection.mode = 'custom';
+      state.playbookSelection.selectedPlaybooks = [...baseline.baselinePlaybookIds];
+      state.outcome.useChainSteps = true;
+      updatePlaybookSelectionSummary();
+      rerenderMissionDerivedPanels('reset-to-stack');
+    } else if (baseline.type === 'preset' && baseline.presetId) {
+      // Reset to preset
+      state.playbookSelection.mode = 'preset';
+      state.playbookSelection.preset = baseline.presetId;
+      state.playbookSelection.selectedPlaybooks = [];
+      state.outcome.useChainSteps = false;
+      updatePlaybookSelectionSummary();
+      rerenderMissionDerivedPanels('reset-to-preset:' + baseline.presetId);
+    }
+  }
+  
+  /**
+   * Open the Micro Chains Library modal (async - fetches chains from backend)
+   */
+  async function openMicroChainsModal() {
+    let modal = document.getElementById('microChainsModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'microChainsModal';
+      modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.7); z-index: 1000;
+        display: flex; align-items: center; justify-content: center;
+        opacity: 0; transition: opacity 0.2s ease-out;
+      `;
+      document.body.appendChild(modal);
+    }
+    
+    // Show loading state immediately
+    modal.innerHTML = `
+      <div style="
+        background: var(--panel);
+        border-radius: var(--radius);
+        padding: 40px;
+        text-align: center;
+      ">
+        <div style="font-size: 24px; margin-bottom: 12px;">⏳</div>
+        <div style="color: var(--muted);">Loading chains...</div>
+      </div>
+    `;
+    modal.style.display = 'flex';
+    requestAnimationFrame(() => {
+      modal.style.opacity = '1';
+    });
+    
+    // Fetch chains from backend
+    const chainsData = await fetchChainDefinitions();
+    if (!chainsData || chainsData.length === 0) {
+      modal.innerHTML = `
+        <div style="
+          background: var(--panel);
+          border-radius: var(--radius);
+          padding: 40px;
+          text-align: center;
+        ">
+          <div style="font-size: 24px; margin-bottom: 12px;">⚠️</div>
+          <div style="color: var(--error); margin-bottom: 16px;">Failed to load chains from backend</div>
+          <button id="btnCloseErrorModal" class="btn-secondary">Close</button>
+        </div>
+      `;
+      document.getElementById('btnCloseErrorModal').onclick = () => closeMicroChainsModal();
+      return;
+    }
+    
+    // Get current stack info
+    const stackCount = getChainStackCount();
+    const stackedChainIds = new Set(state.baseline.chains?.map(c => c.chainId) || []);
+    
+    // Build chains list from backend data
+    const chainsHtml = chainsData.map(chain => {
+      const stepsCount = chain.steps?.length || 0;
+      const isInStack = stackedChainIds.has(chain.id);
+      // Backend doesn't return matchCount without catalog - show step count only
+      const playbookHint = chain.playbook_count ? `${chain.playbook_count} playbooks` : 'compile to see';
+      
+      return `
+        <div class="chain-card ${isInStack ? 'chain-in-stack' : ''}" data-chain-id="${chain.id}" style="
+          padding: 12px 16px;
+          background: ${isInStack ? 'rgba(99, 102, 241, 0.08)' : 'var(--panel2)'};
+          border: 1px solid ${isInStack ? 'var(--accent)' : 'var(--border)'};
+          border-radius: var(--radius-sm);
+          cursor: pointer;
+          transition: all 0.15s ease;
+          margin-bottom: 8px;
+        ">
+          <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <span style="font-size: 24px;">${chain.icon || '🔗'}</span>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+                ${escapeHtml(chain.title)}
+                ${isInStack ? '<span style="font-size: 9px; padding: 1px 5px; background: var(--accent); color: white; border-radius: 3px;">IN STACK</span>' : ''}
+              </div>
+              <div style="font-size: 11px; color: var(--muted); line-height: 1.4; margin-bottom: 6px;">
+                ${escapeHtml(chain.description || '')}
+              </div>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 10px; padding: 2px 6px; background: rgba(99, 102, 241, 0.1); color: var(--accent); border-radius: 3px;">
+                  ${stepsCount} steps
+                </span>
+                <span style="font-size: 10px; padding: 2px 6px; background: var(--panel); color: var(--muted); border-radius: 3px;">
+                  ${playbookHint}
+                </span>
+                <span style="font-size: 10px; padding: 2px 6px; background: rgba(16, 185, 129, 0.1); color: var(--good); border-radius: 3px;">
+                  ${escapeHtml(chain.category || 'general')}
+                </span>
+              </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;">
+              ${isInStack ? `
+                <button class="btn-chain-remove btn-secondary" data-chain-id="${chain.id}" style="
+                  padding: 4px 10px;
+                  font-size: 10px;
+                  white-space: nowrap;
+                  color: var(--warn);
+                ">Remove</button>
+              ` : `
+                <button class="btn-chain-add btn-secondary" data-chain-id="${chain.id}" style="
+                  padding: 6px 12px;
+                  font-size: 11px;
+                  white-space: nowrap;
+                  background: var(--accent);
+                  color: white;
+                  border-color: var(--accent);
+                ">➕ Add</button>
+                <button class="btn-chain-replace btn-secondary" data-chain-id="${chain.id}" style="
+                  padding: 4px 10px;
+                  font-size: 10px;
+                  white-space: nowrap;
+                  opacity: 0.7;
+                ">Replace all</button>
+              `}
+            </div>
+          </div>
+          <details style="margin-top: 8px;">
+            <summary style="font-size: 10px; color: var(--accent); cursor: pointer;">View chain steps</summary>
+            <div style="margin-top: 6px; padding-left: 36px;">
+              ${(chain.steps || []).map((step, i) => `
+                <div style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--muted); margin-bottom: 4px;">
+                  <span>${step.icon || '•'}</span>
+                  <span style="color: var(--text); font-weight: 500;">${escapeHtml(step.title || step.id)}</span>
+                  <span>— ${escapeHtml(step.description || '')}</span>
+                </div>
+              `).join('')}
+            </div>
+          </details>
+        </div>
+      `;
+    }).join('');
+    
+    // Stack status header
+    const stackStatusHtml = stackCount > 0 ? `
+      <div id="chainStackStatus" style="
+        padding: 10px 20px;
+        background: rgba(99, 102, 241, 0.1);
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      ">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 12px; font-weight: 600; color: var(--accent);">📚 Stack: ${stackCount} chain${stackCount > 1 ? 's' : ''}</span>
+          <span style="font-size: 11px; color: var(--muted);">(${state.baseline.baselinePlaybookIds.length} playbooks)</span>
+        </div>
+        <button id="btnClearChainStack" class="btn-secondary" style="
+          padding: 4px 10px;
+          font-size: 10px;
+          color: var(--warn);
+        ">🗑️ Clear stack</button>
+      </div>
+    ` : '';
+    
+    modal.innerHTML = `
+      <div style="
+        background: var(--panel);
+        border-radius: var(--radius);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        width: min(90vw, 600px);
+        max-height: 80vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      ">
+        <div style="
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        ">
+          <div>
+            <h3 style="margin: 0; font-size: 16px; font-weight: 600; color: var(--text);">
+              🔗 Micro Chains Library
+            </h3>
+            <p style="margin: 4px 0 0 0; font-size: 11px; color: var(--muted);">
+              Stack multiple chains to combine detection coverage. Chain steps appear in the dock.
+            </p>
+          </div>
+          <button id="btnCloseChainsModal" style="
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: var(--muted);
+            padding: 4px;
+          ">×</button>
+        </div>
+        
+        ${stackStatusHtml}
+        <div style="padding: 12px 20px; border-bottom: 1px solid var(--border-subtle);">
+          <input type="text" id="chainSearchInput" placeholder="Search chains..." style="
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 12px;
+          ">
+        </div>
+        
+        <div id="chainsListContainer" style="
+          padding: 12px 20px;
+          overflow-y: auto;
+          flex: 1;
+        ">
+          ${chainsHtml}
+        </div>
+        
+        <div style="
+          padding: 12px 20px;
+          border-top: 1px solid var(--border);
+          font-size: 10px;
+          color: var(--muted);
+          background: var(--panel2);
+        ">
+          💡 Chains compile to playbook selections. You can edit playbooks after applying a chain.
+        </div>
+      </div>
+    `;
+    
+    // Show modal with animation
+    modal.style.display = 'flex';
+    requestAnimationFrame(() => {
+      modal.style.opacity = '1';
+    });
+    
+    // Wire up handlers
+    const closeBtn = document.getElementById('btnCloseChainsModal');
+    if (closeBtn) {
+      closeBtn.onclick = () => closeMicroChainsModal();
+    }
+    
+    // Close on backdrop click
+    modal.onclick = (e) => {
+      if (e.target === modal) closeMicroChainsModal();
+    };
+    
+    // Add to stack buttons
+    modal.querySelectorAll('.btn-chain-add').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const chainId = btn.dataset.chainId;
+        btn.disabled = true;
+        btn.textContent = '...';
+        await applyMicroChain(chainId, 'add');
+        // Refresh modal to show updated state
+        openMicroChainsModal();
+      };
+    });
+    
+    // Replace stack buttons
+    modal.querySelectorAll('.btn-chain-replace').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const chainId = btn.dataset.chainId;
+        btn.disabled = true;
+        btn.textContent = '...';
+        await applyMicroChain(chainId, 'replace');
+        closeMicroChainsModal();
+      };
+    });
+    
+    // Remove from stack buttons
+    modal.querySelectorAll('.btn-chain-remove').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        const chainId = btn.dataset.chainId;
+        btn.disabled = true;
+        btn.textContent = '...';
+        await removeChainFromStack(chainId);
+        updatePlaybookSelectionSummary();
+        rerenderMissionDerivedPanels('chain-removed:' + chainId);
+        // Refresh modal to show updated state
+        openMicroChainsModal();
+      };
+    });
+    
+    // Clear stack button
+    const clearStackBtn = document.getElementById('btnClearChainStack');
+    if (clearStackBtn) {
+      clearStackBtn.onclick = (e) => {
+        e.stopPropagation();
+        clearBaseline();
+        updatePlaybookSelectionSummary();
+        rerenderMissionDerivedPanels('chain-stack-cleared');
+        openMicroChainsModal();
+      };
+    }
+    
+    // Card click to expand/show details (but not on buttons)
+    modal.querySelectorAll('.chain-card').forEach(card => {
+      const isInStack = card.classList.contains('chain-in-stack');
+      card.onmouseenter = () => {
+        if (!isInStack) {
+          card.style.borderColor = 'var(--accent)';
+          card.style.background = 'rgba(99, 102, 241, 0.05)';
+        }
+      };
+      card.onmouseleave = () => {
+        if (!isInStack) {
+          card.style.borderColor = 'var(--border)';
+          card.style.background = 'var(--panel2)';
+        }
+      };
+    });
+    
+    // Search filter
+    const searchInput = document.getElementById('chainSearchInput');
+    if (searchInput) {
+      searchInput.oninput = () => {
+        const query = searchInput.value.toLowerCase();
+        modal.querySelectorAll('.chain-card').forEach(card => {
+          const text = card.textContent.toLowerCase();
+          card.style.display = text.includes(query) ? '' : 'none';
+        });
+      };
+      searchInput.focus();
+    }
+    
+    // ESC to close
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        closeMicroChainsModal();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
+  
+  /**
+   * Close the Micro Chains modal
+   */
+  function closeMicroChainsModal() {
+    const modal = document.getElementById('microChainsModal');
+    if (modal) {
+      modal.style.opacity = '0';
+      setTimeout(() => {
+        modal.style.display = 'none';
+      }, 200);
+    }
+  }
+  
+  /**
+   * Open the playbook selection modal (single canonical selection surface)
+   */
+  function openPlaybookSelectionModal() {
+    // Reuse the existing custom select modal
+    // This is the single canonical selection surface
+    openPlaybookCustomSelectModal();
   }
 
   /**
@@ -7998,10 +12295,11 @@ cargo build --release -p edr-locald --bin edr-locald`;
   window.showReadinessPanel = openReadinessModal;
   
   /**
-   * Pivot to Facts tab with a filter for the specified category
+   * Pivot to Evidence tab (Facts mode) with a filter for the specified category
    * @param {string} category - Category like 'services', 'registry', etc.
+   * @param {string} [label] - Human-readable label for the category
    */
-  window.pivotToFacts = function(category) {
+  window.pivotToFacts = function(category, label) {
     // Map discovery categories to fact_type filters
     const factTypeMap = {
       'services': 'persistence_service',
@@ -8013,9 +12311,29 @@ cargo build --release -p edr-locald --bin edr-locald`;
       'powershell': 'powershell_exec'
     };
     
-    const factType = factTypeMap[category] || category;
+    // Map for human-readable labels
+    const labelMap = {
+      'services': 'Services',
+      'scheduled_tasks': 'Tasks',
+      'logs_cleared': 'Logs Cleared',
+      'registry': 'Registry',
+      'process_execution': 'Processes',
+      'network_connections': 'Network',
+      'powershell': 'PowerShell'
+    };
     
-    // Switch to Facts tab
+    const factType = factTypeMap[category] || category;
+    const displayLabel = label || labelMap[category] || category;
+    
+    // Track pivot context for "Back to Overview" functionality
+    state.pivotContext = {
+      from: 'overview',
+      filter: factType,
+      label: displayLabel,
+      category: category
+    };
+    
+    // Switch to Evidence tab (internally 'facts')
     switchRunTab('facts');
     
     // Apply filter to Fact Inspector
@@ -8076,6 +12394,235 @@ cargo build --release -p edr-locald --bin edr-locald`;
   };
 
   /**
+   * Apply a Diff Goal preset (exposed globally for onclick handlers)
+   */
+  window.applyDiffGoalPreset = function(goal) {
+    applyDiffGoalPreset(goal);
+  };
+
+  /**
+   * Filter facts by type - used by Observed Structure Map
+   */
+  window.filterFactsByType = function(factType) {
+    const filter = document.getElementById('factTypeFilter');
+    if (filter) {
+      filter.value = factType;
+      filter.dispatchEvent(new Event('change'));
+    }
+    // Update the filter hint in the Evidence tab explanation
+    if (factType && factType !== 'all') {
+      if (els.evidenceFilterHint) els.evidenceFilterHint.classList.remove('hidden');
+      if (els.evidenceFilterValue) els.evidenceFilterValue.textContent = factType;
+    } else {
+      if (els.evidenceFilterHint) els.evidenceFilterHint.classList.add('hidden');
+    }
+  };
+
+  /**
+   * Clear evidence filter hint (call when clearing filters or showing all)
+   */
+  window.clearEvidenceFilterHint = function() {
+    if (els.evidenceFilterHint) els.evidenceFilterHint.classList.add('hidden');
+    if (els.evidenceFilterValue) els.evidenceFilterValue.textContent = '—';
+  };
+
+  /**
+   * Navigate to Mission tab Diagnostics panel (from Settings deep-link)
+   */
+  window.goToMissionDiagnostics = function() {
+    // Switch to Mission tab
+    switchTab('mission');
+    
+    // Scroll to the readiness section
+    setTimeout(() => {
+      const readinessSection = document.getElementById('missionReadinessCard');
+      if (readinessSection) {
+        readinessSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+  };
+
+  /**
+   * Show evidence viewer modal (exposed globally for onclick handlers)
+   */
+  window.showEvidenceViewer = function(evidencePtrs, title) {
+    showEvidenceViewer(evidencePtrs, title);
+  };
+
+  /**
+   * Select a signal for Investigate tab (exposed globally for onclick handlers)
+   */
+  window.selectSignalForInvestigate = function(signalId) {
+    selectSignalForInvestigate(signalId);
+  };
+
+  /**
+   * Switch to a run tab (exposed globally for onclick handlers)
+   */
+  window.switchRunTab = function(tab) {
+    switchRunTab(tab);
+  };
+
+  /**
+   * Pivot to an entity in Explore tab (exposed globally for onclick handlers)
+   */
+  window.pivotToEntity = function(entityId) {
+    // Switch to Explore tab and select the entity
+    switchRunTab('explore');
+    // The entity selection would need the full entity object - for now just switch tabs
+    console.log('[Pro Diff] Pivot to entity:', entityId);
+  };
+
+  /**
+   * Filter Evidence tab by fact type (exposed globally for onclick handlers)
+   */
+  window.filterEvidenceByType = function(factType) {
+    const filter = document.getElementById('factTypeFilter');
+    if (filter) {
+      filter.value = factType;
+      filter.dispatchEvent(new Event('change'));
+    }
+    // Scroll to the fact inspector section
+    const inspector = document.getElementById('factInspectorSection');
+    if (inspector) {
+      inspector.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  /**
+   * View fact detail in the fact drawer (exposed globally for onclick handlers)
+   */
+  window.viewFactDetail = function(factId) {
+    if (!factId) return;
+    
+    // Find the fact in state.facts
+    const fact = state.facts?.find(f => f.fact_id === factId);
+    if (fact) {
+      // Show fact detail drawer
+      showFactDetailDrawer(fact);
+    } else {
+      console.warn('[Related Facts] Fact not found:', factId);
+    }
+  };
+
+  /**
+   * Get facts related to a signal for the Investigate detail pane
+   * Filters by: same host, matching entity keys, fact types from playbook slots
+   */
+  function getRelatedFactsForSignal(signal, slotArray, limit = 20) {
+    if (!signal || !state.facts || state.facts.length === 0) return [];
+    
+    const relatedFacts = [];
+    const seenIds = new Set();
+    
+    // Extract entity keys from signal
+    const sigHost = signal.host;
+    const sigProcKey = signal.proc_key;
+    const sigFileKey = signal.file_key;
+    const sigIdentityKey = signal.identity_key;
+    
+    // Extract fact types from matched playbook slots
+    const slotFactTypes = new Set();
+    if (slotArray && slotArray.length > 0) {
+      slotArray.forEach(slot => {
+        if (slot.fact_type) slotFactTypes.add(slot.fact_type);
+        if (slot.name && slot.name.includes(':')) {
+          // Slot names like "ProcessStart:explorer" may encode fact type
+          const parts = slot.name.split(':');
+          if (parts[0]) slotFactTypes.add(parts[0]);
+        }
+      });
+    }
+    
+    // Score and collect facts
+    for (const fact of state.facts) {
+      let score = 0;
+      
+      // Host match
+      if (sigHost && fact.host === sigHost) score += 2;
+      
+      // Entity key matches
+      if (sigProcKey && (fact.proc_key === sigProcKey || fact.entity_key === sigProcKey)) score += 3;
+      if (sigFileKey && (fact.file_key === sigFileKey || fact.entity_key === sigFileKey)) score += 3;
+      if (sigIdentityKey && (fact.identity_key === sigIdentityKey || fact.entity_key === sigIdentityKey)) score += 3;
+      
+      // Fact type from playbook slots
+      if (slotFactTypes.has(fact.fact_type)) score += 2;
+      
+      // Time proximity (within 60s of signal)
+      if (signal.ts && fact.ts) {
+        const sigTime = new Date(signal.ts).getTime();
+        const factTime = new Date(fact.ts).getTime();
+        const diffMs = Math.abs(sigTime - factTime);
+        if (diffMs < 60000) score += 1; // Within 1 minute
+      }
+      
+      if (score > 0 && !seenIds.has(fact.fact_id)) {
+        seenIds.add(fact.fact_id);
+        relatedFacts.push({ ...fact, _score: score });
+      }
+    }
+    
+    // Sort by score descending, then by timestamp
+    relatedFacts.sort((a, b) => {
+      if (b._score !== a._score) return b._score - a._score;
+      return new Date(b.ts || 0) - new Date(a.ts || 0);
+    });
+    
+    return relatedFacts.slice(0, limit);
+  }
+
+  /**
+   * Copy expected playbooks path to clipboard (for diagnostics)
+   */
+  window.copyPlaybooksPath = function() {
+    const meta = state.playbookCatalogMeta || {};
+    const paths = meta.searched_paths || ['playbooks/windows/'];
+    const text = paths.join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('Path copied to clipboard', 'success');
+    }).catch(() => {
+      // Fallback: show in alert
+      alert('Expected path(s):\n' + text);
+    });
+  };
+
+  /**
+   * Show locint.log path for diagnostics
+   */
+  window.showLocintLogPath = function() {
+    // Standard log locations
+    const logPaths = [
+      '%TEMP%\\locint.log',
+      '%LOCALAPPDATA%\\locint\\locint.log',
+      'logs\\locint.log (relative to exe)'
+    ];
+    
+    const html = `
+      <div style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+                  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); 
+                  padding: 24px; z-index: 10000; max-width: 500px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);">
+        <div style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">📄 Log File Locations</div>
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 16px;">
+          Check these locations for the locint log file:
+        </div>
+        <div style="background: var(--panel2); border-radius: var(--radius-sm); padding: 12px; font-family: monospace; font-size: 11px; margin-bottom: 16px;">
+          ${logPaths.map(p => `<div style="margin-bottom: 4px;">${escapeHtml(p)}</div>`).join('')}
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button onclick="navigator.clipboard.writeText('${logPaths[0].replace(/'/g, "\\'")}'); this.textContent='Copied!'" 
+                  class="btn-secondary" style="padding: 6px 12px; font-size: 11px;">📋 Copy First Path</button>
+          <button onclick="this.closest('div[style*=fixed]').remove()" 
+                  class="btn-primary" style="padding: 6px 12px; font-size: 11px;">Close</button>
+        </div>
+      </div>
+      <div onclick="this.previousElementSibling.remove(); this.remove()" 
+           style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999;"></div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+  };
+
+  /**
    * Close the System Readiness modal
    */
   function closeReadinessModal() {
@@ -8120,6 +12667,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
     
     // Show noise values (remove placeholder opacity)
     setNoiseOpacity(1);
+    
+    // Expand sidebar panels when running
+    updateMissionSidebarState();
   }
 
   function updateStoppedUI() {
@@ -8156,6 +12706,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
     // Show noise placeholder state
     if (els.noiseHint) els.noiseHint.classList.remove('hidden');
     setNoiseOpacity(0.4);
+    
+    // Collapse sidebar panels when stopped
+    updateMissionSidebarState();
   }
 
   function setNoiseOpacity(opacity) {
@@ -8433,6 +12986,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
       console.log(`🔵 [SCOPE] Entering RUN scope: ${runId}`);
     }
     
+    // DEBUG_UI: Dump backend response shapes for verification
+    debugDumpBackendResponses(runId);
+    
     state.selectedRunId = runId;
     state.selectedRun = state.runs.find(r => (r.run_id || r.id) === runId);
     state.signals = [];
@@ -8441,6 +12997,10 @@ cargo build --release -p edr-locald --bin edr-locald`;
     state.selectedSignal = null;
     state.signalExplanation = null;
     state.signalNarrative = null;
+    // Reset Investigate eval state when switching runs
+    state.investigateEval = null;
+    state.investigateEvalRunId = null;
+    state.selectedPlaybookEvalId = null;
     // Reset explore state when switching runs
     state.exploreEntities = null;
     state.exploreEntitiesRunId = null;
@@ -8450,6 +13010,20 @@ cargo build --release -p edr-locald --bin edr-locald`;
     if (!state.selectedRun) return;
     
     const run = state.selectedRun;
+    
+    // Normalize playbook_scope with backward compatibility for legacy runs
+    if (!run.playbook_scope) {
+      // Legacy run: playbook_scope not present
+      run.playbook_scope = {
+        mode: 'legacy_unknown',
+        selected_playbook_ids: [],
+        effective_playbook_ids: [],
+        rationale: {
+          reason_code: 'LEGACY_RUN',
+          note: 'Legacy run (scope unknown) — showing evaluated results'
+        }
+      };
+    }
     
     // Update list active state
     if (els.runsList) {
@@ -8465,6 +13039,26 @@ cargo build --release -p edr-locald --bin edr-locald`;
     // Update title with display name
     updateRunDetailTitle(run);
     if (els.runDetailTime) els.runDetailTime.textContent = formatTimestamp(run.started_at || run.start_time || run.earliest_ts);
+    
+    // Populate enhanced header elements
+    const host = run.hosts?.[0] || getHostnameFromRun(run) || getLocalHostname() || 'localhost';
+    const preset = run.profile || 'extended';
+    if (els.runDetailHost) {
+      els.runDetailHost.innerHTML = `Host: <span style="color: var(--text); font-family: monospace;">${escapeHtml(host)}</span>`;
+    }
+    if (els.runDetailPreset) {
+      els.runDetailPreset.innerHTML = `Preset: <span style="color: var(--text);">${escapeHtml(capitalize(preset))}</span>`;
+    }
+    
+    // Initialize status pills (will be updated by loadCoverageForRun)
+    if (els.runTelemetryPill) {
+      els.runTelemetryPill.textContent = '📡 Loading...';
+      els.runTelemetryPill.className = 'badge badge-stopped';
+    }
+    if (els.runCompilePill) {
+      els.runCompilePill.textContent = '⚙️ Loading...';
+      els.runCompilePill.className = 'badge badge-stopped';
+    }
     
     // Show run metrics in Overview tab
     if (els.detailEvents) els.detailEvents.textContent = formatValue(run.events_total ?? run.events ?? run.event_count);
@@ -8511,11 +13105,18 @@ cargo build --release -p edr-locald --bin edr-locald`;
     // Fetch system state summary for this run (Part A)
     loadStateForRun(run);
     
-    // Fetch next steps guidance for this run
-    loadNextStepsForRun(run);
+    // REMOVED: loadNextStepsForRun - not authoritative, used heuristics
+    // REMOVED: loadHighlightsForRun - not authoritative, used heuristics
     
     // Fetch discovery summary for General preset runs
     loadDiscoverySummaryForRun(run);
+    
+    // NEW: Load authoritative capability snapshot and step_status blockers
+    loadCapabilitySnapshotForRun(run);
+    loadStepStatusBlockersForRun(run);
+    
+    // Render workflow guide (context-aware CTAs at top of Overview)
+    renderWorkflowGuide(run);
   }
 
   /**
@@ -8523,6 +13124,8 @@ cargo build --release -p edr-locald --bin edr-locald`;
    */
   async function loadSignalsForRun(run) {
     state.signals = await fetchSignalsForRun(run);
+    
+    // NOTE: updateProActionsCta removed - CTA buttons replaced with tabs as primary nav
     
     // Update findings count in tab if visible
     if (state.currentRunTab === 'findings') {
@@ -8533,6 +13136,31 @@ cargo build --release -p edr-locald --bin edr-locald`;
     if (state.currentRunTab === 'timeline') {
       renderTimelineTab();
     }
+    
+    // MISSION: Update step status from backend when loading signals
+    // This ensures Mission panel shows correct satisfaction for historical runs
+    if (state.selection.chainStack?.length > 0) {
+      await updateStepStatusFromBackend();
+    }
+  }
+  
+  /**
+   * Update Pro Actions CTA button text based on current signals count
+   * If signals > 0: "Investigate Findings →"
+   * If signals === 0: "Browse Evidence →"
+   */
+  function updateProActionsCta() {
+    if (!els.btnViewFindings) return;
+    
+    const signalCount = state.signals?.length || 0;
+    
+    if (signalCount > 0) {
+      els.btnViewFindings.textContent = `🔍 Investigate Findings (${signalCount}) →`;
+      els.btnViewFindings.onclick = () => switchRunTab('investigate');
+    } else {
+      els.btnViewFindings.textContent = '📊 Browse Evidence →';
+      els.btnViewFindings.onclick = () => switchRunTab('facts');
+    }
   }
 
   /**
@@ -8541,6 +13169,10 @@ cargo build --release -p edr-locald --bin edr-locald`;
   async function loadCoverageForRun(run) {
     const runId = run.run_id || run.id;
     state.runCoverage = null;
+    
+    // Reset compile status indicator while loading
+    updateCompileStatusIndicator(null);
+    updateOverviewFactTypes(null);
     
     try {
       const resp = await fetch(`/api/runs/${runId}/coverage`);
@@ -8566,10 +13198,593 @@ cargo build --release -p edr-locald --bin edr-locald`;
       state.runCoverage = { available: false, reason_code: 'NETWORK_ERROR', message: 'Network error loading coverage' };
     }
     
+    // Update compile status indicator
+    updateCompileStatusIndicator(state.runCoverage);
+    
+    // Update overview fact types histogram
+    updateOverviewFactTypes(state.runCoverage);
+    
+    // Update coverage delta chips row
+    updateCoverageDeltaChips(state.runCoverage);
+    
     // Update facts tab if visible
     if (state.currentRunTab === 'facts') {
       renderFactsTab();
     }
+  }
+  
+  // ============================================================================
+  // AUTHORITATIVE RUN PANELS (capability snapshot + step_status blockers)
+  // ============================================================================
+  
+  /**
+   * Load and render the capability snapshot for this run.
+   * Shows Admin, Sysmon, Security log status as captured at run time.
+   * If snapshot is missing, shows explicit "not recorded" message.
+   */
+  async function loadCapabilitySnapshotForRun(run) {
+    const snapshotPanel = els.runCapabilitySnapshot;
+    const contentEl = els.capabilitySnapshotContent;
+    const missingEl = els.capabilitySnapshotMissing;
+    const statusEl = els.capabilitySnapshotStatus;
+    
+    if (!snapshotPanel) return;
+    
+    // Hide initially
+    snapshotPanel.classList.add('hidden');
+    if (contentEl) contentEl.innerHTML = '';
+    if (missingEl) missingEl.classList.add('hidden');
+    
+    // Wait for coverage data to load (has telemetry_status/capability_snapshot)
+    await new Promise(r => setTimeout(r, 500));
+    
+    const coverage = state.runCoverage || {};
+    
+    // Check for capability snapshot in coverage data
+    // The backend should include run-time snapshot in coverage response
+    const snapshot = coverage.capability_snapshot || coverage.telemetry_status || coverage.readiness_snapshot;
+    
+    if (!snapshot) {
+      // No snapshot recorded for this run
+      snapshotPanel.classList.remove('hidden');
+      if (contentEl) contentEl.classList.add('hidden');
+      if (missingEl) missingEl.classList.remove('hidden');
+      if (statusEl) statusEl.textContent = 'no snapshot';
+      return;
+    }
+    
+    // Render the snapshot
+    snapshotPanel.classList.remove('hidden');
+    if (contentEl) contentEl.classList.remove('hidden');
+    if (missingEl) missingEl.classList.add('hidden');
+    if (statusEl) statusEl.textContent = 'from run snapshot';
+    
+    // Build capability display
+    const isAdmin = snapshot.is_admin === true;
+    const sysmonInstalled = snapshot.sysmon_installed === true;
+    const securityLogOk = snapshot.security_log_accessible === true;
+    const channelsEnabled = snapshot.channels_enabled || [];
+    const sensorsCount = snapshot.sensors_count || channelsEnabled.length || 0;
+    
+    const items = [
+      {
+        label: 'Admin Privileges',
+        value: isAdmin,
+        icon: isAdmin ? '✅' : '❌',
+        color: isAdmin ? 'var(--good)' : 'var(--error)'
+      },
+      {
+        label: 'Sysmon',
+        value: sysmonInstalled,
+        icon: sysmonInstalled ? '✅' : '⚠️',
+        color: sysmonInstalled ? 'var(--good)' : 'var(--warn)'
+      },
+      {
+        label: 'Security Log',
+        value: securityLogOk,
+        icon: securityLogOk ? '✅' : '❌',
+        color: securityLogOk ? 'var(--good)' : 'var(--error)'
+      }
+    ];
+    
+    // Optional: show sensor/channel count if available
+    if (sensorsCount > 0) {
+      items.push({
+        label: 'Event Channels',
+        value: sensorsCount,
+        icon: '📡',
+        color: 'var(--accent)',
+        isCount: true
+      });
+    }
+    
+    contentEl.innerHTML = `
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px;">
+        ${items.map(item => `
+          <div style="padding: 8px; background: var(--panel); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">${item.icon}</span>
+            <div>
+              <div style="font-size: 10px; color: var(--muted);">${item.label}</div>
+              <div style="font-size: 12px; font-weight: 600; color: ${item.color};">
+                ${item.isCount ? item.value : (item.value ? 'Yes' : 'No')}
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+  
+  /**
+   * Load step_status and render blockers panel.
+   * Shows "Sysmon missing → N steps blocked" etc.
+   * Hides panel if no blockers found.
+   */
+  async function loadStepStatusBlockersForRun(run) {
+    const blockersPanel = els.runBlockersPanel;
+    const countEl = els.blockersCount;
+    const listEl = els.blockersList;
+    
+    if (!blockersPanel) return;
+    
+    // Hide initially
+    blockersPanel.classList.add('hidden');
+    if (listEl) listEl.innerHTML = '';
+    
+    const runId = run.run_id || run.id;
+    if (!runId) return;
+    
+    // Fetch step_status for all playbooks to identify blockers
+    // We need to call step_status with some chain IDs, or use playbooks/eval endpoint
+    try {
+      // Use the playbooks/eval endpoint which has step_statuses
+      const resp = await fetch(`/api/runs/${runId}/playbooks/eval`);
+      if (!resp.ok) {
+        console.warn('[Blockers] Failed to load playbooks/eval:', resp.status);
+        return;
+      }
+      
+      const json = await resp.json();
+      if (!json.success || !json.data?.playbooks) {
+        return;
+      }
+      
+      // Aggregate blockers from all playbooks
+      const blockerReasons = {};
+      let totalBlockedSteps = 0;
+      let totalUnverifiedSteps = 0;
+      
+      for (const pb of json.data.playbooks) {
+        const steps = pb.step_statuses || pb.slots || [];
+        for (const step of steps) {
+          const status = step.status || step.state;
+          const reason = step.reason || step.why || '';
+          
+          if (status === 'blocked' || status === 'unverified') {
+            if (status === 'blocked') totalBlockedSteps++;
+            if (status === 'unverified') totalUnverifiedSteps++;
+            
+            // Normalize reason for grouping
+            let reasonKey = reason;
+            if (reason.toLowerCase().includes('sysmon')) {
+              reasonKey = 'Sysmon not available';
+            } else if (reason.toLowerCase().includes('admin')) {
+              reasonKey = 'Admin privileges required';
+            } else if (reason.toLowerCase().includes('security')) {
+              reasonKey = 'Security log not accessible';
+            } else if (reason.toLowerCase().includes('etw') || reason.toLowerCase().includes('channel')) {
+              reasonKey = 'ETW channel not accessible';
+            } else if (!reason) {
+              reasonKey = 'Unknown reason';
+            }
+            
+            blockerReasons[reasonKey] = (blockerReasons[reasonKey] || 0) + 1;
+          }
+        }
+      }
+      
+      // If no blockers, keep panel hidden
+      const totalBlockers = totalBlockedSteps + totalUnverifiedSteps;
+      if (totalBlockers === 0) {
+        return;
+      }
+      
+      // Show panel
+      blockersPanel.classList.remove('hidden');
+      if (countEl) countEl.textContent = totalBlockers.toString();
+      
+      // Render blocker list
+      const sortedReasons = Object.entries(blockerReasons)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5); // Top 5 reasons
+      
+      listEl.innerHTML = sortedReasons.map(([reason, count]) => {
+        const icon = reason.includes('Sysmon') ? '📊' :
+                     reason.includes('Admin') ? '🔐' :
+                     reason.includes('Security') ? '🔒' :
+                     reason.includes('ETW') ? '📡' : '⚠️';
+        return `
+          <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--panel); border-radius: var(--radius-sm);">
+            <span style="font-size: 14px;">${icon}</span>
+            <span style="font-size: 11px; color: var(--text); flex: 1;">${escapeHtml(reason)}</span>
+            <span style="font-size: 10px; color: var(--error); font-weight: 600;">${count} step${count !== 1 ? 's' : ''}</span>
+          </div>
+        `;
+      }).join('');
+      
+      // Add summary if there are both blocked and unverified
+      if (totalBlockedSteps > 0 && totalUnverifiedSteps > 0) {
+        listEl.innerHTML += `
+          <div style="font-size: 10px; color: var(--muted); margin-top: 4px; padding-left: 8px;">
+            ${totalBlockedSteps} blocked + ${totalUnverifiedSteps} unverified
+          </div>
+        `;
+      }
+      
+    } catch (err) {
+      console.warn('[Blockers] Error loading step status:', err);
+    }
+  }
+  
+  /**
+   * Update compile status indicator in run detail header
+   * NOW: Only shows COMPILING state. Interrupted uses separate banner.
+   */
+  function updateCompileStatusIndicator(coverage) {
+    if (!els.runCompileStatus) return;
+    
+    // Hide if no coverage data
+    if (!coverage) {
+      els.runCompileStatus.classList.add('hidden');
+      return;
+    }
+    
+    const compileStatus = coverage.compile_status;
+    const factsReady = coverage.facts_ready;
+    const factsPartial = coverage.facts_partial;
+    
+    const isInterrupted = compileStatus === 'interrupted' || factsPartial;
+    
+    // Interrupted state uses separate runInterruptBanner, not this element
+    if (isInterrupted) {
+      els.runCompileStatus.classList.add('hidden');
+      updateInterruptBanner(coverage);
+      updateRunStatusPill(coverage);
+      return;
+    }
+    
+    // Hide interrupt banner when not interrupted
+    if (els.runInterruptBanner) els.runInterruptBanner.classList.add('hidden');
+    
+    // Only show compile status indicator if actively compiling
+    if (compileStatus === 'compiling' || (factsReady === false && !isInterrupted)) {
+      els.runCompileStatus.classList.remove('hidden');
+      els.runCompileStatus.style.display = 'flex';
+      if (els.compileStatusIcon) els.compileStatusIcon.innerHTML = '<span class="spinner-small"></span>';
+      if (els.compileStatusText) els.compileStatusText.textContent = 'Facts are still being extracted... refresh in a moment';
+    } else {
+      // Finalized or unknown - hide the compile banner
+      els.runCompileStatus.classList.add('hidden');
+    }
+    
+    // Also update the status pill in header
+    updateRunStatusPill(coverage);
+  }
+  
+  /**
+   * Update the run status pill in the header
+   * Shows FINALIZED / COMPILING / INTERRUPTED
+   */
+  function updateRunStatusPill(coverage) {
+    if (!els.runStatusPill) return;
+    
+    // Hide if no coverage data
+    if (!coverage) {
+      els.runStatusPill.classList.add('hidden');
+      return;
+    }
+    
+    els.runStatusPill.classList.remove('hidden');
+    
+    const compileStatus = coverage.compile_status;
+    const factsPartial = coverage.facts_partial;
+    const factsReady = coverage.facts_ready;
+    const metadataUnavailable = coverage.metadata_unavailable;
+    
+    // C: OLD RUN DEGRADATION
+    // If metadata_unavailable, don't show interrupted - show finalized with note
+    // Old runs without run_meta.json should never show INTERRUPTED
+    if (metadataUnavailable) {
+      els.runStatusPill.classList.remove('run-status-pill--finalized', 'run-status-pill--compiling', 'run-status-pill--interrupted');
+      els.runStatusPill.classList.add('run-status-pill--finalized');
+      els.runStatusPill.innerHTML = '✓ FINALIZED';
+      els.runStatusPill.title = 'Older run: readiness metadata unavailable';
+      return;
+    }
+    
+    // Determine status
+    const isInterrupted = compileStatus === 'interrupted' || factsPartial;
+    const isCompiling = compileStatus === 'compiling' || (factsReady === false && !isInterrupted);
+    
+    // Remove all status classes
+    els.runStatusPill.classList.remove('run-status-pill--finalized', 'run-status-pill--compiling', 'run-status-pill--interrupted');
+    
+    if (isInterrupted) {
+      els.runStatusPill.classList.add('run-status-pill--interrupted');
+      els.runStatusPill.innerHTML = '⚠️ INTERRUPTED';
+      els.runStatusPill.title = coverage.abandoned_reason || 'Run was interrupted';
+    } else if (isCompiling) {
+      els.runStatusPill.classList.add('run-status-pill--compiling');
+      els.runStatusPill.innerHTML = '⏳ COMPILING';
+      els.runStatusPill.title = 'Fact extraction in progress';
+    } else {
+      els.runStatusPill.classList.add('run-status-pill--finalized');
+      els.runStatusPill.innerHTML = '✓ FINALIZED';
+      els.runStatusPill.title = 'Fact extraction complete';
+    }
+    
+    // Also update the new compact header pills
+    updateHeaderPills(coverage);
+  }
+  
+  /**
+   * Update the compact telemetry and compile pills in the header
+   */
+  function updateHeaderPills(coverage) {
+    // Telemetry Pill
+    if (els.runTelemetryPill) {
+      const telemetryStatus = coverage?.telemetry_status || state.runCoverage?.telemetry_status;
+      if (telemetryStatus === 'live' || telemetryStatus === 'active') {
+        els.runTelemetryPill.textContent = '📡 Live';
+        els.runTelemetryPill.className = 'badge badge-live';
+      } else if (telemetryStatus === 'stopped' || telemetryStatus === 'offline') {
+        els.runTelemetryPill.textContent = '📡 Stopped';
+        els.runTelemetryPill.className = 'badge badge-stopped';
+      } else {
+        // Derive from coverage data
+        const factsTotal = coverage?.facts_total || 0;
+        if (factsTotal > 0) {
+          els.runTelemetryPill.textContent = `📡 ${formatValue(factsTotal)} facts`;
+          els.runTelemetryPill.className = 'badge badge-live';
+        } else {
+          els.runTelemetryPill.textContent = '📡 No data';
+          els.runTelemetryPill.className = 'badge badge-stopped';
+        }
+      }
+    }
+    
+    // Compile Pill
+    if (els.runCompilePill) {
+      const compileStatus = coverage?.compile_status;
+      const factsPartial = coverage?.facts_partial;
+      const isInterrupted = compileStatus === 'interrupted' || factsPartial;
+      const isCompiling = compileStatus === 'compiling' || coverage?.facts_ready === false;
+      
+      if (isInterrupted) {
+        els.runCompilePill.textContent = '⚠️ Interrupted';
+        els.runCompilePill.className = 'badge badge-warning';
+      } else if (isCompiling) {
+        els.runCompilePill.textContent = '⏳ Compiling';
+        els.runCompilePill.className = 'badge badge-running';
+      } else {
+        els.runCompilePill.textContent = '✓ Finalized';
+        els.runCompilePill.className = 'badge badge-live';
+      }
+    }
+  }
+  
+  /**
+   * Update the single authoritative interrupt banner (Part A)
+   * This replaces the noisy repeated INTERRUPTED messaging
+   */
+  function updateInterruptBanner(coverage) {
+    if (!els.runInterruptBanner) return;
+    
+    const isInterrupted = coverage?.compile_status === 'interrupted' || coverage?.facts_partial;
+    
+    if (!isInterrupted) {
+      els.runInterruptBanner.classList.add('hidden');
+      return;
+    }
+    
+    els.runInterruptBanner.classList.remove('hidden');
+    
+    // Update reason text
+    if (els.interruptReason) {
+      const reason = coverage.abandoned_reason || 'Run was interrupted';
+      els.interruptReason.textContent = `— ${reason}`;
+    }
+    
+    // Update recovery tip based on available data
+    if (els.interruptRecoveryTip) {
+      const factsTotal = coverage.facts_total || 0;
+      if (factsTotal > 0) {
+        els.interruptRecoveryTip.textContent = `${formatValue(factsTotal)} facts available. Pivots and exploration still work.`;
+      } else {
+        els.interruptRecoveryTip.textContent = 'Start a new run to capture complete telemetry.';
+      }
+    }
+  }
+  
+  /**
+   * Update overview tab fact types histogram
+   * Shows top 5 fact types with mini bars
+   */
+  function updateOverviewFactTypes(coverage) {
+    if (!els.overviewFactTypesSection) return;
+    
+    // Hide all states first
+    if (els.overviewFactTypesCompiling) els.overviewFactTypesCompiling.classList.add('hidden');
+    if (els.overviewFactTypesList) els.overviewFactTypesList.innerHTML = '';
+    if (els.overviewFactTypesEmpty) els.overviewFactTypesEmpty.classList.add('hidden');
+    
+    // Hide section if no coverage data
+    if (!coverage || coverage.available === false) {
+      els.overviewFactTypesSection.classList.add('hidden');
+      return;
+    }
+    
+    // Show section
+    els.overviewFactTypesSection.classList.remove('hidden');
+    
+    // Check compile status
+    const isCompiling = coverage.compile_status === 'compiling' || !coverage.facts_ready;
+    
+    // Update count in header - show total (now computed from full table by backend)
+    if (els.overviewFactTypesCount) {
+      const total = coverage.facts_total || 0;
+      // TRUTH FIX: Backend now returns accurate fact_types from full GROUP BY, no sample label needed
+      els.overviewFactTypesCount.textContent = `(${formatValue(total)} total)`;
+    }
+    
+    // If still compiling and no facts yet, show compiling message
+    if (isCompiling && (!coverage.fact_types || coverage.fact_types.length === 0)) {
+      if (els.overviewFactTypesCompiling) els.overviewFactTypesCompiling.classList.remove('hidden');
+      return;
+    }
+    
+    // If no facts, show empty state
+    if (!coverage.fact_types || coverage.fact_types.length === 0) {
+      if (els.overviewFactTypesEmpty) els.overviewFactTypesEmpty.classList.remove('hidden');
+      return;
+    }
+    
+    // Render top 5 fact types as mini histogram
+    const factTypes = coverage.fact_types.slice(0, 5);
+    const maxCount = Math.max(...factTypes.map(ft => ft.count));
+    
+    if (els.overviewFactTypesList) {
+      els.overviewFactTypesList.innerHTML = factTypes.map(ft => {
+        const pct = maxCount > 0 ? (ft.count / maxCount) * 100 : 0;
+        return `
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 12px;">
+            <span style="width: 120px; font-family: monospace; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ft.fact_type)}">${escapeHtml(ft.fact_type)}</span>
+            <div style="flex: 1; background: var(--panel); border-radius: 2px; height: 8px; overflow: hidden;">
+              <div style="background: var(--accent); width: ${pct}%; height: 100%; transition: width 0.3s ease;"></div>
+            </div>
+            <span style="width: 50px; text-align: right; color: var(--muted); font-size: 11px;">${formatValue(ft.count)}</span>
+          </div>
+        `;
+      }).join('');
+      
+      // Add status indicator based on compile state (Part A fix)
+      const isInterrupted = coverage.compile_status === 'interrupted' || coverage.facts_partial;
+      if (isInterrupted) {
+        // Interrupted: no spinner, just brief note
+        els.overviewFactTypesList.innerHTML += `
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--warn); margin-top: 6px;">
+            <span>⚠️</span>
+            <span>Extraction interrupted — showing partial sample.</span>
+          </div>
+        `;
+      } else if (isCompiling) {
+        // Still actively compiling: show spinner
+        els.overviewFactTypesList.innerHTML += `
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--accent); margin-top: 6px;">
+            <span class="spinner-small" style="width: 10px; height: 10px; border-width: 1px;"></span>
+            <span>Still extracting facts...</span>
+          </div>
+        `;
+      }
+    }
+  }
+  
+  /**
+   * Update coverage delta chips in Overview tab
+   * Shows observed vs blocked surfaces with color coding and clickable navigation
+   */
+  function updateCoverageDeltaChips(coverage) {
+    const row = els.coverageDeltaRow;
+    if (!row) return;
+    
+    // Hide if no coverage data
+    if (!coverage || coverage.available === false) {
+      row.classList.add('hidden');
+      return;
+    }
+    
+    // Get fact types and coverage checklist
+    const factTypes = coverage.fact_types || [];
+    const checklist = coverage.coverage_checklist || [];
+    
+    // Map surface names to observed status based on fact types
+    const surfaceMapping = {
+      'process': ['ProcessExec', 'Exec'],
+      'powershell': ['PowerShellExec', 'ScriptExec'],
+      'network': ['OutboundConnect', 'DnsQuery'],
+      'file': ['FileCreate', 'CreatePath'],
+      'registry': ['RegistryMod', 'RegistryAutorun']
+    };
+    
+    // Build lookup of blocked surfaces from checklist
+    const blockedSurfaces = new Set();
+    const blockedReasons = {};
+    checklist.forEach(item => {
+      if (item.status === 'blocked') {
+        const name = (item.surface || item.name || '').toLowerCase();
+        const reason = item.reason || item.unlock || 'Configuration required';
+        if (name.includes('process')) { blockedSurfaces.add('process'); blockedReasons['process'] = reason; }
+        if (name.includes('powershell') || name.includes('script')) { blockedSurfaces.add('powershell'); blockedReasons['powershell'] = reason; }
+        if (name.includes('network')) { blockedSurfaces.add('network'); blockedReasons['network'] = reason; }
+        if (name.includes('file')) { blockedSurfaces.add('file'); blockedReasons['file'] = reason; }
+        if (name.includes('registry')) { blockedSurfaces.add('registry'); blockedReasons['registry'] = reason; }
+      }
+    });
+    
+    // Part E: Surface descriptions for tooltips
+    const surfaceDescriptions = {
+      'process': { name: 'Process', desc: 'Process execution events (Exec facts)' },
+      'powershell': { name: 'PowerShell', desc: 'PowerShell script execution events' },
+      'network': { name: 'Network', desc: 'Outbound connections and DNS queries' },
+      'file': { name: 'File', desc: 'File creation and modification events' },
+      'registry': { name: 'Registry', desc: 'Registry modifications and autoruns' }
+    };
+    
+    // Update each chip with enhanced tooltips (Part E)
+    const updateChip = (chipEl, surfaceKey) => {
+      if (!chipEl) return;
+      
+      const factTypeNames = surfaceMapping[surfaceKey] || [];
+      const hasData = factTypes.some(ft => factTypeNames.includes(ft.fact_type) && ft.count > 0);
+      const isBlocked = blockedSurfaces.has(surfaceKey);
+      const desc = surfaceDescriptions[surfaceKey] || { name: surfaceKey, desc: '' };
+      
+      // Get fact count for this surface
+      const factCount = factTypes
+        .filter(ft => factTypeNames.includes(ft.fact_type))
+        .reduce((sum, ft) => sum + (ft.count || 0), 0);
+      
+      if (hasData) {
+        // Observed: green background
+        chipEl.style.background = 'rgba(16, 185, 129, 0.15)';
+        chipEl.style.color = 'var(--good)';
+        chipEl.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+        chipEl.title = `✓ Observed: ${desc.desc}\n${formatValue(factCount)} facts captured\nClick to filter Fact Inspector`;
+      } else if (isBlocked) {
+        // Blocked: red background
+        chipEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        chipEl.style.color = 'var(--error)';
+        chipEl.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        const blockReason = blockedReasons[surfaceKey] || 'Configuration required';
+        chipEl.title = `✗ Blocked: ${desc.desc}\n${blockReason}\nClick to see how to unlock`;
+      } else {
+        // Not observed (but not blocked): muted
+        chipEl.style.background = 'var(--panel2)';
+        chipEl.style.color = 'var(--muted)';
+        chipEl.style.border = '1px solid var(--border)';
+        chipEl.title = `— Not observed: ${desc.desc}\nNo facts of this type in run`;
+      }
+    };
+    
+    updateChip(els.chipProcess, 'process');
+    updateChip(els.chipPowerShell, 'powershell');
+    updateChip(els.chipNetwork, 'network');
+    updateChip(els.chipFile, 'file');
+    updateChip(els.chipRegistry, 'registry');
+    
+    // Show the row
+    row.classList.remove('hidden');
+    row.style.display = 'flex';
   }
 
   /**
@@ -8670,38 +13885,51 @@ cargo build --release -p edr-locald --bin edr-locald`;
     }
     
     // Facts and signals counts - handle both field names (facts_total and facts_extracted)
-    const factsCount = data.facts_total ?? data.facts_extracted ?? '—';
-    const signalsCount = data.signals_count ?? '—';
-    if (els.stateFactsCount) els.stateFactsCount.textContent = factsCount;
-    if (els.stateSignalsCount) els.stateSignalsCount.textContent = signalsCount;
+    const factsCount = data.facts_total ?? data.facts_extracted ?? 0;
+    const signalsCount = data.signals_count ?? 0;
     
-    // Top process - MUST show a value or explicit reason (never just "—")
-    // Uses enhanced diagnostics from backend including has_exec_facts
+    // Update quick stats in collapsed header
+    if (els.stateQuickStats) {
+      els.stateQuickStats.textContent = `${formatValue(factsCount)} facts • ${signalsCount} signals`;
+    }
+    
+    // Top process - TRUTH FIX: Check multiple sources for Exec fact existence
+    // Sources: 1) top_entities.processes, 2) coverage.fact_types, 3) what_changed.process_execution
     if (els.stateTopProcess) {
       const processes = data.top_entities?.processes || [];
-      const hasFacts = (data.facts_total ?? data.facts_extracted ?? 0) > 0;
-      const hasExecFacts = data.top_entities?.has_exec_facts || false;
-      const execFactCount = data.top_entities?.exec_fact_count || 0;
+      const hasFacts = factsCount > 0;
+      
+      // Check coverage for Exec facts (source of truth)
+      const coverage = state.runCoverage || {};
+      const factTypes = coverage.fact_types || [];
+      const execFactType = factTypes.find(ft => 
+        ft.fact_type === 'Exec' || ft.fact_type === 'ProcessExec' || ft.fact_type === 'ScriptExec'
+      );
+      const execFactCountFromCoverage = execFactType?.count || 0;
+      
+      // Also check state API data
+      const hasExecFacts = data.top_entities?.has_exec_facts || (execFactCountFromCoverage > 0);
+      const execFactCount = data.top_entities?.exec_fact_count || execFactCountFromCoverage;
       
       if (processes.length > 0 && processes[0].entity_key) {
         // We have top process data - show it
         const topProc = processes[0].entity_key;
         const factCount = processes[0].fact_count;
         // Truncate long process paths for display
-        const displayProc = topProc.length > 50 ? '...' + topProc.slice(-47) : topProc;
-        els.stateTopProcess.innerHTML = `<span title="${escapeHtml(topProc)}">${escapeHtml(displayProc)}</span>`;
+        const displayProc = topProc.length > 40 ? '...' + topProc.slice(-37) : topProc;
+        els.stateTopProcess.innerHTML = `<span title="${escapeHtml(topProc)}" style="font-family: monospace; font-size: 11px;">${escapeHtml(displayProc)}</span>`;
         if (factCount) {
-          els.stateTopProcess.innerHTML += ` <span style="color: var(--muted); font-size: 10px;">(${factCount} facts)</span>`;
+          els.stateTopProcess.innerHTML += ` <span style="color: var(--muted); font-size: 10px;">(${factCount})</span>`;
         }
       } else if (!hasFacts) {
-        // No facts extracted at all
-        els.stateTopProcess.innerHTML = `<span style="color: var(--muted); font-size: 11px;">No facts extracted in this run</span>`;
+        // No facts extracted at all - be truthful
+        els.stateTopProcess.innerHTML = `<span style="color: var(--muted); font-size: 11px;">unavailable (no facts in run)</span>`;
       } else if (hasExecFacts && execFactCount > 0) {
-        // Exec facts exist but no proc_key aggregation - show count with explanation
-        els.stateTopProcess.innerHTML = `<span style="color: var(--muted); font-size: 11px;">${execFactCount} process facts (no entity key extraction)</span>`;
+        // Exec facts exist but none sampled for top-process aggregation
+        els.stateTopProcess.innerHTML = `<span style="color: var(--muted); font-size: 11px;">${formatValue(execFactCount)} Exec facts (aggregation unavailable)</span>`;
       } else {
-        // Facts exist but no process/exec facts specifically
-        els.stateTopProcess.innerHTML = `<span style="color: var(--muted); font-size: 11px;">No process telemetry (check Sysmon)</span>`;
+        // Facts exist but no exec facts at all - truthful about why
+        els.stateTopProcess.innerHTML = `<span style="color: var(--muted); font-size: 11px;">unavailable (no Exec-type facts)</span>`;
       }
     }
     
@@ -8820,6 +14048,595 @@ cargo build --release -p edr-locald --bin edr-locald`;
   }
 
   // ============================================================================
+  // Top 3 Highlights - Premier Workflow Enhancer
+  // ============================================================================
+
+  /**
+   * FACT_TYPE_FILTER_MAP - Explicit mapping from highlight types to Facts tab filters
+   * These strings MUST match the fact_type values returned by the API
+   * Used for debugging and ensuring pivot clicks always produce results
+   */
+  const FACT_TYPE_FILTER_MAP = {
+    'LogTamper': 'fact_type=LogTamper',
+    'RegistryAutorun': 'fact_type=RegistryAutorun',
+    'ScheduledTaskCreate': 'fact_type=ScheduledTaskCreate',
+    'ServiceInstall': 'fact_type=ServiceInstall',
+    'OutboundConnect': 'fact_type=OutboundConnect',
+    'DnsQuery': 'fact_type=DnsQuery',
+    'ProcessInject': 'fact_type=ProcessInject',
+    'PowerShellExec': 'fact_type=PowerShellExec',
+    'CredentialAccess': 'fact_type=CredentialAccess',
+    'FileCreate': 'fact_type=FileCreate',
+    'RegistryMod': 'fact_type=RegistryMod',
+    'ProcessExec': 'fact_type=ProcessExec',
+    'Exec': 'fact_type=Exec',
+    'NetworkConnect': 'fact_type=NetworkConnect',
+    'FileWrite': 'fact_type=FileWrite',
+    'ImageLoad': 'fact_type=ImageLoad'
+  };
+
+  /**
+   * Resolve a fact type to its explicit filter string for Facts tab
+   * Validates against observedFactTypes to ensure filter will produce results
+   * 
+   * Returns:
+   *   { filter: 'X', debugString: 'fact_type=X', disabled: false } - clickable
+   *   { filter: null, debugString: '...', disabled: true, warning: '...' } - disabled with debug warning
+   * 
+   * @param {string} factType - The fact type to resolve
+   * @param {Set<string>} observedFactTypes - Set of fact types observed in this run (optional)
+   */
+  function resolveFactFilter(factType, observedFactTypes) {
+    if (!factType) return { filter: null, debugString: null, disabled: true };
+    
+    // Check if type exists in observed set (if provided)
+    const isObserved = observedFactTypes ? observedFactTypes.has(factType) : true;
+    
+    // Check explicit map first
+    const mapped = FACT_TYPE_FILTER_MAP[factType];
+    
+    if (mapped) {
+      // Mapped type - validate it's observed in this run
+      if (isObserved) {
+        return { filter: factType, debugString: mapped, disabled: false };
+      } else {
+        // Mapped but not observed in this run - disable with warning
+        return { 
+          filter: null, 
+          debugString: mapped, 
+          disabled: true, 
+          warning: `Mapped type '${factType}' not present in this run`
+        };
+      }
+    }
+    
+    // Not in explicit map - try dynamic fallback
+    if (isObserved) {
+      // Type exists in observed, use it directly (dynamic fallback)
+      return { 
+        filter: factType, 
+        debugString: `fact_type=${factType} (dynamic)`, 
+        disabled: false,
+        isDynamic: true
+      };
+    }
+    
+    // Neither mapped nor observed - disable
+    return { 
+      filter: null, 
+      debugString: `fact_type=${factType}`, 
+      disabled: true, 
+      warning: `Unmapped type '${factType}' not observed in run`
+    };
+  }
+
+  /**
+   * High-risk fact types for Highlight A (Suspicious)
+   * Ordered by severity/risk level
+   */
+  const SUSPICIOUS_FACT_TYPES = [
+    { type: 'LogTamper', icon: '🗑️', reason: 'Log tampering may indicate cover-up' },
+    { type: 'RegistryAutorun', icon: '🔄', reason: 'Persistence mechanism detected' },
+    { type: 'ScheduledTaskCreate', icon: '📅', reason: 'Persistence via scheduled task' },
+    { type: 'ServiceInstall', icon: '⚙️', reason: 'Service installation for persistence' },
+    { type: 'OutboundConnect', icon: '🌐', reason: 'External communication detected' },
+    { type: 'DnsQuery', icon: '🔍', reason: 'DNS queries may reveal C2' },
+    { type: 'ProcessInject', icon: '💉', reason: 'Code injection detected' },
+    { type: 'PowerShellExec', icon: '⚡', reason: 'Script execution detected' },
+    { type: 'CredentialAccess', icon: '🔑', reason: 'Credential access attempt' },
+    { type: 'FileCreate', icon: '📄', reason: 'File creation in sensitive location' },
+    { type: 'RegistryMod', icon: '📝', reason: 'Registry modification detected' },
+    { type: 'ProcessExec', icon: '▶️', reason: 'Process execution chain' }
+  ];
+
+  /**
+   * Benign/noise fact types to deprioritize for Highlight B (Frequent)
+   */
+  const BENIGN_FACT_TYPES = ['Heartbeat', 'SystemInfo', 'ModuleLoad', 'ThreadCreate'];
+
+  /**
+   * Render the Workflow Status banner at top of Overview tab
+   * Shows run status only (no CTAs - use tabs for navigation)
+   */
+  async function renderWorkflowGuide(run) {
+    const guideEl = document.getElementById('overviewWorkflowGuide');
+    const iconEl = document.getElementById('workflowGuideIcon');
+    const summaryEl = document.getElementById('workflowGuideSummary');
+    const detailEl = document.getElementById('workflowGuideDetail');
+    
+    if (!guideEl) return;
+    
+    // Wait a bit for signals/coverage to load
+    await new Promise(r => setTimeout(r, 400));
+    
+    const coverage = state.runCoverage || {};
+    const signals = state.signals || [];
+    const isInterrupted = coverage.compile_status === 'interrupted' || coverage.facts_partial;
+    const isFinalized = coverage.compile_status === 'finalized' || coverage.compile_status === 'complete';
+    const factsTotal = coverage.facts_total ?? run.facts_extracted ?? 0;
+    const signalCount = signals.length;
+    
+    let icon = '🎯';
+    let summary = '';
+    let detail = '';
+    
+    // Determine scenario - ORDERED by specificity (most specific first)
+    // CRITICAL: Finalized runs should NEVER show "in progress"
+    if (isInterrupted) {
+      // Scenario: Interrupted run (highest priority - always show warning)
+      icon = '⚠️';
+      summary = 'Run was interrupted — partial data available';
+      detail = `Captured ${factsTotal.toLocaleString()} facts before interruption. Use tabs above to investigate.`;
+    } else if (isFinalized && signalCount > 0) {
+      // Scenario: Finalized with findings
+      icon = '🔍';
+      const severities = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+      signals.forEach(s => {
+        const sev = (s.severity || 'info').toLowerCase();
+        severities[sev] = (severities[sev] || 0) + 1;
+      });
+      
+      // Build severity breakdown
+      const sevParts = [];
+      if (severities.critical > 0) sevParts.push(`${severities.critical} critical`);
+      if (severities.high > 0) sevParts.push(`${severities.high} high`);
+      if (severities.medium > 0) sevParts.push(`${severities.medium} medium`);
+      if (sevParts.length === 0 && (severities.low > 0 || severities.info > 0)) {
+        sevParts.push(`${severities.low + severities.info} info/low`);
+      }
+      
+      summary = `Run complete — ${signalCount} finding${signalCount !== 1 ? 's' : ''} detected`;
+      detail = sevParts.length > 0 ? `Priority breakdown: ${sevParts.join(', ')}. Switch to Investigate tab.` : 'Switch to Investigate tab to review findings.';
+    } else if (isFinalized && factsTotal > 0) {
+      // Scenario: Finalized, no findings, has facts (clean run)
+      icon = '✅';
+      summary = 'Run complete — no findings detected';
+      detail = `Analyzed ${factsTotal.toLocaleString()} facts. No suspicious activity matched detection playbooks.`;
+    } else if (isFinalized && factsTotal === 0) {
+      // Scenario: Finalized but no facts (empty run)
+      icon = '📋';
+      summary = 'Run complete — no telemetry captured';
+      detail = 'Run completed but no events were recorded. Check sensor configuration.';
+    } else if (signalCount > 0) {
+      // Scenario: Not finalized but has findings (still compiling)
+      icon = '🔍';
+      summary = `${signalCount} finding${signalCount !== 1 ? 's' : ''} detected (analysis ongoing)`;
+      detail = 'Run is still processing. Switch to Investigate tab to review findings so far.';
+    } else if (factsTotal === 0) {
+      // Scenario: No facts yet (still loading)
+      icon = '📋';
+      summary = 'Run data is loading';
+      detail = 'Facts are being extracted from telemetry...';
+    } else {
+      // Scenario: Has facts, not finalized, no findings (compiling)
+      icon = '⏳';
+      summary = 'Analysis in progress';
+      detail = `${factsTotal.toLocaleString()} facts extracted. Detection analysis ongoing.`;
+    }
+    
+    // Render
+    if (iconEl) iconEl.textContent = icon;
+    if (summaryEl) summaryEl.textContent = summary;
+    if (detailEl) detailEl.textContent = detail;
+    
+    // Show the guide
+    guideEl.classList.remove('hidden');
+  }
+
+  /**
+   * Load and compute Top 3 Highlights for a run
+   * Works even with 0 findings, interrupted runs, or old runs
+   */
+  async function loadHighlightsForRun(run) {
+    const runId = run.run_id || run.id;
+    
+    // Hide panel initially
+    if (els.runHighlightsPanel) els.runHighlightsPanel.classList.add('hidden');
+    
+    // Wait for coverage data (has fact_types) - small delay to let it load
+    await new Promise(r => setTimeout(r, 300));
+    
+    const coverage = state.runCoverage || {};
+    const factTypes = coverage.fact_types || [];
+    const factsTotal = coverage.facts_total ?? run.facts_extracted ?? 0;
+    const isInterrupted = coverage.compile_status === 'interrupted' || coverage.facts_partial;
+    const metadataUnavailable = coverage.metadata_unavailable;
+    const signals = state.signals || [];
+    
+    // Compute 3 highlights based on available data
+    const highlights = computeHighlights(factTypes, factsTotal, signals, isInterrupted, metadataUnavailable);
+    
+    // Render highlights panel
+    renderHighlightsPanel(highlights, isInterrupted, metadataUnavailable);
+  }
+
+  /**
+   * PREFERRED FACT TYPES for pivots (Part B)
+   * Ordered by investigation value: ScriptExec, Exec, OutboundConnect, RegistryMod, CreatePath
+   */
+  const PIVOT_PREFERRED_TYPES = ['ScriptExec', 'PowerShellExec', 'ProcessExec', 'Exec', 'OutboundConnect', 'DnsQuery', 'RegistryMod', 'RegistryAutorun', 'FileCreate', 'CreatePath'];
+  
+  /**
+   * Compute the 3 actionable highlights (Part B - workflow-first)
+   * Card 1: Top finding (if signals>0) else "No findings"
+   * Card 2: Best pivot based on observed fact types
+   * Card 3: Investigation path (3 steps) using only observed types
+   * 
+   * REMOVED: "Facts extracted" and "Check configuration" from highlights (moved to Next Steps)
+   */
+  function computeHighlights(factTypes, factsTotal, signals, isInterrupted, metadataUnavailable) {
+    const highlights = [];
+    
+    // Build lookup for fact type counts
+    const ftLookup = {};
+    factTypes.forEach(ft => {
+      ftLookup[ft.fact_type] = ft.count;
+    });
+    
+    // Build observed fact types set from coverage data (source of truth)
+    const observedFactTypes = new Set(factTypes.map(ft => ft.fact_type));
+    
+    // Debug: log observed types in debug mode
+    if (DEBUG_MODE) {
+      console.log('[Highlights] Observed fact types:', [...observedFactTypes]);
+      console.log('[Highlights] Signals:', signals.length);
+    }
+    
+    // === HIGHLIGHT A: Top Finding or No Findings ===
+    // If signals exist, show top finding; otherwise show "No findings" (actionable, not meta)
+    let findingHighlight = null;
+    if (signals.length > 0) {
+      // Find highest severity signal
+      const topSignal = signals.reduce((a, b) => 
+        (getSeverityRank(b.severity) > getSeverityRank(a.severity)) ? b : a
+      , signals[0]);
+      
+      const severityColor = {
+        'critical': 'var(--error)',
+        'high': 'var(--error)',
+        'medium': 'var(--warn)',
+        'low': 'var(--accent)'
+      }[topSignal.severity?.toLowerCase()] || 'var(--warn)';
+      
+      findingHighlight = {
+        icon: '🚨',
+        title: topSignal.signal_type || 'Detection Alert',
+        subtitle: `${signals.length} finding${signals.length > 1 ? 's' : ''} • ${topSignal.severity || 'unknown'} severity`,
+        pivot_filter: null,
+        debugFilter: 'action=findings',
+        reason: topSignal.description || 'Click to review findings',
+        badge: topSignal.severity || 'finding',
+        badgeColor: severityColor,
+        action: 'findings'
+      };
+    } else {
+      // No findings - still actionable (not a meta card)
+      findingHighlight = {
+        icon: '✅',
+        title: 'No Findings',
+        subtitle: isInterrupted ? 'Partial analysis' : 'No detections triggered',
+        pivot_filter: null,
+        debugFilter: null,
+        reason: isInterrupted ? 'Run interrupted - consider rerunning' : 'All playbook checks passed',
+        badge: isInterrupted ? 'partial' : 'clean',
+        badgeColor: isInterrupted ? 'var(--warn)' : 'var(--good)'
+      };
+    }
+    highlights.push(findingHighlight);
+    
+    // === HIGHLIGHT B: Best Pivot (based on observed fact types, prefer high-value types) ===
+    // Find the best pivot type from observed facts, preferring PIVOT_PREFERRED_TYPES order
+    let bestPivotHighlight = null;
+    let bestPivotType = null;
+    
+    // Fact-type-specific "why this is recommended" explanations
+    const PIVOT_WHY_TEXT = {
+      'ScriptExec': 'Script execution often reveals attacker commands',
+      'PowerShellExec': 'PowerShell is commonly used for lateral movement and payload delivery',
+      'ProcessExec': 'Process tree shows execution lineage and parent-child relationships',
+      'Exec': 'Process execution traces reveal attack chain progression',
+      'OutboundConnect': 'Network connections may reveal C2 communication or data exfiltration',
+      'DnsQuery': 'DNS queries can expose C2 domains and beaconing patterns',
+      'RegistryMod': 'Registry changes often indicate persistence or configuration tampering',
+      'RegistryAutorun': 'Autorun entries are high-confidence persistence mechanisms',
+      'FileCreate': 'File writes may reveal dropped payloads or staging',
+      'CreatePath': 'Directory creation patterns reveal staging and workspace setup',
+      'ServiceInstall': 'Service installations are common persistence mechanisms',
+      'ScheduledTaskCreate': 'Scheduled tasks enable persistent execution'
+    };
+    
+    for (const pivotType of PIVOT_PREFERRED_TYPES) {
+      if (observedFactTypes.has(pivotType) && ftLookup[pivotType] > 0) {
+        bestPivotType = pivotType;
+        break;
+      }
+    }
+    
+    // Fallback to most frequent non-benign type if no preferred type found
+    if (!bestPivotType) {
+      const nonBenignTypes = factTypes.filter(ft => !BENIGN_FACT_TYPES.includes(ft.fact_type));
+      const sorted = [...nonBenignTypes].sort((a, b) => b.count - a.count);
+      if (sorted.length > 0) {
+        bestPivotType = sorted[0].fact_type;
+      }
+    }
+    
+    if (bestPivotType) {
+      const count = ftLookup[bestPivotType];
+      const icons = {
+        'ScriptExec': '⚡', 'PowerShellExec': '⚡', 'ProcessExec': '▶️', 'Exec': '▶️',
+        'OutboundConnect': '🌐', 'DnsQuery': '🔍', 'RegistryMod': '📝', 'RegistryAutorun': '🔄',
+        'FileCreate': '📄', 'CreatePath': '📁'
+      };
+      // Use fact-type-specific "why" text, fallback to generic
+      const whyText = PIVOT_WHY_TEXT[bestPivotType] || 'Best pivot point for this run';
+      bestPivotHighlight = {
+        icon: icons[bestPivotType] || '📊',
+        title: `Review ${bestPivotType}`,
+        subtitle: `${count} event${count > 1 ? 's' : ''} captured`,
+        pivot_filter: bestPivotType,
+        debugFilter: `fact_type=${bestPivotType}`,
+        reason: whyText,
+        badge: 'pivot',
+        badgeColor: 'var(--accent)',
+        disabled: false
+      };
+    } else if (factsTotal > 0) {
+      // Have facts but no good pivot type - suggest Facts tab
+      bestPivotHighlight = {
+        icon: '📋',
+        title: 'Browse Facts',
+        subtitle: `${formatValue(factsTotal)} facts available`,
+        pivot_filter: null,
+        debugFilter: null,
+        reason: 'Review raw telemetry in Facts tab',
+        badge: 'browse',
+        badgeColor: 'var(--muted)',
+        action: 'facts'
+      };
+    } else {
+      // No facts at all - NO "Check configuration" here per Part B, just indicate no data
+      bestPivotHighlight = {
+        icon: '📭',
+        title: 'No Telemetry',
+        subtitle: isInterrupted ? 'Run incomplete' : 'No facts captured',
+        pivot_filter: null,
+        debugFilter: null,
+        reason: 'See Next Steps for recommendations',
+        badge: 'empty',
+        badgeColor: 'var(--muted)'
+      };
+    }
+    highlights.push(bestPivotHighlight);
+    
+    // === HIGHLIGHT C: Investigation Path (3 steps using only observed types) ===
+    // Build a pivot chain from existing fact types - validated against observedFactTypes
+    const pivotOrder = ['OutboundConnect', 'DnsQuery', 'ProcessExec', 'PowerShellExec', 'ScriptExec', 'RegistryMod', 'FileCreate', 'ServiceInstall', 'Exec'];
+    const existingPivots = pivotOrder.filter(p => ftLookup[p] && ftLookup[p] > 0 && observedFactTypes.has(p));
+    
+    let investigateHighlight = null;
+    if (existingPivots.length >= 2) {
+      const chain = existingPivots.slice(0, 3);
+      // Build pivotChain with explicit filter info for each step
+      const chainWithFilters = chain.map(p => {
+        const resolved = resolveFactFilter(p, observedFactTypes);
+        return {
+          type: p,
+          count: ftLookup[p],
+          filter: resolved.disabled ? null : resolved.filter,
+          debugFilter: resolved.debugString,
+          disabled: resolved.disabled,
+          warning: resolved.warning
+        };
+      });
+      investigateHighlight = {
+        icon: '🔍',
+        title: 'Investigation Path',
+        subtitle: chain.join(' → '),
+        pivot_filter: chainWithFilters[0].filter,
+        debugFilter: chainWithFilters.map(c => c.debugFilter).join(' → '),
+        reason: `Start with ${chain[0]}, trace to ${chain.slice(1).join(', ')}`,
+        badge: 'path',
+        badgeColor: 'var(--accent)',
+        pivotChain: chainWithFilters
+      };
+    } else if (existingPivots.length === 1) {
+      const singleType = existingPivots[0];
+      const resolved = resolveFactFilter(singleType, observedFactTypes);
+      investigateHighlight = {
+        icon: '🔍',
+        title: `Investigate ${singleType}`,
+        subtitle: `${ftLookup[singleType]} events to review`,
+        pivot_filter: resolved.disabled ? null : resolved.filter,
+        debugFilter: resolved.debugString,
+        reason: 'Primary activity type in this run',
+        badge: 'start',
+        badgeColor: 'var(--accent)',
+        disabled: resolved.disabled,
+        warning: resolved.warning
+      };
+    } else if (signals.length > 0) {
+      // No pivot types but have signals - link to findings
+      investigateHighlight = {
+        icon: '🔍',
+        title: 'Review Findings',
+        subtitle: `${signals.length} detection${signals.length > 1 ? 's' : ''} to investigate`,
+        pivot_filter: null,
+        debugFilter: 'action=findings',
+        reason: 'Start investigation from findings',
+        badge: 'findings',
+        badgeColor: 'var(--warn)',
+        action: 'findings'
+      };
+    } else {
+      // No pivots, no signals - provide neutral guidance (NOT "Check Configuration" per Part B)
+      investigateHighlight = {
+        icon: '💤',
+        title: 'Limited Activity',
+        subtitle: metadataUnavailable ? 'Legacy run' : 'Low activity detected',
+        pivot_filter: null,
+        debugFilter: null,
+        reason: metadataUnavailable ? 'Run predates detailed tracking' : 'See Next Steps for recommendations',
+        badge: metadataUnavailable ? 'legacy' : 'quiet',
+        badgeColor: 'var(--muted)'
+      };
+    }
+    highlights.push(investigateHighlight);
+    
+    return highlights;
+  }
+
+  /**
+   * Get severity rank for sorting signals
+   */
+  function getSeverityRank(severity) {
+    const ranks = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+    return ranks[(severity || '').toLowerCase()] ?? 0;
+  }
+
+  /**
+   * Render the highlights panel with 3 highlight cards
+   */
+  function renderHighlightsPanel(highlights, isInterrupted, metadataUnavailable) {
+    if (!els.runHighlightsPanel || !els.highlightsList) return;
+    
+    // Update status badge - clarify what "30-second view" means
+    if (els.highlightsStatusBadge) {
+      if (isInterrupted) {
+        els.highlightsStatusBadge.textContent = '⚠️ partial data';
+        els.highlightsStatusBadge.title = 'Run was interrupted, analysis may be incomplete';
+        els.highlightsStatusBadge.style.color = 'var(--warn)';
+      } else if (metadataUnavailable) {
+        els.highlightsStatusBadge.textContent = '📜 legacy run';
+        els.highlightsStatusBadge.title = 'Run metadata unavailable (older run format)';
+        els.highlightsStatusBadge.style.color = 'var(--muted)';
+      } else {
+        els.highlightsStatusBadge.textContent = 'sampled';
+        els.highlightsStatusBadge.title = 'Shows sample of recent activity (not totals)';
+        els.highlightsStatusBadge.style.color = 'var(--muted)';
+      }
+    }
+    
+    // Render highlight cards
+    els.highlightsList.innerHTML = highlights.map((h, i) => {
+      const labels = ['A', 'B', 'C'];
+      const hasAction = h.pivot_filter || h.action;
+      
+      // For Investigation Path with pivotChain, render clickable step buttons
+      const hasPivotChain = h.pivotChain && Array.isArray(h.pivotChain) && h.pivotChain.length > 1;
+      
+      // Build action attribute for main card click (uses first step for path)
+      const actionAttr = h.pivot_filter 
+        ? `onclick="window.pivotToFacts && window.pivotToFacts('${escapeHtml(h.pivot_filter)}'); event.stopPropagation();"` 
+        : (h.action === 'findings' ? `onclick="switchRunTab('investigate'); event.stopPropagation();"` : '');
+      
+      // Debug tooltip (only in DEBUG_MODE)
+      const debugTooltip = DEBUG_MODE && h.debugFilter 
+        ? `title="[DEBUG] Filter: ${escapeHtml(h.debugFilter)}"` 
+        : '';
+      
+      // Debug info icon with warning if disabled (only in DEBUG_MODE)
+      const debugWarning = h.disabled && h.warning ? ` ⚠️ ${h.warning}` : '';
+      const debugIcon = DEBUG_MODE && (h.debugFilter || h.warning)
+        ? `<span style="font-size: 9px; color: ${h.disabled ? 'var(--warn)' : 'var(--accent)'}; cursor: help; margin-left: 4px;" title="${escapeHtml((h.debugFilter || '') + debugWarning)}">ⓘ</span>` 
+        : '';
+      
+      // Show "Not available" indicator for disabled highlights (non-debug mode)
+      const disabledIndicator = h.disabled && !h.action 
+        ? `<span style="font-size: 9px; color: var(--muted); margin-left: 4px; font-style: italic;">Not available</span>`
+        : '';
+      
+      // Render pivot chain as clickable buttons for Investigation Path
+      let subtitleContent = escapeHtml(h.subtitle);
+      if (hasPivotChain) {
+        subtitleContent = h.pivotChain.map((step, stepIdx) => {
+          const stepType = step.type || step;
+          const stepFilter = step.filter || stepType;
+          const stepCount = step.count || '';
+          const stepDebug = step.debugFilter || `fact_type=${stepType}`;
+          const stepDisabled = step.disabled || !stepFilter;
+          const isFirst = stepIdx === 0;
+          
+          // Build title with debug info or warning
+          let stepTitle = `${stepType} (${stepCount} events)`;
+          if (DEBUG_MODE) {
+            stepTitle = `[DEBUG] ${stepDebug} (${stepCount} events)`;
+            if (step.warning) stepTitle += ` ⚠️ ${step.warning}`;
+          }
+          
+          // Disabled step: show muted button with no click
+          if (stepDisabled) {
+            return `<button 
+              disabled
+              style="font-size: 10px; padding: 2px 8px; margin-right: 4px; background: var(--panel); color: var(--muted); border: 1px solid var(--border); border-radius: 4px; cursor: not-allowed; font-family: inherit; opacity: 0.5;"
+              title="${escapeHtml(stepTitle + (DEBUG_MODE && step.warning ? '' : ' (not available)'))}"
+            >${escapeHtml(stepType)}</button>${stepIdx < h.pivotChain.length - 1 ? '<span style="color: var(--muted); margin-right: 4px;">→</span>' : ''}`;
+          }
+          
+          // Normal clickable step
+          return `<button 
+            onclick="event.stopPropagation(); window.pivotToFacts && window.pivotToFacts('${escapeHtml(stepFilter)}');" 
+            style="font-size: 10px; padding: 2px 8px; margin-right: 4px; background: ${isFirst ? 'var(--accent)' : 'var(--panel2)'}; color: ${isFirst ? 'white' : 'var(--text)'}; border: 1px solid ${isFirst ? 'var(--accent)' : 'var(--border)'}; border-radius: 4px; cursor: pointer; font-family: inherit;"
+            title="${escapeHtml(stepTitle)}"
+          >${escapeHtml(stepType)}</button>${stepIdx < h.pivotChain.length - 1 ? '<span style="color: var(--muted); margin-right: 4px;">→</span>' : ''}`;
+        }).join('');
+      }
+      
+      // Determine cursor and clickability based on disabled state
+      const isClickable = hasAction && !hasPivotChain && !h.disabled;
+      const cardCursor = isClickable ? 'pointer' : 'default';
+      const cardAction = isClickable ? actionAttr : '';
+      
+      return `
+        <div style="display: flex; gap: 12px; padding: 10px 12px; background: var(--panel); border-radius: var(--radius-sm); cursor: ${cardCursor}; border: 1px solid transparent; transition: border-color 0.15s; ${h.disabled ? 'opacity: 0.7;' : ''}"
+             ${cardAction}
+             ${debugTooltip}
+             onmouseover="this.style.borderColor='${h.badgeColor}'" 
+             onmouseout="this.style.borderColor='transparent'">
+          <div style="flex-shrink: 0; width: 32px; text-align: center;">
+            <span style="font-size: 20px;">${h.icon}</span>
+            <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${labels[i]}</div>
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 2px;">
+              <span style="font-size: 12px; font-weight: 600; color: var(--text);">${escapeHtml(h.title)}</span>
+              <span style="font-size: 9px; padding: 1px 6px; background: ${h.badgeColor}20; color: ${h.badgeColor}; border-radius: 8px;">${h.badge}</span>
+              ${disabledIndicator}
+              ${debugIcon}
+            </div>
+            <div style="font-size: 11px; color: var(--muted); margin-bottom: 4px;">${subtitleContent}</div>
+            <div style="font-size: 10px; color: var(--muted); font-style: italic;">${escapeHtml(h.reason)}</div>
+          </div>
+          ${isClickable ? `<div style="flex-shrink: 0; align-self: center; color: var(--muted); font-size: 16px;">→</div>` : ''}
+        </div>
+      `;
+    }).join('');
+    
+    // Show panel
+    els.runHighlightsPanel.classList.remove('hidden');
+  }
+
+  // ============================================================================
   // Next Steps Workflow Guidance
   // ============================================================================
 
@@ -8899,10 +14716,31 @@ cargo build --release -p edr-locald --bin edr-locald`;
     }
     
     // ===== DRIFT BANNER (Consolidated mismatch notification) =====
-    // Show when observed telemetry exists but capability says unavailable
+    // TRUTH FIX: Only show mismatch when visibility snapshot exists
+    // If no snapshot recorded, show neutral message instead
     const driftBannerEl = document.getElementById('discoveryDriftBanner');
     if (driftBannerEl) {
-      if (driftSummary.has_drift && driftSummary.items?.length > 0) {
+      // Improved snapshot detection:
+      // - visibility_snapshot_exists === true (explicit flag), OR
+      // - visibility_snapshot object exists with required fields
+      const snapshotObj = data.visibility_snapshot;
+      const hasSnapshotObj = snapshotObj && typeof snapshotObj === 'object' && 
+                             (snapshotObj.captured_at || snapshotObj.surfaces || Object.keys(snapshotObj).length > 0);
+      const hasVisibilitySnapshot = data.visibility_snapshot_exists === true || hasSnapshotObj;
+      
+      if (!hasVisibilitySnapshot) {
+        // No snapshot recorded - cannot validate configuration
+        driftBannerEl.innerHTML = `
+          <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: rgba(156, 163, 175, 0.1); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 12px;">
+            <span style="font-size: 16px; flex-shrink: 0;">📋</span>
+            <div style="flex: 1;">
+              <div style="font-size: 12px; font-weight: 500; color: var(--muted);">Visibility snapshot not recorded</div>
+              <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Cannot validate configuration for this run. Snapshot is only recorded at run start.</div>
+            </div>
+          </div>
+        `;
+        driftBannerEl.classList.remove('hidden');
+      } else if (driftSummary.has_drift && driftSummary.items?.length > 0) {
         const driftSurfaces = driftSummary.items.map(d => d.surface).join(', ');
         driftBannerEl.innerHTML = `
           <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: rgba(59, 130, 246, 0.1); border: 1px solid var(--accent); border-radius: var(--radius-sm); margin-bottom: 12px;">
@@ -8977,30 +14815,25 @@ cargo build --release -p edr-locald --bin edr-locald`;
           tooltip += `\n\n📊 Showing ${sampleCount} of ${totalCount} total`;
         }
         
-        // Build "Observed" badge for drift cases
-        const observedBadge = hasDrift ? `<span style="font-size: 8px; background: var(--accent); color: white; padding: 1px 4px; border-radius: 8px; margin-left: 4px;">Observed</span>` : '';
-        
-        // Build count display: use sample_count and total_count for clarity
-        // Show "N (of M total)" when total > sample, else just show the count
-        // Never display the internal page-size 'count' to users
+        // Build count display (compact)
         const displayCount = totalCount > sampleCount ? sampleCount : (sampleCount || totalCount);
-        const countDisplay = observable 
-          ? (totalCount > sampleCount 
-              ? `<span>${displayCount}</span><span style="font-size: 10px; font-weight: 400; color: var(--muted); margin-left: 4px;">(of ${totalCount.toLocaleString()} total)</span>`
-              : `${displayCount}`)
-          : '—';
+        const countDisplay = observable ? (displayCount > 0 ? displayCount : '0') : '—';
+        
+        // Hover styling for clickable tiles
+        const hoverStyle = hasData ? `onmouseover="this.style.borderColor='var(--accent)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='${borderColor}'; this.style.transform='none'"` : '';
         
         return `
-          <div style="padding: 10px; background: ${bgColor}; border-radius: var(--radius-sm); border: 1px solid ${borderColor}; opacity: ${opacity}; cursor: ${hasData ? 'pointer' : 'default'}; position: relative;"
-               title="${tooltip.replace(/"/g, '&quot;')}"
-               ${hasData ? `onclick="window.pivotToFacts && window.pivotToFacts('${cat.key}')"` : ''}>
-            <div style="display: flex; align-items: center; gap: 4px; margin-bottom: 4px;">
-              <span style="font-size: 14px;">${cat.icon}</span>
-              <span style="font-size: 11px; font-weight: 600; color: var(--text);">${cat.label}</span>
-              ${observedBadge}
+          <div class="what-changed-tile" 
+               style="padding: 8px; background: ${bgColor}; border-radius: var(--radius-sm); border: 1px solid ${borderColor}; opacity: ${opacity}; cursor: ${hasData ? 'pointer' : 'default'}; transition: all 0.15s ease;"
+               title="${tooltip.replace(/"/g, '&quot;')}${hasData ? '\n\n🔍 Click to view in Evidence → Facts' : ''}"
+               ${hasData ? `onclick="window.pivotToFacts && window.pivotToFacts('${cat.key}', '${cat.label}')"` : ''}
+               ${hoverStyle}>
+            <div style="display: flex; align-items: center; gap: 3px; margin-bottom: 2px;">
+              <span style="font-size: 12px;">${cat.icon}</span>
+              <span style="font-size: 10px; font-weight: 600; color: var(--text);">${cat.label}</span>
+              ${hasData ? '<span style="font-size: 8px; color: var(--accent);">→</span>' : ''}
             </div>
-            <div style="font-size: 18px; font-weight: 700; color: ${countColor};">${countDisplay}</div>
-            <div style="font-size: 9px; color: var(--muted);">${observable ? source : blockedReason || 'Not available'}</div>
+            <div style="font-size: 14px; font-weight: 700; color: ${countColor};">${countDisplay}</div>
           </div>
         `;
       }).join('');
@@ -9071,45 +14904,11 @@ cargo build --release -p edr-locald --bin edr-locald`;
     }
     
     // ===== PANEL 3: VISIBILITY LIMITS =====
+    // DISABLED: This used heuristics and current system state, not run snapshot.
+    // Replaced by runBlockersPanel which uses authoritative step_status data.
     const limitsPanel = document.getElementById('discoveryVisibilityLimits');
-    const limitsListEl = document.getElementById('discoveryLimitsList');
-    
-    if (limitsPanel && limitsListEl) {
-      if (visibilityLimits.length > 0) {
-        limitsPanel.classList.remove('hidden');
-        
-        limitsListEl.innerHTML = visibilityLimits.map(limit => {
-          const affectedCount = (limit.affected_milestones || []).length;
-          const hasDrift = limit.has_drift === true;
-          const subtext = limit.unlock_subtext || '';
-          
-          // Use different styling for drift cases (more informational, less urgent)
-          const borderColor = hasDrift ? 'var(--accent)' : 'var(--border)';
-          const bgColor = hasDrift ? 'rgba(59, 130, 246, 0.05)' : 'var(--panel)';
-          const buttonBg = hasDrift ? 'var(--accent)' : 'var(--accent)';
-          
-          return `
-            <div style="display: flex; align-items: flex-start; gap: 10px; padding: 10px; background: ${bgColor}; border-radius: var(--radius-sm); border: 1px solid ${borderColor};">
-              <span style="font-size: 16px;">${limit.unlock_icon || '🔒'}</span>
-              <div style="flex: 1;">
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 12px; font-weight: 600; color: var(--text);">${limit.title}</span>
-                  ${hasDrift ? `<span style="font-size: 8px; background: var(--accent); color: white; padding: 1px 4px; border-radius: 8px;">Observed</span>` : ''}
-                </div>
-                <div style="font-size: 10px; color: var(--muted); margin-top: 2px;">${limit.impact}</div>
-                ${subtext ? `<div style="font-size: 10px; color: ${hasDrift ? 'var(--accent)' : 'var(--muted)'}; margin-top: 4px; font-style: italic;">${escapeHtml(subtext)}</div>` : ''}
-                ${!hasDrift && affectedCount > 0 ? `<div style="font-size: 9px; color: var(--warn); margin-top: 4px;">Blocks ${affectedCount} milestones</div>` : ''}
-              </div>
-              <button onclick="window.showReadinessPanel && window.showReadinessPanel()" 
-                      style="padding: 4px 10px; background: ${buttonBg}; color: var(--bg); border: none; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; white-space: nowrap;">
-                ${limit.unlock_label || 'Unlock'}
-              </button>
-            </div>
-          `;
-        }).join('');
-      } else {
-        limitsPanel.classList.add('hidden');
-      }
+    if (limitsPanel) {
+      limitsPanel.classList.add('hidden');
     }
     
     // Show the panel for all runs that have data or use General preset
@@ -9121,9 +14920,30 @@ cargo build --release -p edr-locald --bin edr-locald`;
   /**
    * Render Next Steps panel from /api/runs/:id/next_steps endpoint
    * Enhanced to support structured why/how/verify format
+   * 
+   * VISIBILITY RULE: Only show Next Steps if there are gaps (blocked surfaces, actions needed).
+   * If run is clean (finalized, no gaps), hide the panel to reduce noise.
    */
   function renderNextStepsPanel(data) {
     if (!els.runNextStepsPanel) return;
+    
+    // Check if we should hide panel (clean run, no gaps)
+    // Use different variable names to avoid collision with later declarations
+    const runCoverage = state.runCoverage || {};
+    const runIsFinalized = runCoverage.compile_status === 'finalized' || runCoverage.compile_status === 'complete';
+    const dataActions = data.actions || [];
+    const dataCoverageChecklist = data.coverage_checklist || [];
+    const hasBlockedSurfaces = dataCoverageChecklist.some(item => item.status === 'blocked');
+    const hasActionsNeeded = dataActions.length > 0;
+    const runSignals = state.signals || [];
+    const runHasFindings = runSignals.length > 0;
+    
+    // If finalized, no blocked surfaces, no actions, no findings → hide Next Steps
+    // (show only if there's something actionable)
+    if (runIsFinalized && !hasBlockedSurfaces && !hasActionsNeeded && !runHasFindings) {
+      els.runNextStepsPanel.classList.add('hidden');
+      return;
+    }
     
     // Show the panel
     els.runNextStepsPanel.classList.remove('hidden');
@@ -9220,90 +15040,267 @@ cargo build --release -p edr-locald --bin edr-locald`;
       }
     }
     
-    // Action cards - enhanced to support why/how/verify structure
-    if (els.nextStepsActions) {
-      const actions = data.actions || [];
+    // Action cards - apply smart prioritization (Part D: Next Steps Smart Shortlist)
+    let actions = data.actions || [];
+    const SHORTLIST_LIMIT = 3;
+    
+    // Get run context for smart filtering
+    const coverage = state.runCoverage || {};
+    const signals = state.signals || [];
+    const isInterrupted = coverage.compile_status === 'interrupted' || coverage.facts_partial;
+    const hasFindings = signals.length > 0;
+    const observedFactTypes = new Set((coverage.fact_types || []).map(ft => ft.fact_type));
+    const playbooksLoaded = coverage.pipeline_diagnostics?.playbooks_loaded || 0;
+    
+    // Build blocked surfaces lookup from coverage_checklist
+    const blockedSurfaces = new Set();
+    (coverage.coverage_checklist || []).forEach(item => {
+      if (item.status === 'blocked') {
+        const name = (item.surface || item.name || '').toLowerCase();
+        if (name.includes('process')) blockedSurfaces.add('process');
+        if (name.includes('powershell') || name.includes('script')) blockedSurfaces.add('powershell');
+        if (name.includes('network')) blockedSurfaces.add('network');
+        if (name.includes('file')) blockedSurfaces.add('file');
+        if (name.includes('registry')) blockedSurfaces.add('registry');
+      }
+    });
+    
+    // Smart Shortlist Rules:
+    // 1. If signals > 0: always include "Review Findings (N)" as action #1
+    // 2. If interrupted OR facts_partial: include "Rerun to Complete Analysis" in top 3
+    // 3. Include exactly ONE pivot action (prefer ScriptExec → Exec → OutboundConnect → RegistryMod)
+    // 4. Only include "Enable X logging" if: surface is blocked AND NOT observed-in-run
+    // 5. Never show "Check playbook configuration" if signals > 0
+    //    Only show it when playbooks_loaded==0 AND signals==0
+    
+    // Track if we've already included an "enable logging" action
+    let hasEnableLoggingAction = false;
+    
+    // Apply smart filters to remove contradictory/irrelevant actions
+    actions = actions.filter(action => {
+      const actionId = (action.action_id || action.id || action.title || '').toLowerCase();
+      const actionTitle = (action.title || '').toLowerCase();
       
-      // If no actions provided, show fallback guidance
-      if (actions.length === 0) {
-        els.nextStepsActions.innerHTML = `
-          <div style="padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); text-align: center;">
-            <div style="font-size: 13px; color: var(--muted);">✓ No additional actions recommended</div>
-            <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Detection coverage is complete for this run</div>
-          </div>
-        `;
-        return;
+      // Rule 5: Playbook configuration - only if no signals AND no playbooks loaded
+      if (actionId.includes('playbook') && (actionId.includes('config') || actionTitle.includes('config'))) {
+        if (hasFindings || playbooksLoaded > 0) {
+          return false;
+        }
       }
       
-      els.nextStepsActions.innerHTML = actions.slice(0, 7).map(action => {
-        const isBlocked = !!action.blocking_reason;
-        const hasDeepLink = !!action.deep_link;
-        const requiresAdmin = action.requires?.admin;
-        const requiresSysmon = action.requires?.sysmon;
-        
-        // Build requirements badges
-        const reqBadges = [];
-        if (requiresAdmin) reqBadges.push('<span style="font-size: 9px; background: var(--warn); color: white; padding: 1px 4px; border-radius: 2px;">🔐 Admin</span>');
-        if (requiresSysmon) reqBadges.push('<span style="font-size: 9px; background: var(--accent); color: white; padding: 1px 4px; border-radius: 2px;">📊 Sysmon</span>');
-        
-        // Render structured why/how/verify if available
-        const hasStructured = action.why || action.how || action.verify;
-        let structuredContent = '';
-        
-        if (hasStructured) {
-          // Why section
-          if (action.why) {
-            structuredContent += `<div style="font-size: 11px; color: var(--muted); margin-top: 6px;"><strong>Why:</strong> ${escapeHtml(action.why)}</div>`;
-          }
-          
-          // How section (array of bullets)
-          if (action.how && action.how.length > 0) {
-            const howItems = action.how.map(h => `<li>${escapeHtml(h)}</li>`).join('');
-            structuredContent += `<div style="font-size: 11px; color: var(--muted); margin-top: 4px;"><strong>How:</strong><ul style="margin: 2px 0 0 16px; padding: 0;">${howItems}</ul></div>`;
-          }
-          
-          // Verify section (array of bullets)
-          if (action.verify && action.verify.length > 0) {
-            const verifyItems = action.verify.map(v => `<li>${escapeHtml(v)}</li>`).join('');
-            structuredContent += `<div style="font-size: 11px; color: var(--success); margin-top: 4px;"><strong>Verify:</strong><ul style="margin: 2px 0 0 16px; padding: 0;">${verifyItems}</ul></div>`;
-          }
+      // Rule 4: Only show "Enable X logging" if surface is BLOCKED AND NOT observed
+      if (actionId.includes('enable') || actionId.includes('logging') || actionTitle.includes('enable')) {
+        // Already have one enable action? Skip all others
+        if (hasEnableLoggingAction) {
+          return false;
         }
         
-        return `
-          <div class="next-step-action" data-action-id="${escapeHtml(action.action_id || action.id || '')}" 
-               data-deep-link='${hasDeepLink ? escapeHtml(JSON.stringify(action.deep_link)) : ""}'
-               style="padding: 10px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm);
-                      cursor: ${hasDeepLink && !isBlocked ? 'pointer' : 'default'}; 
-                      ${isBlocked ? 'opacity: 0.6;' : ''}
-                      transition: background 0.15s;"
-               ${hasDeepLink && !isBlocked ? 'onmouseover="this.style.background=\'var(--panel2)\'" onmouseout="this.style.background=\'var(--panel)\'"' : ''}>
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
-              <div style="font-weight: 500; font-size: 13px;">${escapeHtml(action.title)}</div>
-              ${reqBadges.length > 0 ? `<div style="display: flex; gap: 4px;">${reqBadges.join('')}</div>` : ''}
-            </div>
-            ${action.rationale ? `<div style="font-size: 11px; color: var(--muted); line-height: 1.4;">${escapeHtml(action.rationale)}</div>` : ''}
-            ${structuredContent}
-            ${isBlocked ? `<div style="font-size: 10px; color: var(--error); margin-top: 4px;">🚫 ${escapeHtml(action.blocking_reason)}</div>` : ''}
-            ${hasDeepLink && !isBlocked ? '<div style="font-size: 10px; color: var(--accent); margin-top: 4px;">Click to navigate →</div>' : ''}
-          </div>
-        `;
-      }).join('');
+        // Network logging - skip if observed OR not blocked
+        if (actionId.includes('network') || actionTitle.includes('network')) {
+          const hasNetworkTelemetry = observedFactTypes.has('OutboundConnect') || observedFactTypes.has('DnsQuery');
+          const isNetworkBlocked = blockedSurfaces.has('network');
+          if (hasNetworkTelemetry || !isNetworkBlocked) return false;
+        }
+        // File logging - skip if observed OR not blocked
+        if (actionId.includes('file') || actionTitle.includes('file')) {
+          const hasFileTelemetry = observedFactTypes.has('FileCreate') || observedFactTypes.has('CreatePath');
+          const isFileBlocked = blockedSurfaces.has('file');
+          if (hasFileTelemetry || !isFileBlocked) return false;
+        }
+        // Process logging - skip if observed OR not blocked
+        if (actionId.includes('process') || actionTitle.includes('process')) {
+          const hasProcessTelemetry = observedFactTypes.has('Exec') || observedFactTypes.has('ProcessExec');
+          const isProcessBlocked = blockedSurfaces.has('process');
+          if (hasProcessTelemetry || !isProcessBlocked) return false;
+        }
+        // Registry logging - skip if observed OR not blocked
+        if (actionId.includes('registry') || actionTitle.includes('registry')) {
+          const hasRegistryTelemetry = observedFactTypes.has('RegistryMod') || observedFactTypes.has('RegistryAutorun');
+          const isRegistryBlocked = blockedSurfaces.has('registry');
+          if (hasRegistryTelemetry || !isRegistryBlocked) return false;
+        }
+        // PowerShell logging - skip if observed OR not blocked
+        if (actionId.includes('powershell') || actionTitle.includes('powershell')) {
+          const hasPSTelemetry = observedFactTypes.has('ScriptExec') || observedFactTypes.has('PowerShellExec');
+          const isPSBlocked = blockedSurfaces.has('powershell');
+          if (hasPSTelemetry || !isPSBlocked) return false;
+        }
+        // Passed all checks - mark we have one enable action now
+        hasEnableLoggingAction = true;
+      }
       
-      // Bind click handlers for deep links
-      els.nextStepsActions.querySelectorAll('.next-step-action[data-deep-link]').forEach(el => {
-        const deepLinkStr = el.dataset.deepLink;
-        if (!deepLinkStr) return;
-        
-        el.onclick = () => {
-          try {
-            const deepLink = JSON.parse(deepLinkStr);
-            handleNextStepDeepLink(deepLink);
-          } catch (e) {
-            console.warn('[NextSteps] Invalid deep link:', e);
-          }
-        };
+      return true;
+    });
+    
+    // Build prioritized shortlist (exactly 3 items max, coherent)
+    const shortlist = [];
+    const remaining = [];
+    
+    // Rule 1: If findings exist, always include "Review Findings" first
+    if (hasFindings && shortlist.length < SHORTLIST_LIMIT) {
+      shortlist.push({
+        action_id: 'review_findings',
+        title: `Review Findings (${signals.length})`,
+        rationale: `${signals.length} detection${signals.length > 1 ? 's' : ''} require investigation`,
+        deep_link: { tab: 'findings' },
+        priority: 100
       });
     }
+    
+    // Rule 2: If interrupted, include "Rerun" action
+    if (isInterrupted && shortlist.length < SHORTLIST_LIMIT) {
+      shortlist.push({
+        action_id: 'rerun_analysis',
+        title: 'Rerun to Complete Analysis',
+        rationale: 'Run was interrupted — start a new run for complete coverage',
+        deep_link: { tab: 'mission', action: 'start_run' },
+        priority: 90
+      });
+    }
+    
+    // Rule 3: Include exactly ONE pivot action if available
+    // Prefer order: ScriptExec → Exec → OutboundConnect → RegistryMod
+    const pivotPreference = ['scriptexec', 'powershell', 'exec', 'process', 'outbound', 'network', 'registry'];
+    if (shortlist.length < SHORTLIST_LIMIT) {
+      // Find best pivot action from available actions
+      let bestPivot = null;
+      let bestPivotRank = Infinity;
+      
+      for (const a of actions) {
+        const actionId = (a.action_id || a.id || a.title || '').toLowerCase();
+        // Must be a review/pivot/investigate type action
+        if (!(actionId.includes('review') || actionId.includes('pivot') || actionId.includes('investigate'))) {
+          continue;
+        }
+        // Skip if already in shortlist
+        if (shortlist.some(s => s.action_id === a.action_id || s.title === a.title)) {
+          continue;
+        }
+        // Find rank by pivot preference
+        const rank = pivotPreference.findIndex(p => actionId.includes(p));
+        if (rank !== -1 && rank < bestPivotRank) {
+          bestPivot = a;
+          bestPivotRank = rank;
+        } else if (rank === -1 && !bestPivot) {
+          // No preference match but still a pivot action - keep as fallback
+          bestPivot = a;
+        }
+      }
+      
+      if (bestPivot) {
+        shortlist.push(bestPivot);
+      }
+    }
+    
+    // Fill remaining shortlist slots (up to SHORTLIST_LIMIT) with other filtered actions
+    for (const action of actions) {
+      if (shortlist.length >= SHORTLIST_LIMIT) break;
+      const alreadyIncluded = shortlist.some(s => 
+        (s.action_id === action.action_id) || (s.title === action.title)
+      );
+      if (!alreadyIncluded) {
+        shortlist.push(action);
+      }
+    }
+    
+    // Put remaining actions in overflow (for "Show all actions")
+    for (const action of actions) {
+      const inShortlist = shortlist.some(s => 
+        (s.action_id === action.action_id) || (s.title === action.title)
+      );
+      if (!inShortlist) {
+        remaining.push(action);
+      }
+    }
+    
+    // Helper to render a single action card (compact)
+    const renderActionCard = (action, compact = false) => {
+      const isBlocked = !!action.blocking_reason;
+      const hasDeepLink = !!action.deep_link;
+      const requiresAdmin = action.requires?.admin;
+      const requiresSysmon = action.requires?.sysmon;
+      
+      const reqBadges = [];
+      if (requiresAdmin) reqBadges.push('<span style="font-size: 8px; background: var(--warn); color: white; padding: 1px 3px; border-radius: 2px;">🔐</span>');
+      if (requiresSysmon) reqBadges.push('<span style="font-size: 8px; background: var(--accent); color: white; padding: 1px 3px; border-radius: 2px;">📊</span>');
+      
+      const padding = compact ? '8px 10px' : '10px 12px';
+      const fontSize = compact ? '12px' : '13px';
+      
+      return `
+        <div class="next-step-action" data-action-id="${escapeHtml(action.action_id || action.id || '')}" 
+             data-deep-link='${hasDeepLink ? escapeHtml(JSON.stringify(action.deep_link)) : ""}'
+             style="padding: ${padding}; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm);
+                    cursor: ${hasDeepLink && !isBlocked ? 'pointer' : 'default'}; 
+                    ${isBlocked ? 'opacity: 0.6;' : ''}
+                    transition: background 0.15s;"
+             ${hasDeepLink && !isBlocked ? 'onmouseover="this.style.background=\'var(--panel2)\'" onmouseout="this.style.background=\'var(--panel)\'"' : ''}>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-weight: 500; font-size: ${fontSize};">${escapeHtml(action.title)}</div>
+            <div style="display: flex; align-items: center; gap: 4px;">
+              ${reqBadges.join('')}
+              ${hasDeepLink && !isBlocked ? '<span style="color: var(--accent); font-size: 12px;">→</span>' : ''}
+            </div>
+          </div>
+          ${!compact && action.rationale ? `<div style="font-size: 10px; color: var(--muted); margin-top: 2px;">${escapeHtml(action.rationale)}</div>` : ''}
+          ${isBlocked ? `<div style="font-size: 9px; color: var(--error); margin-top: 2px;">🚫 ${escapeHtml(action.blocking_reason)}</div>` : ''}
+        </div>
+      `;
+    };
+    
+    // Render shortlist (top 3, smart-prioritized)
+    if (els.nextStepsShortlist) {
+      if (shortlist.length === 0) {
+        els.nextStepsShortlist.innerHTML = `
+          <div style="padding: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); text-align: center;">
+            <div style="font-size: 12px; color: var(--muted);">✓ No additional actions recommended</div>
+          </div>
+        `;
+      } else {
+        els.nextStepsShortlist.innerHTML = shortlist.map(a => renderActionCard(a, true)).join('');
+        bindDeepLinkHandlers(els.nextStepsShortlist);
+      }
+    }
+    
+    // Show "Show all" button if more actions exist in remaining
+    if (els.nextStepsShowAll) {
+      if (remaining.length > 0) {
+        els.nextStepsShowAll.classList.remove('hidden');
+        els.nextStepsShowAll.textContent = `Show all actions (${shortlist.length + remaining.length})`;
+        els.nextStepsShowAll.onclick = () => {
+          els.nextStepsShowAll.classList.add('hidden');
+          if (els.nextStepsActions) els.nextStepsActions.classList.remove('hidden');
+        };
+      } else {
+        els.nextStepsShowAll.classList.add('hidden');
+      }
+    }
+    
+    // Render full actions list (hidden by default)
+    if (els.nextStepsActions) {
+      els.nextStepsActions.classList.add('hidden');
+      els.nextStepsActions.innerHTML = remaining.map(a => renderActionCard(a, false)).join('');
+      bindDeepLinkHandlers(els.nextStepsActions);
+    }
+  }
+  
+  /**
+   * Bind click handlers for deep link navigation
+   */
+  function bindDeepLinkHandlers(container) {
+    if (!container) return;
+    container.querySelectorAll('.next-step-action[data-deep-link]').forEach(el => {
+      const deepLinkStr = el.dataset.deepLink;
+      if (!deepLinkStr) return;
+      el.onclick = () => {
+        try {
+          const deepLink = JSON.parse(deepLinkStr);
+          handleNextStepDeepLink(deepLink);
+        } catch (e) {
+          console.warn('[NextSteps] Invalid deep link:', e);
+        }
+      };
+    });
   }
 
   /**
@@ -9313,13 +15310,20 @@ cargo build --release -p edr-locald --bin edr-locald`;
     if (!deepLink || !deepLink.tab) return;
     
     const tab = deepLink.tab.toLowerCase();
+    const action = deepLink.action;
     const runId = deepLink.run_id || state.selectedRunId;
     const signalId = deepLink.signal_id;
     const playbookId = deepLink.playbook_id;
     const filter = deepLink.filter;
     const section = deepLink.section;
     
-    console.log('[NextSteps] Deep link navigation:', { tab, runId, signalId, playbookId, filter, section });
+    console.log('[NextSteps] Deep link navigation:', { tab, runId, signalId, playbookId, filter, section, action });
+    
+    // === INTERCEPT: Rerun action shows guided modal ===
+    if (tab === 'mission' && action === 'start_run') {
+      showRerunAnalysisModal();
+      return;
+    }
     
     switch (tab) {
       case 'mission':
@@ -9396,25 +15400,35 @@ cargo build --release -p edr-locald --bin edr-locald`;
         break;
         
       case 'findings':
-        // Switch to Findings tab within run detail
+      case 'investigate':
+        // Switch to Investigate tab within run detail (consolidated Findings + Explain)
         if (runId && runId !== state.selectedRunId) {
           selectRun(runId);
         }
-        switchRunTab('findings');
+        switchRunTab('investigate');
+        // If signal_id specified, select it after tab switch
+        if (signalId) {
+          setTimeout(() => {
+            const signal = state.signals?.find(s => s.signal_id === signalId);
+            if (signal) {
+              selectSignalForInvestigate(signalId);
+            }
+          }, 300);
+        }
         break;
         
       case 'explain':
-        // Switch to Explain tab and select signal
+        // Redirect legacy explain deep links to Investigate tab
         if (runId && runId !== state.selectedRunId) {
           selectRun(runId);
         }
-        switchRunTab('explain');
+        switchRunTab('investigate');
         if (signalId) {
           setTimeout(() => {
             // Find and select the signal
             const signal = state.signals?.find(s => s.signal_id === signalId);
             if (signal) {
-              selectSignal(signal);
+              selectSignalForInvestigate(signalId);
             }
           }, 300);
         }
@@ -9439,16 +15453,2475 @@ cargo build --release -p edr-locald --bin edr-locald`;
     }
   }
 
+  // ============================================================================
+  // EVIDENCE TAB (Grouped/Raw toggle) - LocInt Parity
+  // ============================================================================
+  
+  /**
+   * Render Evidence tab (stable shell with Grouped/Raw toggle)
+   */
+  async function renderEvidenceTab() {
+    // Hide all states first
+    if (els.evidenceLoading) els.evidenceLoading.classList.remove('hidden');
+    if (els.evidenceEmpty) els.evidenceEmpty.classList.add('hidden');
+    if (els.evidenceTableContainer) els.evidenceTableContainer.classList.add('hidden');
+    if (els.evidencePagination) els.evidencePagination.classList.add('hidden');
+    if (els.evidenceUnavailable) els.evidenceUnavailable.classList.add('hidden');
+    
+    // Check if endpoint is unavailable (404)
+    if (state.capabilities.runCoverage === false) {
+      if (els.evidenceLoading) els.evidenceLoading.classList.add('hidden');
+      if (els.evidenceUnavailable) els.evidenceUnavailable.classList.remove('hidden');
+      return;
+    }
+    
+    // Load coverage data if not loaded
+    if (!state.evidenceData && state.selectedRunId) {
+      try {
+        const res = await fetch(`/api/runs/${state.selectedRunId}/coverage`);
+        if (res.ok) {
+          const json = await res.json();
+          state.evidenceData = json.data || json;
+          // Extract fact types for lens dropdown
+          populateEvidenceLens(state.evidenceData.fact_types || []);
+        } else if (res.status === 404) {
+          state.capabilities.runCoverage = false;
+          if (els.evidenceLoading) els.evidenceLoading.classList.add('hidden');
+          if (els.evidenceUnavailable) els.evidenceUnavailable.classList.remove('hidden');
+          return;
+        }
+      } catch (err) {
+        console.error('[Evidence] Failed to load coverage:', err);
+        if (els.evidenceLoading) els.evidenceLoading.classList.add('hidden');
+        if (els.evidenceUnavailable) els.evidenceUnavailable.classList.remove('hidden');
+        return;
+      }
+    }
+    
+    // Use runCoverage if evidenceData not yet set
+    if (!state.evidenceData && state.runCoverage) {
+      state.evidenceData = state.runCoverage;
+      populateEvidenceLens(state.evidenceData.fact_types || []);
+    }
+    
+    if (els.evidenceLoading) els.evidenceLoading.classList.add('hidden');
+    
+    const data = state.evidenceData;
+    
+    // Handle no data
+    if (!data || data.available === false || !data.facts_total || data.facts_total === 0) {
+      if (els.evidenceEmpty) els.evidenceEmpty.classList.remove('hidden');
+      return;
+    }
+    
+    // Update filter banner visibility
+    updateEvidenceFilterBanner();
+    
+    // Update summary counts
+    if (els.evidenceTotalCount) els.evidenceTotalCount.textContent = formatValue(data.facts_total);
+    if (els.evidenceTypeCount) els.evidenceTypeCount.textContent = formatValue(data.fact_types?.length || 0);
+    if (els.evidenceHostCount) els.evidenceHostCount.textContent = formatValue(data.top_hosts?.length || 0);
+    
+    // Hide all mode containers first
+    if (els.evidenceSummaryContainer) els.evidenceSummaryContainer.classList.add('hidden');
+    if (els.evidenceTableContainer) els.evidenceTableContainer.classList.add('hidden');
+    
+    // Render based on mode (EVIDENCE_GRANULARITY-1: added summary mode)
+    if (state.evidenceMode === 'summary') {
+      await renderEvidenceSummary();
+    } else if (state.evidenceMode === 'grouped') {
+      if (els.evidenceTableContainer) els.evidenceTableContainer.classList.remove('hidden');
+      renderEvidenceGrouped(data);
+    } else {
+      if (els.evidenceTableContainer) els.evidenceTableContainer.classList.remove('hidden');
+      await renderEvidenceRaw();
+    }
+  }
+  
+  /**
+   * EVIDENCE_GRANULARITY-1: Render Summary view with top entities and timeline
+   */
+  async function renderEvidenceSummary() {
+    if (els.evidenceSummaryContainer) els.evidenceSummaryContainer.classList.remove('hidden');
+    
+    // Load evidence summary if not cached or run changed
+    const runId = state.selectedRunId;
+    if (!runId) return;
+    
+    if (!state.evidenceSummary || state.evidenceSummary._runId !== runId) {
+      try {
+        const res = await fetch(`${API_BASE}/api/runs/${runId}/evidence_summary`);
+        if (res.ok) {
+          const json = await res.json();
+          state.evidenceSummary = json.data || json;
+          state.evidenceSummary._runId = runId;
+        } else {
+          // Fallback: use coverage data to build summary
+          state.evidenceSummary = buildSummaryFromCoverage(state.evidenceData);
+          state.evidenceSummary._runId = runId;
+        }
+      } catch (err) {
+        console.warn('[Evidence Summary] Failed to fetch, using fallback:', err);
+        state.evidenceSummary = buildSummaryFromCoverage(state.evidenceData);
+        state.evidenceSummary._runId = runId;
+      }
+    }
+    
+    const summary = state.evidenceSummary;
+    if (!summary || !summary.available) {
+      // Show empty state
+      if (els.evidenceSummaryContainer) els.evidenceSummaryContainer.classList.add('hidden');
+      if (els.evidenceEmpty) els.evidenceEmpty.classList.remove('hidden');
+      return;
+    }
+    
+    // Render Top Entities panels
+    renderTopEntitiesPanel('evidenceTopProcesses', summary.top_entities?.processes || [], 'processes');
+    renderTopEntitiesPanel('evidenceTopScripts', summary.top_entities?.scripts || [], 'scripts');
+    renderTopEntitiesPanel('evidenceTopDestinations', summary.top_entities?.destinations || [], 'destinations');
+    renderTopEntitiesPanel('evidenceTopRegistry', summary.top_entities?.registry || [], 'registry');
+    renderTopEntitiesPanel('evidenceTopFiles', summary.top_entities?.files || [], 'files');
+    
+    // Render Timeline mini-chart
+    renderTimelineBuckets(summary.timeline_buckets || [], summary.time_range);
+    
+    // Render Quick Stats
+    renderEvidenceQuickStats(summary);
+    
+    // RUN_BRIEF-1: Render Observed Lens (what actually happened, independent of playbook)
+    await renderObservedLens(runId);
+  }
+  
+  /**
+   * Build evidence summary from coverage data (fallback when endpoint not available)
+   */
+  function buildSummaryFromCoverage(coverageData) {
+    if (!coverageData) return { available: false };
+    
+    return {
+      available: true,
+      total_facts: coverageData.facts_total || 0,
+      time_range: {
+        min_ts: coverageData.earliest_ts || 0,
+        max_ts: coverageData.latest_ts || 0,
+        duration_ms: (coverageData.latest_ts || 0) - (coverageData.earliest_ts || 0)
+      },
+      top_entities: {
+        processes: [],
+        scripts: [],
+        destinations: [],
+        registry: [],
+        files: []
+      },
+      timeline_buckets: [],
+      fact_type_summary: (coverageData.fact_types || []).map(ft => ({
+        fact_type: ft.fact_type,
+        count: ft.count,
+        first_seen: null,
+        last_seen: null,
+        top_entity: null
+      }))
+    };
+  }
+  
+  /**
+   * Render a top entities panel
+   */
+  function renderTopEntitiesPanel(elementId, entities, category) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    
+    if (!entities || entities.length === 0) {
+      el.innerHTML = '<div style="color: var(--muted); font-style: italic; font-size: 11px;">No data</div>';
+      return;
+    }
+    
+    // Map category to fact types for filtering
+    const categoryToFactTypes = {
+      processes: ['Exec', 'ProcessCreate', 'ProcessStart'],
+      scripts: ['ScriptExec', 'ScriptBlock', 'ScriptContent'],
+      destinations: ['OutboundConnect', 'NetworkConnect', 'DnsQuery'],
+      registry: ['RegistryMod', 'RegistryChange', 'RegistrySet'],
+      files: ['FileCreate', 'FileWrite', 'FileDelete', 'FileMod']
+    };
+    
+    el.innerHTML = entities.slice(0, 5).map(e => {
+      const entity = e.entity || e.entity_key || '—';
+      const count = e.count || 0;
+      const displayEntity = entity.length > 30 ? entity.slice(-30) : entity;
+      
+      return `
+        <div class="entity-row" data-entity="${escapeHtml(entity)}" data-category="${category}"
+             style="display: flex; justify-content: space-between; align-items: center; padding: 4px 0; cursor: pointer; border-radius: 3px;"
+             onmouseover="this.style.background='var(--panel)'" onmouseout="this.style.background='transparent'">
+          <span style="font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(entity)}">${escapeHtml(displayEntity)}</span>
+          <span style="font-size: 10px; color: var(--muted); flex-shrink: 0; margin-left: 8px;">${formatValue(count)}</span>
+        </div>
+      `;
+    }).join('');
+    
+    // Add click handlers for entity filtering
+    el.querySelectorAll('.entity-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const entity = row.dataset.entity;
+        const cat = row.dataset.category;
+        applyEntityFilter(cat, entity);
+      });
+    });
+  }
+  
+  /**
+   * Apply entity filter and switch to Raw mode
+   */
+  function applyEntityFilter(category, entity) {
+    state.evidenceEntityFilter = { category, entity };
+    state.evidenceSearchTerm = entity;
+    state.evidenceMode = 'raw';
+    state.evidencePage = 0;
+    state.evidenceFacts = []; // Clear cache
+    
+    // Update search input
+    if (els.evidenceSearchInput) {
+      els.evidenceSearchInput.value = entity;
+    }
+    
+    updateEvidenceModeButtons();
+    renderEvidenceTab();
+  }
+  
+  /**
+   * Render timeline mini-chart with clickable buckets
+   */
+  function renderTimelineBuckets(buckets, timeRange) {
+    if (!els.evidenceTimelineBuckets) return;
+    
+    // Update time range display
+    if (els.evidenceTimelineRange && timeRange) {
+      const minDate = new Date(timeRange.min_ts).toLocaleTimeString();
+      const maxDate = new Date(timeRange.max_ts).toLocaleTimeString();
+      els.evidenceTimelineRange.textContent = `${minDate} — ${maxDate}`;
+    }
+    
+    if (!buckets || buckets.length === 0) {
+      els.evidenceTimelineBuckets.innerHTML = '<div style="color: var(--muted); font-size: 11px; width: 100%; text-align: center;">No timeline data</div>';
+      return;
+    }
+    
+    const maxCount = Math.max(...buckets.map(b => b.count), 1);
+    
+    els.evidenceTimelineBuckets.innerHTML = buckets.map((b, idx) => {
+      const heightPct = Math.max(5, (b.count / maxCount) * 100);
+      const isSelected = state.evidenceTimelineFilter?.bucket === b.bucket;
+      
+      return `
+        <div class="timeline-bucket" data-bucket="${b.bucket}" data-start="${b.start_ts}" data-end="${b.end_ts}"
+             style="flex: 1; min-width: 8px; max-width: 30px; height: ${heightPct}%; background: ${isSelected ? 'var(--accent)' : 'var(--accent-dim, rgba(139, 92, 246, 0.4))'}; 
+                    border-radius: 2px 2px 0 0; cursor: pointer; transition: background 0.15s;"
+             onmouseover="this.style.background='var(--accent)'" 
+             onmouseout="this.style.background='${isSelected ? 'var(--accent)' : 'var(--accent-dim, rgba(139, 92, 246, 0.4))'}'"
+             title="${formatValue(b.count)} facts">
+        </div>
+      `;
+    }).join('');
+    
+    // Add click handlers for timeline filtering
+    els.evidenceTimelineBuckets.querySelectorAll('.timeline-bucket').forEach(bucket => {
+      bucket.addEventListener('click', () => {
+        const bucketIdx = parseInt(bucket.dataset.bucket);
+        const startTs = parseInt(bucket.dataset.start);
+        const endTs = parseInt(bucket.dataset.end);
+        applyTimelineFilter(bucketIdx, startTs, endTs);
+      });
+    });
+  }
+  
+  /**
+   * Apply timeline filter and switch to Raw mode
+   */
+  function applyTimelineFilter(bucket, startTs, endTs) {
+    state.evidenceTimelineFilter = { bucket, start_ts: startTs, end_ts: endTs };
+    state.evidenceTimeRange = { center: (startTs + endTs) / 2, window: (endTs - startTs) / 2 + 60000 }; // Add 1 min buffer
+    state.evidenceMode = 'raw';
+    state.evidencePage = 0;
+    state.evidenceFacts = []; // Clear cache
+    
+    updateEvidenceModeButtons();
+    renderEvidenceTab();
+  }
+  
+  /**
+   * Render quick stats cards in Summary mode
+   */
+  function renderEvidenceQuickStats(summary) {
+    if (!els.evidenceQuickStats) return;
+    
+    const factTypes = summary.fact_type_summary || [];
+    const topTypes = factTypes.slice(0, 6);
+    
+    els.evidenceQuickStats.innerHTML = topTypes.map(ft => {
+      const firstSeen = ft.first_seen ? new Date(ft.first_seen).toLocaleTimeString() : '—';
+      const lastSeen = ft.last_seen ? new Date(ft.last_seen).toLocaleTimeString() : '—';
+      const topEntity = ft.top_entity ? (ft.top_entity.length > 20 ? ft.top_entity.slice(-20) : ft.top_entity) : '—';
+      
+      return `
+        <div class="quick-stat-card" data-fact-type="${escapeHtml(ft.fact_type)}"
+             style="background: var(--panel2); border-radius: var(--radius-sm); padding: 10px 12px; border: 1px solid var(--border); cursor: pointer;"
+             onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 11px; font-weight: 600; font-family: monospace;">${escapeHtml(ft.fact_type)}</span>
+            <span style="font-size: 12px; font-weight: 700; color: var(--accent);">${formatValue(ft.count)}</span>
+          </div>
+          <div style="font-size: 10px; color: var(--muted);">
+            <div style="margin-bottom: 2px;">First: ${firstSeen} · Last: ${lastSeen}</div>
+            <div style="font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(ft.top_entity || '')}">${escapeHtml(topEntity)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    // Add click handlers to expand to that fact type
+    els.evidenceQuickStats.querySelectorAll('.quick-stat-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const factType = card.dataset.factType;
+        state.evidenceLensFilter = factType;
+        state.evidenceMode = 'raw';
+        state.evidencePage = 0;
+        state.evidenceFacts = [];
+        if (els.evidenceLensSelect) els.evidenceLensSelect.value = factType;
+        updateEvidenceModeButtons();
+        renderEvidenceTab();
+      });
+    });
+  }
+  
+  /**
+   * RUN_BRIEF-1: Fetch and render Observed Lens (what actually happened, independent of playbook selection)
+   */
+  async function renderObservedLens(runId) {
+    const section = document.getElementById('observedLensSection');
+    if (!section) return;
+    
+    // Always show the section in summary mode
+    section.classList.remove('hidden');
+    
+    // Check cache
+    if (state.observedBrief && state.observedBrief._runId === runId) {
+      renderObservedLensContent(state.observedBrief);
+      return;
+    }
+    
+    // Fetch from /api/runs/:run_id/brief
+    try {
+      const res = await fetch(`${API_BASE}/api/runs/${runId}/brief`);
+      if (!res.ok) {
+        section.classList.add('hidden');
+        return;
+      }
+      const json = await res.json();
+      const brief = json.data || json;
+      brief._runId = runId;
+      state.observedBrief = brief;
+      renderObservedLensContent(brief);
+    } catch (err) {
+      console.warn('[Observed Lens] Failed to fetch brief:', err);
+      section.classList.add('hidden');
+    }
+  }
+  
+  /**
+   * RUN_BRIEF-1: Render Observed Lens content from brief data
+   */
+  function renderObservedLensContent(brief) {
+    if (!brief || !brief.available) {
+      const section = document.getElementById('observedLensSection');
+      if (section) section.classList.add('hidden');
+      return;
+    }
+    
+    // Render Notable Findings
+    const findingsCount = document.getElementById('observedFindingsCount');
+    const findingsList = document.getElementById('observedFindingsList');
+    if (findingsCount && findingsList) {
+      const findings = brief.notable_findings || [];
+      findingsCount.textContent = `${findings.length} signal${findings.length !== 1 ? 's' : ''}`;
+      
+      if (findings.length === 0) {
+        findingsList.innerHTML = '<div style="color: var(--muted); font-style: italic; font-size: 11px;">No signals fired during this run</div>';
+      } else {
+        findingsList.innerHTML = findings.slice(0, 10).map(f => {
+          const severity = f.severity || 'info';
+          const severityColor = severity === 'critical' ? 'var(--danger)' : 
+                               severity === 'high' ? 'var(--warn)' : 
+                               severity === 'medium' ? 'var(--accent)' : 'var(--muted)';
+          const timeStr = f.ts_start ? new Date(f.ts_start).toLocaleTimeString() : '—';
+          const evidenceCount = f.evidence_refs_count || 0;
+          const playbook = f.playbook_id || 'unknown';
+          
+          return `
+            <div class="notable-finding" data-signal-id="${escapeHtml(f.signal_id || '')}" data-evidence-ptrs='${JSON.stringify(f.evidence_ptrs || [])}'
+                 style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; margin-bottom: 4px; background: var(--panel); cursor: pointer;"
+                 onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='transparent'">
+              <span style="width: 8px; height: 8px; border-radius: 50%; background: ${severityColor}; flex-shrink: 0;"></span>
+              <span style="flex: 1; font-size: 12px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(f.signal_id || '')}">${escapeHtml(f.signal_id || 'Signal')}</span>
+              <span style="font-size: 10px; color: var(--muted);">${timeStr}</span>
+              <span style="font-size: 10px; color: var(--accent);">${evidenceCount} ev</span>
+              <span style="font-size: 9px; color: var(--muted); padding: 2px 4px; background: var(--panel2); border-radius: 3px;">${escapeHtml(playbook)}</span>
+            </div>
+          `;
+        }).join('');
+        
+        // Add click handlers to drill into signal's evidence
+        findingsList.querySelectorAll('.notable-finding').forEach(row => {
+          row.addEventListener('click', () => {
+            const evidencePtrs = JSON.parse(row.dataset.evidencePtrs || '[]');
+            if (evidencePtrs.length > 0) {
+              drillToEvidence(evidencePtrs);
+            }
+          });
+        });
+      }
+    }
+    
+    // Render Episodes
+    const episodesCount = document.getElementById('observedEpisodesCount');
+    const episodesList = document.getElementById('observedEpisodesList');
+    if (episodesCount && episodesList) {
+      const episodes = brief.episodes || [];
+      episodesCount.textContent = `${episodes.length} episode${episodes.length !== 1 ? 's' : ''}`;
+      
+      if (episodes.length === 0) {
+        episodesList.innerHTML = '<div style="color: var(--muted); font-style: italic; font-size: 11px;">No distinct activity episodes detected</div>';
+      } else {
+        episodesList.innerHTML = episodes.slice(0, 8).map(ep => {
+          const startStr = ep.start_ts ? new Date(ep.start_ts).toLocaleTimeString() : '—';
+          const endStr = ep.end_ts ? new Date(ep.end_ts).toLocaleTimeString() : '—';
+          const durationMs = (ep.end_ts || 0) - (ep.start_ts || 0);
+          const durationStr = durationMs > 60000 ? `${Math.round(durationMs / 60000)}m` : `${Math.round(durationMs / 1000)}s`;
+          const labels = ep.labels || [];
+          const primaryEntity = ep.primary_entity || 'Activity cluster';
+          const displayEntity = primaryEntity.length > 40 ? '...' + primaryEntity.slice(-37) : primaryEntity;
+          
+          return `
+            <div class="episode-row" data-episode-id="${escapeHtml(ep.episode_id || '')}" data-evidence-ptrs='${JSON.stringify(ep.evidence_ptrs || [])}'
+                 style="padding: 8px; border-radius: 4px; margin-bottom: 6px; background: var(--panel); border-left: 3px solid var(--accent); cursor: pointer;"
+                 onmouseover="this.style.background='var(--panel2)'" onmouseout="this.style.background='var(--panel)'">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <span style="font-size: 11px; font-weight: 600;">${startStr} — ${endStr}</span>
+                <span style="font-size: 10px; color: var(--muted);">(${durationStr})</span>
+              </div>
+              <div style="font-size: 12px; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px;" title="${escapeHtml(primaryEntity)}">${escapeHtml(displayEntity)}</div>
+              <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                ${labels.slice(0, 4).map(lbl => `<span style="font-size: 9px; padding: 2px 6px; background: var(--accent-dim, rgba(139,92,246,0.2)); color: var(--accent); border-radius: 3px;">${escapeHtml(lbl)}</span>`).join('')}
+              </div>
+            </div>
+          `;
+        }).join('');
+        
+        // Add click handlers to drill into episode's evidence
+        episodesList.querySelectorAll('.episode-row').forEach(row => {
+          row.addEventListener('click', () => {
+            const evidencePtrs = JSON.parse(row.dataset.evidencePtrs || '[]');
+            if (evidencePtrs.length > 0) {
+              drillToEvidence(evidencePtrs);
+            }
+          });
+        });
+      }
+    }
+    
+    // Render Unmapped Activity
+    const unmappedList = document.getElementById('observedUnmappedList');
+    if (unmappedList) {
+      const unmapped = brief.unmapped_activity?.fact_type_counts || {};
+      const entries = Object.entries(unmapped).sort((a, b) => b[1] - a[1]);
+      
+      if (entries.length === 0) {
+        unmappedList.innerHTML = '<div style="color: var(--muted); font-style: italic; font-size: 11px;">All observed facts are covered by signals</div>';
+      } else {
+        unmappedList.innerHTML = entries.slice(0, 10).map(([factType, count]) => {
+          return `
+            <div class="unmapped-chip" data-fact-type="${escapeHtml(factType)}"
+                 style="font-size: 11px; padding: 4px 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 4px;"
+                 onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+              <span style="font-family: monospace;">${escapeHtml(factType)}</span>
+              <span style="font-size: 10px; color: var(--accent); font-weight: 600;">${formatValue(count)}</span>
+            </div>
+          `;
+        }).join('');
+        
+        // Add click handlers to filter to that fact type
+        unmappedList.querySelectorAll('.unmapped-chip').forEach(chip => {
+          chip.addEventListener('click', () => {
+            const factType = chip.dataset.factType;
+            state.evidenceLensFilter = factType;
+            state.evidenceMode = 'raw';
+            state.evidencePage = 0;
+            state.evidenceFacts = [];
+            if (els.evidenceLensSelect) els.evidenceLensSelect.value = factType;
+            updateEvidenceModeButtons();
+            renderEvidenceTab();
+          });
+        });
+      }
+    }
+  }
+  
+  /**
+   * RUN_BRIEF-1: Drill into evidence from an episode or signal
+   */
+  function drillToEvidence(evidencePtrs) {
+    if (!evidencePtrs || evidencePtrs.length === 0) return;
+    
+    // Use the first evidence_ptr to set time filter and switch to raw mode
+    const firstPtr = evidencePtrs[0];
+    const ts = firstPtr.ts || firstPtr.timestamp;
+    
+    if (ts) {
+      // Set time range filter around this evidence
+      state.evidenceTimeRange = { center: ts, window: 30000 }; // ±30s window
+    }
+    
+    state.evidenceMode = 'raw';
+    state.evidencePage = 0;
+    state.evidenceFacts = [];
+    updateEvidenceModeButtons();
+    renderEvidenceTab();
+  }
+  
+  /**
+   * Populate lens dropdown with fact types
+   */
+  function populateEvidenceLens(factTypes) {
+    if (!els.evidenceLensSelect) return;
+    
+    els.evidenceLensSelect.innerHTML = '<option value="">Show me: All fact types</option>' +
+      factTypes.map(ft => `<option value="${escapeHtml(ft.fact_type)}">${escapeHtml(ft.fact_type)} (${ft.count})</option>`).join('');
+  }
+  
+  /**
+   * Render Grouped view (fact type summary rows with Expand)
+   * EVIDENCE_GRANULARITY-1: Added first_seen, last_seen, top entity columns
+   */
+  function renderEvidenceGrouped(data) {
+    // Get enhanced summary data if available
+    const summaryData = state.evidenceSummary?.fact_type_summary || [];
+    const summaryByType = {};
+    summaryData.forEach(s => { summaryByType[s.fact_type] = s; });
+    
+    // Update header for grouped mode (EVIDENCE_GRANULARITY-1: added Time Range and Top Entity)
+    if (els.evidenceTableHeader) {
+      els.evidenceTableHeader.innerHTML = `
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Fact Type</th>
+        <th style="text-align: right; padding: 8px 12px; font-weight: 600; color: var(--muted);">Count</th>
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Time Range</th>
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Top Entity</th>
+        <th style="text-align: center; padding: 8px 12px; font-weight: 600; color: var(--muted);">Action</th>
+      `;
+    }
+    
+    // Filter by lens if set
+    let factTypes = data.fact_types || [];
+    if (state.evidenceLensFilter) {
+      factTypes = factTypes.filter(ft => ft.fact_type === state.evidenceLensFilter);
+    }
+    
+    // Filter by search term
+    if (state.evidenceSearchTerm) {
+      const term = state.evidenceSearchTerm.toLowerCase();
+      factTypes = factTypes.filter(ft => ft.fact_type.toLowerCase().includes(term));
+    }
+    
+    const maxCount = Math.max(...factTypes.map(ft => ft.count), 1);
+    
+    if (els.evidenceTableBody) {
+      els.evidenceTableBody.innerHTML = factTypes.slice(0, 30).map(ft => {
+        const pct = (ft.count / maxCount) * 100;
+        const summary = summaryByType[ft.fact_type] || {};
+        const firstSeen = summary.first_seen ? new Date(summary.first_seen).toLocaleTimeString() : '—';
+        const lastSeen = summary.last_seen ? new Date(summary.last_seen).toLocaleTimeString() : '—';
+        const topEntity = summary.top_entity || '—';
+        const displayEntity = topEntity.length > 25 ? '...' + topEntity.slice(-22) : topEntity;
+        
+        return `
+          <tr class="fact-type-row" data-fact-type="${escapeHtml(ft.fact_type)}" style="border-bottom: 1px solid var(--border); cursor: pointer;" onmouseover="this.style.background='var(--panel)'" onmouseout="this.style.background='transparent'">
+            <td style="padding: 8px 12px;">
+              <div style="font-family: monospace; font-size: 12px; font-weight: 500;">${escapeHtml(ft.fact_type)}</div>
+              <div style="height: 4px; background: var(--panel); border-radius: 2px; margin-top: 4px; overflow: hidden;">
+                <div style="background: var(--accent); width: ${pct}%; height: 100%;"></div>
+              </div>
+            </td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: 600; font-size: 13px;">${formatValue(ft.count)}</td>
+            <td style="padding: 8px 12px; font-size: 11px; color: var(--muted);">
+              ${firstSeen !== '—' ? `${firstSeen} — ${lastSeen}` : '—'}
+            </td>
+            <td style="padding: 8px 12px; font-family: monospace; font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(topEntity)}">
+              ${escapeHtml(displayEntity)}
+            </td>
+            <td style="padding: 8px 12px; text-align: center;">
+              <button class="expand-facts-btn" data-fact-type="${escapeHtml(ft.fact_type)}" style="padding: 4px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">Expand</button>
+            </td>
+          </tr>
+        `;
+      }).join('') || '<tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--muted);">No facts</td></tr>';
+      
+      // Bind expand buttons
+      els.evidenceTableBody.querySelectorAll('.expand-facts-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          state.evidenceLensFilter = btn.dataset.factType;
+          state.evidenceMode = 'raw';
+          updateEvidenceModeButtons();
+          renderEvidenceTab();
+        });
+      });
+      
+      // Bind row clicks (same as expand)
+      els.evidenceTableBody.querySelectorAll('.fact-type-row').forEach(row => {
+        row.addEventListener('click', () => {
+          state.evidenceLensFilter = row.dataset.factType;
+          state.evidenceMode = 'raw';
+          updateEvidenceModeButtons();
+          renderEvidenceTab();
+        });
+      });
+    }
+    
+    // Hide pagination in grouped mode
+    if (els.evidencePagination) els.evidencePagination.classList.add('hidden');
+  }
+  
+  /**
+   * Render Raw view (individual facts with View)
+   */
+  async function renderEvidenceRaw() {
+    // Update header for raw mode
+    if (els.evidenceTableHeader) {
+      els.evidenceTableHeader.innerHTML = `
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Timestamp</th>
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Fact Type</th>
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Summary</th>
+        <th style="text-align: center; padding: 8px 12px; font-weight: 600; color: var(--muted);">Action</th>
+      `;
+    }
+    
+    // Load facts if needed
+    let facts = state.evidenceData?.sample_facts || state.evidenceFacts || [];
+    
+    // If we need to load facts for a specific type
+    if (state.evidenceLensFilter && facts.length === 0) {
+      try {
+        const res = await fetch(`/api/runs/${state.selectedRunId}/facts?fact_type=${encodeURIComponent(state.evidenceLensFilter)}&limit=100`);
+        if (res.ok) {
+          const json = await res.json();
+          facts = json.data?.facts || json.facts || json || [];
+          state.evidenceFacts = facts;
+        }
+      } catch (err) {
+        console.error('[Evidence] Failed to load facts:', err);
+      }
+    }
+    
+    // If still no facts, try loading from facts endpoint
+    if (facts.length === 0 && state.selectedRunId) {
+      try {
+        const params = new URLSearchParams({ limit: '100' });
+        if (state.evidenceLensFilter) params.append('fact_type', state.evidenceLensFilter);
+        const res = await fetch(`/api/runs/${state.selectedRunId}/facts?${params}`);
+        if (res.ok) {
+          const json = await res.json();
+          facts = json.data?.facts || json.facts || [];
+          state.evidenceFacts = facts;
+        }
+      } catch (err) {
+        console.error('[Evidence] Failed to load facts:', err);
+      }
+    }
+    
+    // Apply search filter
+    if (state.evidenceSearchTerm) {
+      const term = state.evidenceSearchTerm.toLowerCase();
+      facts = facts.filter(f => {
+        const summary = f.summary || f.entity_key || JSON.stringify(f).toLowerCase();
+        return summary.toLowerCase().includes(term);
+      });
+    }
+    
+    // Apply lens filter
+    if (state.evidenceLensFilter) {
+      facts = facts.filter(f => f.fact_type === state.evidenceLensFilter);
+    }
+    
+    // Apply host filter (from Investigate deep-link)
+    if (state.evidenceHostFilter) {
+      facts = facts.filter(f => f.host === state.evidenceHostFilter || f.hostname === state.evidenceHostFilter);
+    }
+    
+    // Apply time window filter (from Investigate deep-link)
+    if (state.evidenceTimeRange && state.evidenceTimeRange.center) {
+      const center = new Date(state.evidenceTimeRange.center).getTime();
+      const window = state.evidenceTimeRange.window || 600000; // default ±10 min
+      const minTs = center - window;
+      const maxTs = center + window;
+      facts = facts.filter(f => {
+        if (!f.ts) return true; // include facts without timestamp
+        const ts = new Date(f.ts).getTime();
+        return ts >= minTs && ts <= maxTs;
+      });
+    }
+    
+    // Paginate
+    const start = state.evidencePage * state.evidencePageSize;
+    const pageFacts = facts.slice(start, start + state.evidencePageSize);
+    
+    if (els.evidenceTableBody) {
+      els.evidenceTableBody.innerHTML = pageFacts.map((fact, idx) => {
+        const ts = fact.ts ? new Date(fact.ts).toLocaleTimeString() : '—';
+        const summary = fact.summary || fact.entity_key || fact.proc_key || fact.file_key || '—';
+        const displaySummary = summary.length > 50 ? summary.slice(0, 50) + '...' : summary;
+        
+        return `
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 8px 12px; font-size: 11px; color: var(--muted);">${ts}</td>
+            <td style="padding: 8px 12px; font-family: monospace; font-size: 11px;">${escapeHtml(fact.fact_type || '—')}</td>
+            <td style="padding: 8px 12px; font-size: 12px;" title="${escapeHtml(summary)}">${escapeHtml(displaySummary)}</td>
+            <td style="padding: 8px 12px; text-align: center;">
+              <button class="view-fact-btn" data-fact-idx="${start + idx}" style="padding: 4px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">View</button>
+            </td>
+          </tr>
+        `;
+      }).join('') || '<tr><td colspan="4" style="padding: 16px; text-align: center; color: var(--muted);">No facts found</td></tr>';
+      
+      // Bind view buttons
+      els.evidenceTableBody.querySelectorAll('.view-fact-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.dataset.factIdx);
+          showFactDetail(facts[idx]);
+        });
+      });
+    }
+    
+    // Update pagination
+    updateEvidencePagination(facts.length);
+  }
+  
+  /**
+   * Update pagination info and buttons
+   */
+  function updateEvidencePagination(totalFacts) {
+    if (!els.evidencePagination) return;
+    
+    const start = state.evidencePage * state.evidencePageSize;
+    const end = Math.min(start + state.evidencePageSize, totalFacts);
+    const totalPages = Math.ceil(totalFacts / state.evidencePageSize);
+    
+    if (totalFacts > state.evidencePageSize) {
+      els.evidencePagination.classList.remove('hidden');
+      if (els.evidencePaginationInfo) {
+        els.evidencePaginationInfo.textContent = `Showing ${start + 1}-${end} of ${totalFacts}`;
+      }
+      if (els.evidencePrevBtn) {
+        els.evidencePrevBtn.disabled = state.evidencePage === 0;
+      }
+      if (els.evidenceNextBtn) {
+        els.evidenceNextBtn.disabled = state.evidencePage >= totalPages - 1;
+      }
+    } else {
+      els.evidencePagination.classList.add('hidden');
+    }
+  }
+  
+  /**
+   * Show fact detail in drawer
+   */
+  function showFactDetail(fact) {
+    state.selectedFact = fact;
+    
+    if (!els.evidenceDetailDrawer || !els.evidenceDetailContent) return;
+    
+    els.evidenceDetailDrawer.classList.remove('hidden');
+    els.evidenceDetailContent.innerHTML = `
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Fact Type</div>
+        <div style="font-family: monospace; font-size: 13px;">${escapeHtml(fact.fact_type || '—')}</div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Timestamp</div>
+        <div style="font-size: 13px;">${fact.ts ? new Date(fact.ts).toLocaleString() : '—'}</div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Summary</div>
+        <div style="font-size: 13px; word-break: break-all;">${escapeHtml(fact.summary || fact.entity_key || '—')}</div>
+      </div>
+      <div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Raw Data</div>
+        <pre style="font-size: 11px; background: var(--panel2); padding: 12px; border-radius: var(--radius-sm); overflow-x: auto; max-height: 300px;">${escapeHtml(JSON.stringify(fact, null, 2))}</pre>
+      </div>
+    `;
+  }
+  
+  /**
+   * Update Summary/Grouped/Raw toggle button styles
+   * EVIDENCE_GRANULARITY-1: Added Summary mode
+   */
+  function updateEvidenceModeButtons() {
+    // Summary button
+    if (els.btnEvidenceSummary) {
+      if (state.evidenceMode === 'summary') {
+        els.btnEvidenceSummary.style.background = 'var(--accent)';
+        els.btnEvidenceSummary.style.color = 'white';
+        els.btnEvidenceSummary.classList.add('active');
+      } else {
+        els.btnEvidenceSummary.style.background = 'transparent';
+        els.btnEvidenceSummary.style.color = 'var(--muted)';
+        els.btnEvidenceSummary.classList.remove('active');
+      }
+    }
+    
+    // Grouped button
+    if (els.btnEvidenceGrouped) {
+      if (state.evidenceMode === 'grouped') {
+        els.btnEvidenceGrouped.style.background = 'var(--accent)';
+        els.btnEvidenceGrouped.style.color = 'white';
+        els.btnEvidenceGrouped.classList.add('active');
+      } else {
+        els.btnEvidenceGrouped.style.background = 'transparent';
+        els.btnEvidenceGrouped.style.color = 'var(--muted)';
+        els.btnEvidenceGrouped.classList.remove('active');
+      }
+    }
+    if (els.btnEvidenceRaw) {
+      if (state.evidenceMode === 'raw') {
+        els.btnEvidenceRaw.style.background = 'var(--accent)';
+        els.btnEvidenceRaw.style.color = 'white';
+        els.btnEvidenceRaw.classList.add('active');
+      } else {
+        els.btnEvidenceRaw.style.background = 'transparent';
+        els.btnEvidenceRaw.style.color = 'var(--muted)';
+        els.btnEvidenceRaw.classList.remove('active');
+      }
+    }
+    
+    // Update lens select if switching to grouped (clear filter)
+    if (state.evidenceMode === 'grouped' && els.evidenceLensSelect) {
+      els.evidenceLensSelect.value = state.evidenceLensFilter || '';
+    }
+  }
+  
+  /**
+   * Initialize Evidence tab event handlers
+   * EVIDENCE_GRANULARITY-1: Added Summary mode and context filter handlers
+   */
+  function initEvidenceHandlers() {
+    // Summary mode button
+    if (els.btnEvidenceSummary) {
+      els.btnEvidenceSummary.addEventListener('click', () => {
+        state.evidenceMode = 'summary';
+        state.evidencePage = 0;
+        // Clear filters when going to summary
+        state.evidenceEntityFilter = null;
+        state.evidenceTimelineFilter = null;
+        updateEvidenceModeButtons();
+        renderEvidenceTab();
+      });
+    }
+    
+    // Grouped/Raw toggle buttons
+    if (els.btnEvidenceGrouped) {
+      els.btnEvidenceGrouped.addEventListener('click', () => {
+        state.evidenceMode = 'grouped';
+        state.evidencePage = 0;
+        updateEvidenceModeButtons();
+        renderEvidenceTab();
+      });
+    }
+    
+    if (els.btnEvidenceRaw) {
+      els.btnEvidenceRaw.addEventListener('click', () => {
+        state.evidenceMode = 'raw';
+        state.evidencePage = 0;
+        updateEvidenceModeButtons();
+        renderEvidenceTab();
+      });
+    }
+    
+    // Chain Step filter dropdown
+    if (els.evidenceChainSelect) {
+      els.evidenceChainSelect.addEventListener('change', () => {
+        const stepId = els.evidenceChainSelect.value;
+        if (stepId) {
+          applyChainStepFilter(stepId);
+        } else {
+          clearChainStepFilter();
+        }
+      });
+    }
+    
+    // Playbook filter dropdown
+    if (els.evidencePlaybookSelect) {
+      els.evidencePlaybookSelect.addEventListener('change', () => {
+        const playbookId = els.evidencePlaybookSelect.value;
+        state.evidencePlaybookFilter = playbookId || null;
+        state.evidencePage = 0;
+        state.evidenceFacts = [];
+        renderEvidenceTab();
+      });
+    }
+    
+    // Chain step banner clear button
+    if (els.btnClearChainStepFilter) {
+      els.btnClearChainStepFilter.addEventListener('click', clearChainStepFilter);
+    }
+    
+    // Show related checkbox
+    if (els.chkEvidenceShowRelated) {
+      els.chkEvidenceShowRelated.addEventListener('change', () => {
+        state.evidenceShowRelated = els.chkEvidenceShowRelated.checked;
+        state.evidenceFacts = [];
+        renderEvidenceTab();
+      });
+    }
+    
+    // Lens dropdown
+    if (els.evidenceLensSelect) {
+      els.evidenceLensSelect.addEventListener('change', () => {
+        state.evidenceLensFilter = els.evidenceLensSelect.value;
+        state.evidencePage = 0;
+        state.evidenceFacts = []; // Clear cached facts
+        renderEvidenceTab();
+      });
+    }
+    
+    // Search input with debounce
+    let searchTimeout = null;
+    if (els.evidenceSearchInput) {
+      els.evidenceSearchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          state.evidenceSearchTerm = els.evidenceSearchInput.value;
+          state.evidencePage = 0;
+          renderEvidenceTab();
+        }, 300);
+      });
+    }
+    
+    // Reset button
+    if (els.evidenceSearchReset) {
+      els.evidenceSearchReset.addEventListener('click', () => {
+        clearEvidenceFilters();
+      });
+    }
+    
+    // Clear Investigate filters button
+    if (els.btnClearEvidenceFilters) {
+      els.btnClearEvidenceFilters.addEventListener('click', () => {
+        clearEvidenceFilters();
+      });
+    }
+    
+    // Pagination buttons
+    if (els.evidencePrevBtn) {
+      els.evidencePrevBtn.addEventListener('click', () => {
+        if (state.evidencePage > 0) {
+          state.evidencePage--;
+          renderEvidenceTab();
+        }
+      });
+    }
+    
+    if (els.evidenceNextBtn) {
+      els.evidenceNextBtn.addEventListener('click', () => {
+        state.evidencePage++;
+        renderEvidenceTab();
+      });
+    }
+    
+    // Drawer close button
+    if (els.evidenceDrawerClose) {
+      els.evidenceDrawerClose.addEventListener('click', () => {
+        if (els.evidenceDetailDrawer) els.evidenceDetailDrawer.classList.add('hidden');
+      });
+    }
+    
+    // Empty state clear buttons
+    if (els.btnEvidenceEmptyClearSearch) {
+      els.btnEvidenceEmptyClearSearch.addEventListener('click', () => {
+        state.evidenceSearchTerm = '';
+        if (els.evidenceSearchInput) els.evidenceSearchInput.value = '';
+        renderEvidenceTab();
+      });
+    }
+    if (els.btnEvidenceEmptyClearFilters) {
+      els.btnEvidenceEmptyClearFilters.addEventListener('click', () => {
+        clearEvidenceFilters();
+      });
+    }
+    
+    // Fact detail drawer actions
+    if (els.btnEvidenceCopyRef) {
+      els.btnEvidenceCopyRef.addEventListener('click', () => {
+        copyFactEvidenceRef(state.selectedFact);
+      });
+    }
+    if (els.btnEvidenceOpenRaw) {
+      els.btnEvidenceOpenRaw.addEventListener('click', () => {
+        openFactRawEvent(state.selectedFact);
+      });
+    }
+  }
+  
+  /**
+   * EVIDENCE_GRANULARITY-1: Apply chain step filter
+   * Switches Evidence into pinned facts mode using evidence_refs from step_status
+   */
+  function applyChainStepFilter(stepId) {
+    state.evidenceChainStepFilter = stepId;
+    state.evidenceMode = 'raw'; // Always show raw when filtering by chain step
+    state.evidencePage = 0;
+    state.evidenceFacts = [];
+    
+    // Find step data from chainStackData
+    const steps = state.chainStackData?.chain_steps || [];
+    const step = steps.find(s => s.step_id === stepId);
+    
+    if (step) {
+      // Show banner
+      if (els.evidenceChainStepBanner) {
+        els.evidenceChainStepBanner.classList.remove('hidden');
+      }
+      if (els.evidenceChainStepName) {
+        els.evidenceChainStepName.textContent = `Showing evidence for: ${step.step_name || stepId}`;
+      }
+    }
+    
+    updateEvidenceModeButtons();
+    renderEvidenceTab();
+  }
+  
+  /**
+   * EVIDENCE_GRANULARITY-1: Clear chain step filter
+   */
+  function clearChainStepFilter() {
+    state.evidenceChainStepFilter = null;
+    state.evidenceShowRelated = false;
+    
+    // Hide banner
+    if (els.evidenceChainStepBanner) {
+      els.evidenceChainStepBanner.classList.add('hidden');
+    }
+    
+    // Reset checkbox
+    if (els.chkEvidenceShowRelated) {
+      els.chkEvidenceShowRelated.checked = false;
+    }
+    
+    // Reset dropdown
+    if (els.evidenceChainSelect) {
+      els.evidenceChainSelect.value = '';
+    }
+    
+    state.evidenceFacts = [];
+    renderEvidenceTab();
+  }
+  
+  /**
+   * EVIDENCE_GRANULARITY-1: Populate context filter dropdowns
+   * Called when Investigate tab loads chain data
+   */
+  function populateEvidenceContextFilters() {
+    // Populate chain step dropdown
+    if (els.evidenceChainSelect && state.chainStackData?.chain_steps) {
+      const steps = state.chainStackData.chain_steps || [];
+      if (steps.length > 0) {
+        els.evidenceChainSelect.classList.remove('hidden');
+        els.evidenceChainSelect.innerHTML = '<option value="">Chain Step: All</option>' +
+          steps.map(s => {
+            const statusIcon = s.status === 'satisfied' ? '✅' : s.status === 'blocked' ? '⛔' : '⚪';
+            return `<option value="${escapeHtml(s.step_id)}">${statusIcon} ${escapeHtml(s.step_name || s.step_id)}</option>`;
+          }).join('');
+      } else {
+        els.evidenceChainSelect.classList.add('hidden');
+      }
+    }
+    
+    // Populate playbook dropdown
+    if (els.evidencePlaybookSelect && state.evaluations?.length > 0) {
+      const playbooks = state.evaluations || [];
+      els.evidencePlaybookSelect.classList.remove('hidden');
+      els.evidencePlaybookSelect.innerHTML = '<option value="">Playbook: All</option>' +
+        playbooks.slice(0, 20).map(p => {
+          const statusIcon = p.status === 'fired' ? '🔴' : p.status === 'matched' ? '🟢' : p.status === 'blocked' ? '⚫' : '⚪';
+          const name = p.playbook_name || p.playbook_id;
+          const displayName = name.length > 30 ? name.slice(0, 27) + '...' : name;
+          return `<option value="${escapeHtml(p.playbook_id)}">${statusIcon} ${escapeHtml(displayName)}</option>`;
+        }).join('');
+    }
+  }
+  
+  // ============ SHARED EVIDENCE RENDERING FUNCTIONS (INVESTIGATE_EVIDENCE_WORKBENCH-1) ============
+  
+  /**
+   * Render Evidence browser content (shared between Evidence tab and Investigate Evidence mode)
+   * @param {Object} config - Configuration for rendering
+   * @param {Object} config.elements - DOM element references
+   * @param {Object} config.statePrefix - State prefix for the mode ('evidence' or 'investigateEvidence')
+   * @param {Function} config.onRender - Callback after render completes
+   */
+  async function renderEvidenceBrowserContent(config) {
+    const { elements, statePrefix, onRender } = config;
+    const st = statePrefix === 'investigateEvidence' ? {
+      mode: state.investigateEvidenceMode,
+      data: state.investigateEvidenceData,
+      facts: state.investigateEvidenceFacts,
+      page: state.investigateEvidencePage,
+      pageSize: state.investigateEvidencePageSize,
+      searchTerm: state.investigateEvidenceSearchTerm,
+      lensFilter: state.investigateEvidenceLensFilter,
+    } : {
+      mode: state.evidenceMode,
+      data: state.evidenceData,
+      facts: state.evidenceFacts,
+      page: state.evidencePage,
+      pageSize: state.evidencePageSize,
+      searchTerm: state.evidenceSearchTerm,
+      lensFilter: state.evidenceLensFilter,
+    };
+    
+    const setStateVal = (key, val) => {
+      if (statePrefix === 'investigateEvidence') {
+        state[`investigateEvidence${key.charAt(0).toUpperCase() + key.slice(1)}`] = val;
+      } else {
+        state[`evidence${key.charAt(0).toUpperCase() + key.slice(1)}`] = val;
+      }
+    };
+    
+    // Show loading
+    if (elements.loading) elements.loading.classList.remove('hidden');
+    if (elements.empty) elements.empty.classList.add('hidden');
+    if (elements.tableContainer) elements.tableContainer.classList.add('hidden');
+    if (elements.pagination) elements.pagination.classList.add('hidden');
+    
+    // Check capability
+    if (state.capabilities.runCoverage === false) {
+      if (elements.loading) elements.loading.classList.add('hidden');
+      if (elements.unavailable) elements.unavailable.classList.remove('hidden');
+      return;
+    }
+    
+    // Load coverage data if not cached
+    let data = st.data;
+    if (!data && state.selectedRunId) {
+      try {
+        const res = await fetch(`/api/runs/${state.selectedRunId}/coverage`);
+        if (res.ok) {
+          const json = await res.json();
+          data = json.data || json;
+          setStateVal('data', data);
+          // Populate lens dropdown
+          populateEvidenceLensDropdown(elements.lensSelect, data.fact_types || []);
+        } else if (res.status === 404) {
+          state.capabilities.runCoverage = false;
+          if (elements.loading) elements.loading.classList.add('hidden');
+          if (elements.unavailable) elements.unavailable.classList.remove('hidden');
+          return;
+        }
+      } catch (err) {
+        console.error('[Evidence] Failed to load coverage:', err);
+        if (elements.loading) elements.loading.classList.add('hidden');
+        if (elements.unavailable) elements.unavailable.classList.remove('hidden');
+        return;
+      }
+    }
+    
+    // Use runCoverage if data not set
+    if (!data && state.runCoverage) {
+      data = state.runCoverage;
+      setStateVal('data', data);
+      populateEvidenceLensDropdown(elements.lensSelect, data.fact_types || []);
+    }
+    
+    if (elements.loading) elements.loading.classList.add('hidden');
+    
+    // Handle no data
+    if (!data || data.available === false || !data.facts_total || data.facts_total === 0) {
+      showEvidenceEmptyState(elements, {
+        hasFilters: !!(st.searchTerm || st.lensFilter),
+        noData: true
+      });
+      return;
+    }
+    
+    // Update summary counts
+    if (elements.totalCount) elements.totalCount.textContent = formatValue(data.facts_total);
+    if (elements.typeCount) elements.typeCount.textContent = formatValue(data.fact_types?.length || 0);
+    if (elements.hostCount) elements.hostCount.textContent = formatValue(data.top_hosts?.length || 0);
+    
+    // Show table
+    if (elements.tableContainer) elements.tableContainer.classList.remove('hidden');
+    
+    // Render based on mode
+    if (st.mode === 'grouped') {
+      renderEvidenceGroupedContent(elements, data, st);
+    } else {
+      await renderEvidenceRawContent(elements, data, st, statePrefix, setStateVal);
+    }
+    
+    if (onRender) onRender();
+  }
+  
+  /**
+   * Populate lens dropdown with fact types
+   */
+  function populateEvidenceLensDropdown(selectEl, factTypes) {
+    if (!selectEl) return;
+    selectEl.innerHTML = '<option value="">Show me: All fact types</option>' +
+      factTypes.map(ft => `<option value="${escapeHtml(ft.fact_type)}">${escapeHtml(ft.fact_type)} (${ft.count})</option>`).join('');
+  }
+  
+  /**
+   * Show Evidence empty state with appropriate message
+   */
+  function showEvidenceEmptyState(elements, options = {}) {
+    const { hasFilters, noData } = options;
+    
+    if (elements.empty) {
+      elements.empty.classList.remove('hidden');
+      
+      if (elements.emptyTitle) {
+        if (noData && !hasFilters) {
+          elements.emptyTitle.textContent = 'No evidence data available';
+        } else if (hasFilters) {
+          elements.emptyTitle.textContent = 'No facts match current filters';
+        } else {
+          elements.emptyTitle.textContent = 'No facts found';
+        }
+      }
+      
+      if (elements.emptyHint) {
+        if (hasFilters) {
+          elements.emptyHint.textContent = 'Search currently matches summary text only.';
+        } else if (noData) {
+          elements.emptyHint.textContent = 'This run may not have an analysis database.';
+        } else {
+          elements.emptyHint.textContent = '';
+        }
+      }
+      
+      if (elements.emptyActions) {
+        elements.emptyActions.classList.toggle('hidden', !hasFilters);
+      }
+    }
+    if (elements.tableContainer) elements.tableContainer.classList.add('hidden');
+    if (elements.pagination) elements.pagination.classList.add('hidden');
+  }
+  
+  /**
+   * Render Grouped view content
+   */
+  function renderEvidenceGroupedContent(elements, data, st) {
+    if (elements.tableHeader) {
+      elements.tableHeader.innerHTML = `
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Fact Type</th>
+        <th style="text-align: right; padding: 8px 12px; font-weight: 600; color: var(--muted);">Count</th>
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted); width: 40%;">Distribution</th>
+        <th style="text-align: center; padding: 8px 12px; font-weight: 600; color: var(--muted);">Action</th>
+      `;
+    }
+    
+    let factTypes = data.fact_types || [];
+    
+    // Apply lens filter
+    if (st.lensFilter) {
+      factTypes = factTypes.filter(ft => ft.fact_type === st.lensFilter);
+    }
+    
+    // Apply search filter
+    if (st.searchTerm) {
+      const term = st.searchTerm.toLowerCase();
+      factTypes = factTypes.filter(ft => ft.fact_type.toLowerCase().includes(term));
+    }
+    
+    // Check if empty after filters
+    if (factTypes.length === 0) {
+      showEvidenceEmptyState(elements, { hasFilters: !!(st.searchTerm || st.lensFilter) });
+      return;
+    }
+    
+    const maxCount = Math.max(...factTypes.map(ft => ft.count), 1);
+    
+    if (elements.tableBody) {
+      elements.tableBody.innerHTML = factTypes.slice(0, 30).map(ft => {
+        const pct = (ft.count / maxCount) * 100;
+        return `
+          <tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 8px 12px; font-family: monospace; font-size: 12px;">${escapeHtml(ft.fact_type)}</td>
+            <td style="padding: 8px 12px; text-align: right; font-weight: 600;">${formatValue(ft.count)}</td>
+            <td style="padding: 8px 12px;">
+              <div style="background: var(--panel); border-radius: 2px; height: 6px; overflow: hidden;">
+                <div style="background: var(--accent); width: ${pct}%; height: 100%;"></div>
+              </div>
+            </td>
+            <td style="padding: 8px 12px; text-align: center;">
+              <button class="expand-facts-btn" data-fact-type="${escapeHtml(ft.fact_type)}" style="padding: 4px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">Expand</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    
+    if (elements.pagination) elements.pagination.classList.add('hidden');
+  }
+  
+  /**
+   * Render Raw view content
+   */
+  async function renderEvidenceRawContent(elements, data, st, statePrefix, setStateVal) {
+    if (elements.tableHeader) {
+      elements.tableHeader.innerHTML = `
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Timestamp</th>
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Fact Type</th>
+        <th style="text-align: left; padding: 8px 12px; font-weight: 600; color: var(--muted);">Summary</th>
+        <th style="text-align: center; padding: 8px 12px; font-weight: 600; color: var(--muted);">Action</th>
+      `;
+    }
+    
+    // Load facts
+    let facts = st.facts || data.sample_facts || [];
+    
+    // Load facts for specific type if needed
+    if (st.lensFilter && facts.length === 0) {
+      try {
+        const res = await fetch(`/api/runs/${state.selectedRunId}/facts?fact_type=${encodeURIComponent(st.lensFilter)}&limit=100`);
+        if (res.ok) {
+          const json = await res.json();
+          facts = json.data?.facts || json.facts || json || [];
+          setStateVal('facts', facts);
+        }
+      } catch (err) {
+        console.error('[Evidence] Failed to load facts:', err);
+      }
+    }
+    
+    // Load from facts endpoint if still empty
+    if (facts.length === 0 && state.selectedRunId) {
+      try {
+        const params = new URLSearchParams({ limit: '100' });
+        if (st.lensFilter) params.append('fact_type', st.lensFilter);
+        const res = await fetch(`/api/runs/${state.selectedRunId}/facts?${params}`);
+        if (res.ok) {
+          const json = await res.json();
+          facts = json.data?.facts || json.facts || [];
+          setStateVal('facts', facts);
+        }
+      } catch (err) {
+        console.error('[Evidence] Failed to load facts:', err);
+      }
+    }
+    
+    // Apply filters
+    let filteredFacts = [...facts];
+    
+    if (st.searchTerm) {
+      const term = st.searchTerm.toLowerCase();
+      filteredFacts = filteredFacts.filter(f => {
+        const summary = f.summary || f.entity_key || JSON.stringify(f).toLowerCase();
+        return summary.toLowerCase().includes(term);
+      });
+    }
+    
+    if (st.lensFilter) {
+      filteredFacts = filteredFacts.filter(f => f.fact_type === st.lensFilter);
+    }
+    
+    // Check if empty after filters
+    if (filteredFacts.length === 0) {
+      showEvidenceEmptyState(elements, { hasFilters: !!(st.searchTerm || st.lensFilter) });
+      return;
+    }
+    
+    // Paginate
+    const start = st.page * st.pageSize;
+    const pageFacts = filteredFacts.slice(start, start + st.pageSize);
+    
+    if (elements.tableBody) {
+      elements.tableBody.innerHTML = pageFacts.map((fact, idx) => {
+        const ts = fact.ts ? new Date(fact.ts).toLocaleTimeString() : '—';
+        const summary = fact.summary || fact.entity_key || fact.proc_key || fact.file_key || '—';
+        const displaySummary = summary.length > 50 ? summary.slice(0, 50) + '...' : summary;
+        
+        return `
+          <tr style="border-bottom: 1px solid var(--border); cursor: pointer;" class="fact-row" data-fact-idx="${start + idx}">
+            <td style="padding: 8px 12px; font-size: 11px; color: var(--muted);">${ts}</td>
+            <td style="padding: 8px 12px; font-family: monospace; font-size: 11px;">${escapeHtml(fact.fact_type || '—')}</td>
+            <td style="padding: 8px 12px; font-size: 12px;" title="${escapeHtml(summary)}">${escapeHtml(displaySummary)}</td>
+            <td style="padding: 8px 12px; text-align: center;">
+              <button class="view-fact-btn" data-fact-idx="${start + idx}" style="padding: 4px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">View</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+    
+    // Update pagination
+    updateEvidencePaginationContent(elements, filteredFacts.length, st);
+    
+    // Return facts for event binding
+    return filteredFacts;
+  }
+  
+  /**
+   * Update pagination info
+   */
+  function updateEvidencePaginationContent(elements, totalFacts, st) {
+    if (!elements.pagination) return;
+    
+    const start = st.page * st.pageSize;
+    const end = Math.min(start + st.pageSize, totalFacts);
+    const totalPages = Math.ceil(totalFacts / st.pageSize);
+    
+    if (totalFacts > st.pageSize) {
+      elements.pagination.classList.remove('hidden');
+      if (elements.paginationInfo) {
+        elements.paginationInfo.textContent = `Showing ${start + 1}-${end} of ${totalFacts}`;
+      }
+      if (elements.prevBtn) {
+        elements.prevBtn.disabled = st.page === 0;
+      }
+      if (elements.nextBtn) {
+        elements.nextBtn.disabled = st.page >= totalPages - 1;
+      }
+    } else {
+      elements.pagination.classList.add('hidden');
+    }
+  }
+  
+  /**
+   * Show fact detail in drawer (shared, parameterized version)
+   */
+  function showFactDetailDrawerShared(fact, elements) {
+    if (!elements.drawer || !elements.content) return;
+    
+    elements.drawer.classList.remove('hidden');
+    elements.content.innerHTML = `
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Fact Type</div>
+        <div style="font-family: monospace; font-size: 13px;">${escapeHtml(fact.fact_type || '—')}</div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Timestamp</div>
+        <div style="font-size: 13px;">${fact.ts ? new Date(fact.ts).toLocaleString() : '—'}</div>
+      </div>
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Summary</div>
+        <div style="font-size: 13px; word-break: break-all;">${escapeHtml(fact.summary || fact.entity_key || '—')}</div>
+      </div>
+      ${fact.host || fact.hostname ? `
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Host</div>
+        <div style="font-size: 13px;">${escapeHtml(fact.host || fact.hostname)}</div>
+      </div>
+      ` : ''}
+      ${fact.segment_id ? `
+      <div style="margin-bottom: 16px;">
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Segment</div>
+        <div style="font-size: 11px; font-family: monospace;">${escapeHtml(fact.segment_id)}${fact.record_index !== undefined ? ` [${fact.record_index}]` : ''}</div>
+      </div>
+      ` : ''}
+      <div>
+        <div style="font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px;">Raw Data</div>
+        <pre style="font-size: 11px; background: var(--panel2); padding: 12px; border-radius: var(--radius-sm); overflow-x: auto; max-height: 300px;">${escapeHtml(JSON.stringify(fact, null, 2))}</pre>
+      </div>
+    `;
+    
+    return fact;
+  }
+  
+  /**
+   * Copy fact as EvidenceRef to clipboard
+   */
+  function copyFactEvidenceRef(fact) {
+    if (!fact) return;
+    
+    const evidenceRef = {
+      fact_type: fact.fact_type,
+      fact_id: fact.fact_id || fact.id,
+      ts: fact.ts,
+      summary: fact.summary || fact.entity_key,
+      segment_id: fact.segment_id,
+      record_index: fact.record_index,
+    };
+    
+    const text = JSON.stringify(evidenceRef, null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('EvidenceRef copied to clipboard', 'success');
+    }).catch(err => {
+      console.error('[Evidence] Failed to copy:', err);
+      showToast('Failed to copy', 'error');
+    });
+  }
+  
+  /**
+   * Open raw event for a fact (navigate to Events/Raw view)
+   */
+  function openFactRawEvent(fact) {
+    if (!fact) return;
+    
+    if (fact.segment_id) {
+      // Navigate to Raw tab with segment filter
+      state.rawSegmentFilter = fact.segment_id;
+      state.rawRecordIndex = fact.record_index;
+      switchRunTab('raw');
+      showToast(`Navigating to segment ${fact.segment_id}`, 'info');
+    } else {
+      showToast('No segment reference available for this fact', 'warn');
+    }
+  }
+  
+  // ============ INVESTIGATE MODE FUNCTIONS (INVESTIGATE_OBSERVED_FIRST-1) ============
+  
+  /**
+   * Initialize Investigate mode handlers
+   */
+  function initInvestigateEvidenceModeHandlers() {
+    // Mode toggle buttons (INVESTIGATE_OBSERVED_FIRST-1)
+    if (els.btnInvestigateModeObserved) {
+      els.btnInvestigateModeObserved.addEventListener('click', () => {
+        setInvestigateWorkbenchMode('observed');
+        renderInvestigateTab();
+      });
+    }
+    if (els.btnInvestigateModeChains) {
+      els.btnInvestigateModeChains.addEventListener('click', () => {
+        setInvestigateWorkbenchMode('chains');
+        renderInvestigateTab();
+      });
+    }
+    if (els.btnInvestigateModePlaybooks) {
+      els.btnInvestigateModePlaybooks.addEventListener('click', () => {
+        setInvestigateWorkbenchMode('playbooks');
+        renderInvestigateTab();
+      });
+    }
+    if (els.btnInvestigateModeEvidence) {
+      els.btnInvestigateModeEvidence.addEventListener('click', () => {
+        setInvestigateWorkbenchMode('evidence');
+        renderInvestigateTab();
+      });
+    }
+    // Legacy button (if present)
+    if (els.btnInvestigateModeSteps) {
+      els.btnInvestigateModeSteps.addEventListener('click', () => {
+        setInvestigateWorkbenchMode('playbooks');
+        renderInvestigateTab();
+      });
+    }
+    
+    // Evidence mode controls
+    if (els.btnInvestigateEvidenceGrouped) {
+      els.btnInvestigateEvidenceGrouped.addEventListener('click', () => {
+        state.investigateEvidenceMode = 'grouped';
+        state.investigateEvidencePage = 0;
+        updateInvestigateEvidenceModeButtons();
+        renderInvestigateEvidenceContent();
+      });
+    }
+    if (els.btnInvestigateEvidenceRaw) {
+      els.btnInvestigateEvidenceRaw.addEventListener('click', () => {
+        state.investigateEvidenceMode = 'raw';
+        state.investigateEvidencePage = 0;
+        updateInvestigateEvidenceModeButtons();
+        renderInvestigateEvidenceContent();
+      });
+    }
+    
+    // Lens dropdown
+    if (els.investigateEvidenceLensSelect) {
+      els.investigateEvidenceLensSelect.addEventListener('change', () => {
+        state.investigateEvidenceLensFilter = els.investigateEvidenceLensSelect.value;
+        state.investigateEvidencePage = 0;
+        state.investigateEvidenceFacts = [];
+        renderInvestigateEvidenceContent();
+      });
+    }
+    
+    // Search input
+    let searchTimeout = null;
+    if (els.investigateEvidenceSearchInput) {
+      els.investigateEvidenceSearchInput.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          state.investigateEvidenceSearchTerm = els.investigateEvidenceSearchInput.value;
+          state.investigateEvidencePage = 0;
+          renderInvestigateEvidenceContent();
+        }, 300);
+      });
+    }
+    
+    // Reset button
+    if (els.investigateEvidenceSearchReset) {
+      els.investigateEvidenceSearchReset.addEventListener('click', () => {
+        clearInvestigateEvidenceFilters();
+      });
+    }
+    
+    // Clear filters buttons
+    if (els.btnClearInvestigateEvidenceFilters) {
+      els.btnClearInvestigateEvidenceFilters.addEventListener('click', () => {
+        clearInvestigateEvidenceFilters();
+      });
+    }
+    if (els.btnInvestigateEvidenceClearSearch) {
+      els.btnInvestigateEvidenceClearSearch.addEventListener('click', () => {
+        state.investigateEvidenceSearchTerm = '';
+        if (els.investigateEvidenceSearchInput) els.investigateEvidenceSearchInput.value = '';
+        renderInvestigateEvidenceContent();
+      });
+    }
+    if (els.btnInvestigateEvidenceClearFilters) {
+      els.btnInvestigateEvidenceClearFilters.addEventListener('click', () => {
+        clearInvestigateEvidenceFilters();
+      });
+    }
+    
+    // Pagination
+    if (els.investigateEvidencePrevBtn) {
+      els.investigateEvidencePrevBtn.addEventListener('click', () => {
+        if (state.investigateEvidencePage > 0) {
+          state.investigateEvidencePage--;
+          renderInvestigateEvidenceContent();
+        }
+      });
+    }
+    if (els.investigateEvidenceNextBtn) {
+      els.investigateEvidenceNextBtn.addEventListener('click', () => {
+        state.investigateEvidencePage++;
+        renderInvestigateEvidenceContent();
+      });
+    }
+    
+    // Fact detail drawer close
+    if (els.investigateFactDrawerClose) {
+      els.investigateFactDrawerClose.addEventListener('click', () => {
+        if (els.investigateFactDetailDrawer) els.investigateFactDetailDrawer.classList.add('hidden');
+      });
+    }
+    
+    // Fact detail actions
+    if (els.btnCopyEvidenceRef) {
+      els.btnCopyEvidenceRef.addEventListener('click', () => {
+        copyFactEvidenceRef(state.investigateSelectedFact);
+      });
+    }
+    if (els.btnOpenRawEvent) {
+      els.btnOpenRawEvent.addEventListener('click', () => {
+        openFactRawEvent(state.investigateSelectedFact);
+      });
+    }
+    
+    // "Open in Evidence mode" button in step evidence drawer
+    if (els.btnOpenInEvidenceTab) {
+      els.btnOpenInEvidenceTab.addEventListener('click', () => {
+        // Switch to Evidence mode in Investigate (not Evidence tab)
+        setInvestigateWorkbenchMode('evidence');
+        // Close the step drawer
+        if (els.investigateEvidenceDrawer) els.investigateEvidenceDrawer.classList.add('hidden');
+      });
+    }
+  }
+  
+  /**
+   * Initialize Chain Lens event handlers (INVESTIGATE_CHAIN_LENS-1)
+   * Chain Lens is the primary investigation structure in Observed mode
+   */
+  function initChainLensHandlers() {
+    // Edit button opens picker
+    if (els.btnChainLensEdit) {
+      els.btnChainLensEdit.addEventListener('click', () => {
+        toggleChainLensPicker(true);
+      });
+    }
+    
+    // Close picker button
+    if (els.btnChainLensPickerClose) {
+      els.btnChainLensPickerClose.addEventListener('click', () => {
+        toggleChainLensPicker(false);
+      });
+    }
+    
+    // Apply button
+    if (els.btnChainLensApply) {
+      els.btnChainLensApply.addEventListener('click', async () => {
+        await applyChainLens();
+      });
+    }
+    
+    // Quick apply from empty state - opens picker
+    if (els.btnChainLensQuickApply) {
+      els.btnChainLensQuickApply.addEventListener('click', async () => {
+        // Open the picker so user can select chains
+        toggleChainLensPicker(true);
+      });
+    }
+    
+    // Back to Investigate button in Evidence context banner
+    if (els.btnEvidenceBackToInvestigate) {
+      els.btnEvidenceBackToInvestigate.addEventListener('click', () => {
+        // Clear evidence context and go back to Observed mode
+        state.evidenceContext = null;
+        hideEvidenceContextBanner();
+        setInvestigateWorkbenchMode('observed');
+        renderInvestigateTab();
+      });
+    }
+  }
+  
+  /**
+   * Toggle Chain Lens picker visibility
+   */
+  function toggleChainLensPicker(open) {
+    state.chainLensPickerOpen = open;
+    if (els.chainLensPicker) {
+      els.chainLensPicker.style.display = open ? 'block' : 'none';
+    }
+    if (open) {
+      renderChainLensPickerList();
+    }
+  }
+  
+  /**
+   * Render the chain picker checkbox list
+   */
+  async function renderChainLensPickerList() {
+    if (!els.chainLensPickerList) return;
+    
+    const chains = await fetchChainDefinitions();
+    if (!chains || chains.length === 0) {
+      els.chainLensPickerList.innerHTML = `
+        <div style="padding: 16px; text-align: center; color: var(--muted); font-size: 11px;">
+          No chains available. Check backend /api/chains.
+        </div>`;
+      return;
+    }
+    
+    const selectedSet = new Set(state.chainLensSelectedIds);
+    
+    const html = chains.map(chain => {
+      const chainId = chain.id || chain.chain_id;
+      const title = chain.title || chain.name || chainId;
+      const desc = chain.description || '';
+      const stepCount = chain.steps?.length || 0;
+      const isChecked = selectedSet.has(chainId);
+      
+      return `
+        <label class="chain-lens-item" style="display: flex; align-items: flex-start; gap: 8px; padding: 8px; border-radius: var(--radius-sm); cursor: pointer; background: ${isChecked ? 'var(--accent-bg)' : 'transparent'};" data-chain-id="${escapeHtml(chainId)}">
+          <input type="checkbox" class="chain-lens-checkbox" data-chain-id="${escapeHtml(chainId)}" ${isChecked ? 'checked' : ''} style="margin-top: 2px;">
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 12px; font-weight: 500; color: var(--text);">${escapeHtml(title)}</div>
+            ${desc ? `<div style="font-size: 10px; color: var(--muted); margin-top: 2px;">${escapeHtml(desc.slice(0, 80))}${desc.length > 80 ? '...' : ''}</div>` : ''}
+            <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">${stepCount} steps</div>
+          </div>
+        </label>`;
+    }).join('');
+    
+    els.chainLensPickerList.innerHTML = html;
+    
+    // Add event listeners to checkboxes
+    els.chainLensPickerList.querySelectorAll('.chain-lens-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', (e) => {
+        const chainId = e.target.dataset.chainId;
+        if (e.target.checked) {
+          if (!state.chainLensSelectedIds.includes(chainId)) {
+            state.chainLensSelectedIds.push(chainId);
+          }
+        } else {
+          state.chainLensSelectedIds = state.chainLensSelectedIds.filter(id => id !== chainId);
+        }
+        updateChainLensPickerCount();
+        // Update visual state
+        const label = e.target.closest('.chain-lens-item');
+        if (label) {
+          label.style.background = e.target.checked ? 'var(--accent-bg)' : 'transparent';
+        }
+      });
+    });
+    
+    updateChainLensPickerCount();
+  }
+  
+  /**
+   * Update the chain lens picker count display
+   */
+  function updateChainLensPickerCount() {
+    if (els.chainLensPickerCount) {
+      els.chainLensPickerCount.textContent = `${state.chainLensSelectedIds.length} selected`;
+    }
+    if (els.chainLensActiveCount) {
+      els.chainLensActiveCount.textContent = `${state.chainLensSelectedIds.length} chains`;
+    }
+  }
+  
+  /**
+   * Apply Chain Lens - fetch step status and render results
+   */
+  async function applyChainLens() {
+    const runId = state.selectedRunId;
+    const chainIds = state.chainLensSelectedIds;
+    
+    if (!runId) {
+      showToast('No run selected', 'warn');
+      return;
+    }
+    if (!chainIds || chainIds.length === 0) {
+      showToast('Select at least one chain', 'warn');
+      return;
+    }
+    
+    // Close picker
+    toggleChainLensPicker(false);
+    
+    // Show loading state
+    state.chainLensLoading = true;
+    if (els.chainLensResults) els.chainLensResults.style.display = 'block';
+    if (els.chainLensEmpty) els.chainLensEmpty.style.display = 'none';
+    if (els.chainLensChecklist) {
+      els.chainLensChecklist.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted);">
+          <div style="font-size: 16px; margin-bottom: 8px;">⏳</div>
+          <div style="font-size: 11px;">Analyzing chains against run evidence...</div>
+        </div>`;
+    }
+    
+    // Fetch step status
+    const stepStatus = await fetchStepStatusFromBackend(runId, chainIds);
+    state.chainLensLoading = false;
+    state.chainLensStepStatus = stepStatus;
+    
+    if (!stepStatus || !stepStatus.chains) {
+      if (els.chainLensChecklist) {
+        els.chainLensChecklist.innerHTML = `
+          <div style="padding: 20px; text-align: center; color: var(--muted);">
+            <div style="font-size: 16px; margin-bottom: 8px;">⚠️</div>
+            <div style="font-size: 11px;">Failed to fetch chain status. Check backend.</div>
+          </div>`;
+      }
+      return;
+    }
+    
+    // Render results
+    renderChainLensResults(stepStatus);
+    
+    // Update header count
+    updateChainLensPickerCount();
+    
+    // Show suggested chains if available
+    renderSuggestedChains(stepStatus);
+  }
+  
+  /**
+   * Render Chain Lens results checklist
+   */
+  function renderChainLensResults(stepStatus) {
+    if (!els.chainLensChecklist) return;
+    
+    const chains = stepStatus.chains || [];
+    if (chains.length === 0) {
+      els.chainLensChecklist.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted);">
+          No chains to display.
+        </div>`;
+      return;
+    }
+    
+    const html = chains.map(chain => {
+      const chainId = chain.chain_id;
+      const title = chain.title || chainId;
+      const steps = chain.steps || [];
+      
+      // Calculate chain-level stats
+      const satisfied = steps.filter(s => s.state === 'satisfied').length;
+      const candidate = steps.filter(s => s.state === 'candidate').length;
+      const blocked = steps.filter(s => s.state === 'blocked').length;
+      const notObserved = steps.filter(s => s.state === 'not_observed').length;
+      
+      // Chain progress color
+      const progress = steps.length > 0 ? Math.round((satisfied / steps.length) * 100) : 0;
+      const progressColor = satisfied === steps.length ? 'var(--bad)' : 
+                            candidate > 0 ? 'var(--warn)' : 'var(--muted)';
+      
+      const stepsHtml = steps.map(step => {
+        const stepId = step.step_id;
+        const stepTitle = step.title || step.name || stepId;
+        const stepState = step.state || 'not_observed';
+        const evidenceCount = step.evidence_refs_count || 0;
+        
+        // State icon and color
+        const stateIcon = getStepStateIcon(stepState);
+        const stateColor = getStepStateColor(stepState);
+        
+        return `
+          <div class="chain-lens-step" data-chain-id="${escapeHtml(chainId)}" data-step-id="${escapeHtml(stepId)}" 
+               style="display: flex; align-items: center; gap: 8px; padding: 8px 12px; cursor: pointer; border-radius: var(--radius-sm); transition: background 0.15s;"
+               onmouseover="this.style.background='var(--panel2)'" onmouseout="this.style.background='transparent'">
+            <span style="font-size: 14px;">${stateIcon}</span>
+            <span style="flex: 1; font-size: 11px; color: var(--text);">${escapeHtml(stepTitle)}</span>
+            <span style="font-size: 9px; color: ${stateColor}; padding: 2px 6px; background: ${stateColor}15; border-radius: 8px;">${stepState.replace('_', ' ')}</span>
+            ${evidenceCount > 0 ? `<span style="font-size: 9px; color: var(--accent);">📎 ${evidenceCount}</span>` : ''}
+          </div>`;
+      }).join('');
+      
+      return `
+        <div class="chain-lens-chain" style="margin-bottom: 16px; background: var(--panel); border-radius: var(--radius); overflow: hidden;">
+          <div style="padding: 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px;">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: ${progressColor}20; display: flex; align-items: center; justify-content: center;">
+              <span style="font-size: 14px; font-weight: 600; color: ${progressColor};">${progress}%</span>
+            </div>
+            <div style="flex: 1;">
+              <div style="font-size: 13px; font-weight: 600; color: var(--text);">${escapeHtml(title)}</div>
+              <div style="font-size: 10px; color: var(--muted); margin-top: 2px;">
+                ${satisfied > 0 ? `<span style="color: var(--bad);">✓${satisfied}</span>` : ''}
+                ${candidate > 0 ? `<span style="color: var(--warn); margin-left: 6px;">◐${candidate}</span>` : ''}
+                ${blocked > 0 ? `<span style="color: var(--muted); margin-left: 6px;">⊘${blocked}</span>` : ''}
+                ${notObserved > 0 ? `<span style="color: var(--muted); margin-left: 6px;">○${notObserved}</span>` : ''}
+              </div>
+            </div>
+          </div>
+          <div style="padding: 4px;">
+            ${stepsHtml}
+          </div>
+        </div>`;
+    }).join('');
+    
+    els.chainLensChecklist.innerHTML = html;
+    
+    // Add click handlers to steps
+    els.chainLensChecklist.querySelectorAll('.chain-lens-step').forEach(stepEl => {
+      stepEl.addEventListener('click', () => {
+        const chainId = stepEl.dataset.chainId;
+        const stepId = stepEl.dataset.stepId;
+        openChainStepEvidence(chainId, stepId);
+      });
+    });
+  }
+  
+  /**
+   * Get icon for step state
+   */
+  function getStepStateIcon(state) {
+    switch (state) {
+      case 'satisfied': return '✅';
+      case 'candidate': return '🟠';
+      case 'blocked': return '⊘';
+      case 'unverified': return '❓';
+      case 'not_observed':
+      default: return '○';
+    }
+  }
+  
+  /**
+   * Get color for step state
+   */
+  function getStepStateColor(state) {
+    switch (state) {
+      case 'satisfied': return 'var(--bad)';
+      case 'candidate': return 'var(--warn)';
+      case 'blocked': return 'var(--muted)';
+      case 'unverified': return 'var(--accent)';
+      case 'not_observed':
+      default: return 'var(--muted)';
+    }
+  }
+  
+  /**
+   * Open evidence drawer for a chain step with context
+   */
+  function openChainStepEvidence(chainId, stepId) {
+    // Find the step data from cached status
+    const stepStatus = state.chainLensStepStatus;
+    if (!stepStatus || !stepStatus.chains) return;
+    
+    const chain = stepStatus.chains.find(c => c.chain_id === chainId);
+    if (!chain) return;
+    
+    const step = chain.steps.find(s => s.step_id === stepId);
+    if (!step) return;
+    
+    // Set evidence context for the banner
+    state.evidenceContext = {
+      source: 'chain_step',
+      label: `${chain.title || chainId} → ${step.title || stepId}`,
+      chainId: chainId,
+      stepId: stepId,
+      stepState: step.state,
+      evidenceCount: step.evidence_refs_count || 0
+    };
+    
+    // Build step data for evidence drawer
+    const stepData = {
+      stepName: step.title || step.name || stepId,
+      stepStatus: step.state,
+      expectedFactTypes: step.expected_fact_types || [],
+      searchHints: step.search_hints || [],
+      isBlocked: step.state === 'blocked',
+      blockedReason: step.blocked_reason,
+      chainId: chainId,
+      stepId: stepId,
+      evidenceRefs: step.evidence_refs || [],
+      matchedSignals: step.matched_signals || []
+    };
+    
+    // Open the evidence drawer
+    openEvidenceDrawer(stepData);
+    
+    // Show the evidence context banner
+    showEvidenceContextBanner();
+  }
+  
+  /**
+   * Show evidence context banner when viewing proof from chain/episode/finding
+   */
+  function showEvidenceContextBanner() {
+    if (!els.evidenceContextBanner || !state.evidenceContext) return;
+    
+    els.evidenceContextBanner.style.display = 'flex';
+    
+    // Set source label
+    if (els.evidenceContextSource) {
+      const ctx = state.evidenceContext;
+      const sourceIcon = ctx.source === 'chain_step' ? '🔗' : 
+                         ctx.source === 'episode' ? '📖' : 
+                         ctx.source === 'finding' ? '🔴' : '📋';
+      els.evidenceContextSource.innerHTML = `${sourceIcon} <strong>${escapeHtml(ctx.label)}</strong>`;
+    }
+    
+    // Update counts (if available from step data)
+    if (state.evidenceContext.source === 'chain_step') {
+      const stepStatus = state.chainLensStepStatus;
+      const chain = stepStatus?.chains?.find(c => c.chain_id === state.evidenceContext.chainId);
+      const step = chain?.steps?.find(s => s.step_id === state.evidenceContext.stepId);
+      
+      if (step) {
+        const exactCount = step.evidence_refs_count || 0;
+        const relatedCount = step.related_facts_count || 0;
+        const unresolvedCount = step.unresolved_refs_count || 0;
+        
+        if (els.evidenceContextExact) els.evidenceContextExact.textContent = exactCount;
+        if (els.evidenceContextRelated) els.evidenceContextRelated.textContent = relatedCount;
+        if (els.evidenceContextUnresolved) els.evidenceContextUnresolved.textContent = unresolvedCount;
+      }
+    }
+  }
+  
+  /**
+   * Hide evidence context banner
+   */
+  function hideEvidenceContextBanner() {
+    if (els.evidenceContextBanner) {
+      els.evidenceContextBanner.style.display = 'none';
+    }
+  }
+  
+  /**
+   * Render suggested chains section (optional - based on unmapped activity)
+   */
+  function renderSuggestedChains(stepStatus) {
+    if (!els.chainLensSuggested || !els.chainLensSuggestedList) return;
+    
+    // For now, show suggested chains section only if there are suggestions in the response
+    const suggestions = stepStatus.suggested_chains || [];
+    
+    if (suggestions.length === 0) {
+      els.chainLensSuggested.style.display = 'none';
+      return;
+    }
+    
+    els.chainLensSuggested.style.display = 'block';
+    
+    const html = suggestions.map(sug => {
+      const chainId = sug.chain_id;
+      const title = sug.title || chainId;
+      const reason = sug.reason || 'Based on observed signals';
+      const confidence = sug.confidence || 'medium';
+      const confColor = confidence === 'high' ? 'var(--bad)' : 
+                        confidence === 'medium' ? 'var(--warn)' : 'var(--muted)';
+      
+      return `
+        <div class="suggested-chain" data-chain-id="${escapeHtml(chainId)}" 
+             style="display: flex; align-items: center; gap: 8px; padding: 8px; background: var(--panel2); border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 6px;"
+             onclick="addSuggestedChain('${escapeHtml(chainId)}')">
+          <span style="font-size: 12px;">💡</span>
+          <div style="flex: 1;">
+            <div style="font-size: 11px; color: var(--text);">${escapeHtml(title)}</div>
+            <div style="font-size: 9px; color: var(--muted);">${escapeHtml(reason)}</div>
+          </div>
+          <span style="font-size: 9px; padding: 2px 6px; background: ${confColor}20; color: ${confColor}; border-radius: 8px;">${confidence}</span>
+          <span style="font-size: 11px; color: var(--accent);">+ Add</span>
+        </div>`;
+    }).join('');
+    
+    els.chainLensSuggestedList.innerHTML = html;
+  }
+  
+  /**
+   * Add a suggested chain to the selection and re-apply
+   */
+  window.addSuggestedChain = async function(chainId) {
+    if (!state.chainLensSelectedIds.includes(chainId)) {
+      state.chainLensSelectedIds.push(chainId);
+      await applyChainLens();
+    }
+  };
+  
+  /**
+   * Initialize Chain Lens for the current run
+   * Called when entering Observed mode
+   */
+  async function initChainLensForRun() {
+    const run = state.selectedRun;
+    
+    // Reset state
+    state.chainLensStepStatus = null;
+    state.chainLensLoading = false;
+    
+    // Pre-select chains from run's chain_ids if available
+    if (run?.chain_ids && Array.isArray(run.chain_ids) && run.chain_ids.length > 0) {
+      state.chainLensSelectedIds = [...run.chain_ids];
+      // Auto-apply if we have chains
+      await applyChainLens();
+    } else {
+      // Show empty state - no chains selected
+      state.chainLensSelectedIds = [];
+      if (els.chainLensEmpty) els.chainLensEmpty.style.display = 'flex';
+      if (els.chainLensResults) els.chainLensResults.style.display = 'none';
+    }
+    
+    updateChainLensPickerCount();
+  }
+
+  /**
+   * Set Investigate workbench mode (observed, chains, playbooks, or evidence)
+   * INVESTIGATE_OBSERVED_FIRST-2: 4-mode system with explicit display control
+   */
+  function setInvestigateWorkbenchMode(mode) {
+    state.investigateWorkbenchMode = mode;
+    
+    // Update toggle buttons (INVESTIGATE_OBSERVED_FIRST-2)
+    const modes = ['observed', 'chains', 'playbooks', 'evidence'];
+    modes.forEach(m => {
+      const btn = els[`btnInvestigateMode${m.charAt(0).toUpperCase() + m.slice(1)}`];
+      if (btn) {
+        btn.style.background = mode === m ? 'var(--accent)' : 'transparent';
+        btn.style.color = mode === m ? 'white' : 'var(--muted)';
+      }
+    });
+    
+    // Legacy button compatibility
+    if (els.btnInvestigateModeSteps) {
+      els.btnInvestigateModeSteps.style.background = mode === 'playbooks' ? 'var(--accent)' : 'transparent';
+      els.btnInvestigateModeSteps.style.color = mode === 'playbooks' ? 'white' : 'var(--muted)';
+    }
+    
+    // INVESTIGATE_OBSERVED_FIRST-2: Explicit display control to prevent overlap
+    // Use both classList AND style.display for robust visibility
+    if (els.investigateObservedMode) {
+      els.investigateObservedMode.classList.toggle('hidden', mode !== 'observed');
+      els.investigateObservedMode.style.display = mode === 'observed' ? 'block' : 'none';
+    }
+    if (els.investigateChainsMode) {
+      els.investigateChainsMode.classList.toggle('hidden', mode !== 'chains');
+      els.investigateChainsMode.style.display = mode === 'chains' ? 'block' : 'none';
+    }
+    if (els.investigatePlaybooksMode) {
+      els.investigatePlaybooksMode.classList.toggle('hidden', mode !== 'playbooks');
+      els.investigatePlaybooksMode.style.display = mode === 'playbooks' ? 'block' : 'none';
+    }
+    // Evidence mode container (check both possible element names)
+    const evidenceContainer = els.investigateEvidenceModeContainer || els.investigateEvidenceMode;
+    if (evidenceContainer) {
+      evidenceContainer.classList.toggle('hidden', mode !== 'evidence');
+      evidenceContainer.style.display = mode === 'evidence' ? 'block' : 'none';
+    }
+    // Legacy container - always hidden
+    if (els.investigateStepsMode) {
+      els.investigateStepsMode.classList.add('hidden');
+      els.investigateStepsMode.style.display = 'none';
+    }
+    
+    console.log('[INVESTIGATE] Workbench mode changed to:', mode);
+  }
+  
+  /**
+   * Update Investigate Evidence mode toggle buttons
+   */
+  function updateInvestigateEvidenceModeButtons() {
+    if (els.btnInvestigateEvidenceGrouped) {
+      const isGrouped = state.investigateEvidenceMode === 'grouped';
+      els.btnInvestigateEvidenceGrouped.style.background = isGrouped ? 'var(--accent)' : 'transparent';
+      els.btnInvestigateEvidenceGrouped.style.color = isGrouped ? 'white' : 'var(--muted)';
+    }
+    if (els.btnInvestigateEvidenceRaw) {
+      const isRaw = state.investigateEvidenceMode === 'raw';
+      els.btnInvestigateEvidenceRaw.style.background = isRaw ? 'var(--accent)' : 'transparent';
+      els.btnInvestigateEvidenceRaw.style.color = isRaw ? 'white' : 'var(--muted)';
+    }
+  }
+  
+  /**
+   * Clear Investigate Evidence filters
+   */
+  function clearInvestigateEvidenceFilters() {
+    state.investigateEvidenceSearchTerm = '';
+    state.investigateEvidenceLensFilter = '';
+    state.investigateEvidencePage = 0;
+    state.investigateEvidenceFacts = [];
+    if (els.investigateEvidenceSearchInput) els.investigateEvidenceSearchInput.value = '';
+    if (els.investigateEvidenceLensSelect) els.investigateEvidenceLensSelect.value = '';
+    renderInvestigateEvidenceContent();
+  }
+  
+  /**
+   * Render Investigate Evidence mode content
+   */
+  async function renderInvestigateEvidenceContent() {
+    const elements = {
+      loading: els.investigateEvidenceLoading,
+      empty: els.investigateEvidenceEmpty,
+      emptyTitle: els.investigateEvidenceEmptyTitle,
+      emptyHint: els.investigateEvidenceEmptyHint,
+      emptyActions: document.querySelector('#investigateEvidenceEmpty > div:last-child'),
+      tableContainer: els.investigateEvidenceTableContainer,
+      tableHeader: els.investigateEvidenceTableHeader,
+      tableBody: els.investigateEvidenceTableBody,
+      pagination: els.investigateEvidencePagination,
+      paginationInfo: els.investigateEvidencePaginationInfo,
+      prevBtn: els.investigateEvidencePrevBtn,
+      nextBtn: els.investigateEvidenceNextBtn,
+      lensSelect: els.investigateEvidenceLensSelect,
+      totalCount: els.investigateEvidenceTotalCount,
+      typeCount: els.investigateEvidenceTypeCount,
+      hostCount: els.investigateEvidenceHostCount,
+    };
+    
+    await renderEvidenceBrowserContent({
+      elements,
+      statePrefix: 'investigateEvidence',
+      onRender: () => {
+        // Bind row click handlers
+        if (els.investigateEvidenceTableBody) {
+          // Expand button for grouped mode
+          els.investigateEvidenceTableBody.querySelectorAll('.expand-facts-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              state.investigateEvidenceLensFilter = btn.dataset.factType;
+              state.investigateEvidenceMode = 'raw';
+              state.investigateEvidenceFacts = [];
+              updateInvestigateEvidenceModeButtons();
+              renderInvestigateEvidenceContent();
+            });
+          });
+          
+          // View button for raw mode
+          els.investigateEvidenceTableBody.querySelectorAll('.view-fact-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const idx = parseInt(btn.dataset.factIdx);
+              const facts = state.investigateEvidenceFacts || state.investigateEvidenceData?.sample_facts || [];
+              if (facts[idx]) {
+                state.investigateSelectedFact = facts[idx];
+                showFactDetailDrawerShared(facts[idx], {
+                  drawer: els.investigateFactDetailDrawer,
+                  content: els.investigateFactDetailContent
+                });
+              }
+            });
+          });
+          
+          // Row click for raw mode
+          els.investigateEvidenceTableBody.querySelectorAll('.fact-row').forEach(row => {
+            row.addEventListener('click', () => {
+              const idx = parseInt(row.dataset.factIdx);
+              const facts = state.investigateEvidenceFacts || state.investigateEvidenceData?.sample_facts || [];
+              if (facts[idx]) {
+                state.investigateSelectedFact = facts[idx];
+                showFactDetailDrawerShared(facts[idx], {
+                  drawer: els.investigateFactDetailDrawer,
+                  content: els.investigateFactDetailContent
+                });
+              }
+            });
+          });
+        }
+      }
+    });
+  }
+
+  /**
+   * Clear all Evidence filters (including those from Investigate deep-link)
+   * EVIDENCE_GRANULARITY-1: Also clears entity and timeline filters
+   */
+  function clearEvidenceFilters() {
+    state.evidenceSearchTerm = '';
+    state.evidenceLensFilter = '';
+    state.evidenceHostFilter = '';
+    state.evidenceTimeRange = null;
+    state.evidenceEntityFilter = null;
+    state.evidenceTimelineFilter = null;
+    state.evidenceChainStepFilter = null;
+    state.evidencePlaybookFilter = null;
+    state.evidenceShowRelated = false;
+    state.evidencePage = 0;
+    state.evidenceFacts = [];
+    if (els.evidenceSearchInput) els.evidenceSearchInput.value = '';
+    if (els.evidenceLensSelect) els.evidenceLensSelect.value = '';
+    if (els.evidenceChainSelect) els.evidenceChainSelect.value = '';
+    if (els.evidencePlaybookSelect) els.evidencePlaybookSelect.value = '';
+    if (els.chkEvidenceShowRelated) els.chkEvidenceShowRelated.checked = false;
+    if (els.evidenceChainStepBanner) els.evidenceChainStepBanner.classList.add('hidden');
+    updateEvidenceFilterBanner();
+    renderEvidenceTab();
+  }
+  
+  /**
+   * Update Evidence filter banner visibility and content
+   * Now also shows "Back to Overview" when pivoted from Overview
+   * EVIDENCE_GRANULARITY-1: Also shows entity and timeline filters
+   */
+  function updateEvidenceFilterBanner() {
+    if (!els.evidenceFilterBanner) return;
+    
+    const hasFilters = state.evidenceHostFilter || state.evidenceTimeRange || state.evidenceSearchTerm || state.evidenceLensFilter ||
+                       state.evidenceEntityFilter || state.evidenceTimelineFilter;
+    const hasPivotContext = state.pivotContext && state.pivotContext.from === 'overview';
+    
+    els.evidenceFilterBanner.classList.toggle('hidden', !hasFilters && !hasPivotContext);
+    
+    if (els.evidenceFilterStatus) {
+      if (hasPivotContext) {
+        // Show pivot context with back button
+        const label = state.pivotContext.label || state.pivotContext.filter || 'filter';
+        els.evidenceFilterBanner.innerHTML = `
+          <span id="evidenceFilterStatus" style="font-size: 11px; color: var(--accent);">
+            📊 Viewing ${escapeHtml(label)} facts from Overview
+          </span>
+          <div style="display: flex; gap: 8px;">
+            <button onclick="window.clearPivotAndReturn()" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; color: var(--text);">← Back to Overview</button>
+            <button id="btnClearEvidenceFilters" onclick="window.clearEvidenceFilters()" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; color: var(--text);">✕ Clear Filter</button>
+          </div>
+        `;
+      } else if (hasFilters) {
+        const parts = [];
+        if (state.evidenceSearchTerm) parts.push(`"${state.evidenceSearchTerm}"`);
+        if (state.evidenceLensFilter) parts.push(state.evidenceLensFilter);
+        if (state.evidenceHostFilter) parts.push(`host:${state.evidenceHostFilter}`);
+        if (state.evidenceTimeRange) parts.push('±time window');
+        if (state.evidenceEntityFilter) parts.push(`${state.evidenceEntityFilter.category}: ${state.evidenceEntityFilter.entity.slice(-20)}`);
+        if (state.evidenceTimelineFilter) parts.push(`bucket ${state.evidenceTimelineFilter.bucket}`);
+        els.evidenceFilterBanner.innerHTML = `
+          <span id="evidenceFilterStatus" style="font-size: 11px; color: var(--accent);">🔍 Filtered: ${escapeHtml(parts.join(' · '))}</span>
+          <button id="btnClearEvidenceFilters" onclick="window.clearEvidenceFilters()" style="padding: 3px 8px; font-size: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; color: var(--text);">✕ Clear Filters</button>
+        `;
+      }
+    }
+  }
+  
+  /**
+   * Clear pivot context and return to Overview tab
+   */
+  window.clearPivotAndReturn = function() {
+    // Clear pivot context
+    state.pivotContext = null;
+    
+    // Clear fact filters
+    factInspectorState.filters.fact_type = '';
+    factInspectorState.filters.host = '';
+    factInspectorState.filters.search = '';
+    factInspectorState.pagination.offset = 0;
+    
+    // Clear Evidence filters
+    state.evidenceLensFilter = '';
+    state.evidenceSearchTerm = '';
+    state.evidenceHostFilter = '';
+    
+    // Reset filter dropdowns
+    const factTypeFilter = document.getElementById('factTypeFilter');
+    if (factTypeFilter) factTypeFilter.value = '';
+    
+    // Switch back to Overview tab
+    switchRunTab('overview');
+  };
+  
+  /**
+   * Clear Evidence filters (stay on Evidence tab)
+   * EVIDENCE_GRANULARITY-1: Also clears entity and timeline filters
+   */
+  window.clearEvidenceFilters = function() {
+    // Clear pivot context
+    state.pivotContext = null;
+    
+    // Clear fact filters
+    factInspectorState.filters.fact_type = '';
+    factInspectorState.filters.host = '';
+    factInspectorState.filters.search = '';
+    factInspectorState.pagination.offset = 0;
+    
+    // Clear Evidence filters (EVIDENCE_GRANULARITY-1: added new filters)
+    state.evidenceLensFilter = '';
+    state.evidenceSearchTerm = '';
+    state.evidenceHostFilter = '';
+    state.evidenceTimeRange = null;
+    state.evidenceEntityFilter = null;
+    state.evidenceTimelineFilter = null;
+    state.evidenceChainStepFilter = null;
+    state.evidencePlaybookFilter = null;
+    state.evidenceShowRelated = false;
+    
+    // Reset filter dropdowns
+    const factTypeFilter = document.getElementById('factTypeFilter');
+    if (factTypeFilter) factTypeFilter.value = '';
+    const evidenceLensSelect = document.getElementById('evidenceLensSelect');
+    if (evidenceLensSelect) evidenceLensSelect.value = '';
+    const evidenceSearchInput = document.getElementById('evidenceSearchInput');
+    if (evidenceSearchInput) evidenceSearchInput.value = '';
+    const evidenceChainSelect = document.getElementById('evidenceChainSelect');
+    if (evidenceChainSelect) evidenceChainSelect.value = '';
+    const evidencePlaybookSelect = document.getElementById('evidencePlaybookSelect');
+    if (evidencePlaybookSelect) evidencePlaybookSelect.value = '';
+    const chkEvidenceShowRelated = document.getElementById('chkEvidenceShowRelated');
+    if (chkEvidenceShowRelated) chkEvidenceShowRelated.checked = false;
+    const evidenceChainStepBanner = document.getElementById('evidenceChainStepBanner');
+    if (evidenceChainStepBanner) evidenceChainStepBanner.classList.add('hidden');
+    
+    // Update banner and reload
+    updateEvidenceFilterBanner();
+    loadFactInspectorData();
+  };
+
   /**
    * Render Facts tab - showing extracted facts and "why no signals"
+   * NOW: Redirects to new Evidence tab implementation
    */
   function renderFactsTab() {
+    // Reset evidence data when switching runs
+    if (state.evidenceData && state.runCoverage !== state.evidenceData) {
+      state.evidenceData = state.runCoverage;
+    }
+    
+    // Call new Evidence tab renderer
+    renderEvidenceTab();
+  }
+
+  /**
+   * LEGACY: Render Facts tab - showing extracted facts and "why no signals"
+   */
+  function renderFactsTabLegacy() {
     // Hide all states first
     if (els.factsLoading) els.factsLoading.classList.add('hidden');
     if (els.factsEmpty) els.factsEmpty.classList.add('hidden');
     if (els.factsNoTelemetry) els.factsNoTelemetry.classList.add('hidden');
     if (els.factsContent) els.factsContent.classList.add('hidden');
     if (els.factsUnavailable) els.factsUnavailable.classList.add('hidden');
+    if (els.factsCompiling) els.factsCompiling.classList.add('hidden');
+    if (els.factsInterrupted) els.factsInterrupted?.classList.add('hidden');
+    if (els.factsInterruptedBanner) els.factsInterruptedBanner.classList.add('hidden');
+    if (els.factsCompilingBanner) els.factsCompilingBanner.classList.add('hidden');
     
     // Check if endpoint is unavailable (404)
     if (state.capabilities.runCoverage === false) {
@@ -9465,8 +17938,26 @@ cargo build --release -p edr-locald --bin edr-locald`;
     
     const coverage = state.runCoverage;
     
+    // C: OLD RUN DEGRADATION - Don't treat old runs without metadata as interrupted
+    const metadataUnavailable = coverage.metadata_unavailable;
+    
+    // Check status states (but not for old runs without metadata)
+    const isCompiling = coverage.compile_status === 'compiling' || coverage.facts_ready === false;
+    // Only mark as interrupted if metadata is available AND shows interrupted
+    const isInterrupted = !metadataUnavailable && (coverage.compile_status === 'interrupted' || coverage.facts_partial);
+    
     // INVARIANT 1: coverage.available=false → show unavailable reason only
     if (coverage.available === false) {
+      // Interrupted run with no data
+      if (isInterrupted) {
+        renderFactsInterruptedState(coverage);
+        return;
+      }
+      // Still compiling
+      if (isCompiling && els.factsCompiling) {
+        els.factsCompiling.classList.remove('hidden');
+        return;
+      }
       if (els.factsEmpty) els.factsEmpty.classList.remove('hidden');
       const emptyMsg = els.factsEmpty.querySelector('div:last-child');
       if (emptyMsg) {
@@ -9477,8 +17968,18 @@ cargo build --release -p edr-locald --bin edr-locald`;
       return;
     }
     
-    // INVARIANT 2: coverage.available=true AND facts_total=0 → show factsNoTelemetry
+    // INVARIANT 2: coverage.available=true AND facts_total=0
     if (!coverage.facts_total || coverage.facts_total === 0) {
+      // Interrupted with no facts
+      if (isInterrupted) {
+        renderFactsInterruptedState(coverage);
+        return;
+      }
+      // If still compiling with 0 facts, show compiling message
+      if (isCompiling && els.factsCompiling) {
+        els.factsCompiling.classList.remove('hidden');
+        return;
+      }
       // Prefer run-scoped readiness_snapshot from run_meta over live selfcheck
       const readiness = coverage.readiness_snapshot || state.telemetryReadiness;
       if (readiness && els.factsNoTelemetry) {
@@ -9494,8 +17995,96 @@ cargo build --release -p edr-locald --bin edr-locald`;
     // Show content
     if (els.factsContent) els.factsContent.classList.remove('hidden');
     
-    // Update summary metrics
-    if (els.factsTotalCount) els.factsTotalCount.textContent = formatValue(coverage.facts_total);
+    // Show subtle partial note if interrupted (main banner is at run level)
+    // Part A: Only show subtle inline note, no big banner duplication
+    if (isInterrupted && els.factsPartialNote) {
+      els.factsPartialNote.classList.remove('hidden');
+      const abandonedReason = coverage.abandoned_reason || 'run was interrupted';
+      if (els.factsPartialReason) {
+        els.factsPartialReason.textContent = `Extraction interrupted — ${abandonedReason}. Showing partial sample.`;
+      }
+    } else if (els.factsPartialNote) {
+      els.factsPartialNote.classList.add('hidden');
+    }
+    
+    // Show compiling banner if still compiling but we have partial facts (non-interrupted)
+    if (isCompiling && !isInterrupted && els.factsCompilingBanner) {
+      els.factsCompilingBanner.classList.remove('hidden');
+    } else if (els.factsCompilingBanner) {
+      els.factsCompilingBanner.classList.add('hidden');
+    }
+    
+    // Part B: Update summary metrics with clear sampled vs total semantics
+    // facts_total is the run total; sample_count (if different) is from sampled table
+    const factsTotal = coverage.facts_total || 0;
+    // Derive sampled count from fact_types sum (what's actually in the sample table)
+    const sampledCount = coverage.fact_types?.reduce((sum, ft) => sum + (ft.count || 0), 0) || 0;
+    
+    // === Evidence Tab: Start Here Chips ===
+    // Render quick filter chips based on observed fact types
+    if (els.evidenceTypeChips && coverage.fact_types) {
+      // Map common fact types to friendly chip labels
+      const chipMap = {
+        'Exec': { label: 'Exec', icon: '⚙️' },
+        'ScriptExec': { label: 'Script', icon: '📜' },
+        'OutboundConnect': { label: 'Network', icon: '🌐' },
+        'RegistryMod': { label: 'Registry', icon: '🔧' },
+        'CreatePath': { label: 'Files', icon: '📁' },
+        'DnsResolve': { label: 'DNS', icon: '🔍' },
+        'svc_install': { label: 'Services', icon: '🔒' },
+        'schtask_create': { label: 'Tasks', icon: '📅' },
+        'process_exec': { label: 'Process', icon: '⚙️' },
+        'network_conn': { label: 'Connections', icon: '🔗' },
+        'file_create': { label: 'Files', icon: '📄' }
+      };
+      
+      // Get top 6 observed fact types with counts > 0
+      const observedTypes = coverage.fact_types
+        .filter(ft => ft.count > 0)
+        .slice(0, 6);
+      
+      if (observedTypes.length > 0) {
+        els.evidenceTypeChips.innerHTML = observedTypes.map(ft => {
+          const chip = chipMap[ft.fact_type] || { label: ft.fact_type, icon: '📋' };
+          return `
+            <button onclick="filterEvidenceByType('${escapeHtml(ft.fact_type)}')" 
+                    style="padding: 4px 10px; font-size: 11px; border-radius: 4px; border: 1px solid var(--border); 
+                           background: var(--panel); color: var(--text); cursor: pointer; display: flex; align-items: center; gap: 4px;">
+              <span>${chip.icon}</span>
+              <span>${escapeHtml(chip.label)}</span>
+              <span style="color: var(--muted);">(${formatValue(ft.count)})</span>
+            </button>
+          `;
+        }).join('');
+      } else {
+        els.evidenceTypeChips.innerHTML = '<span style="color: var(--muted); font-size: 11px;">No observed fact types</span>';
+      }
+    }
+    
+    // === Evidence Tab: Sample Count Display ===
+    if (els.evidenceSampleCount) {
+      if (sampledCount > 0 && factsTotal > 0 && sampledCount !== factsTotal) {
+        els.evidenceSampleCount.innerHTML = `Showing <strong>${formatValue(sampledCount)}</strong> sampled (of ${formatValue(factsTotal)} total)`;
+      } else if (factsTotal > 0) {
+        els.evidenceSampleCount.innerHTML = `Showing <strong>${formatValue(factsTotal)}</strong> facts`;
+      } else {
+        els.evidenceSampleCount.innerHTML = '';
+      }
+    }
+    
+    if (els.factsTotalCount) {
+      // Show "sampled (total)" format when they differ significantly
+      if (sampledCount > 0 && factsTotal > 0 && sampledCount !== factsTotal) {
+        els.factsTotalCount.innerHTML = `
+          <span style="font-size: 0.8em; color: var(--muted);">${formatValue(sampledCount)} sampled</span><br>
+          <span style="font-size: 0.6em; color: var(--muted);">(${formatValue(factsTotal)} total)</span>
+        `;
+        els.factsTotalCount.title = `Sampled: ${formatValue(sampledCount)} facts in sample table\nRun Total: ${formatValue(factsTotal)} facts extracted`;
+      } else {
+        els.factsTotalCount.textContent = formatValue(factsTotal);
+        els.factsTotalCount.title = `Total facts extracted in this run: ${formatValue(factsTotal)}`;
+      }
+    }
     if (els.factsTypeCount) els.factsTypeCount.textContent = formatValue(coverage.fact_types?.length || 0);
     if (els.factsHostCount) els.factsHostCount.textContent = formatValue(coverage.top_hosts?.length || 0);
     
@@ -9761,6 +18350,14 @@ cargo build --release -p edr-locald --bin edr-locald`;
         factInspectorState.filters.fact_type = factTypeFilter.value;
         factInspectorState.pagination.offset = 0;
         loadFactInspectorData();
+        // Update filter hint in Evidence tab explanation
+        const val = factTypeFilter.value;
+        if (val && val !== 'all') {
+          if (els.evidenceFilterHint) els.evidenceFilterHint.classList.remove('hidden');
+          if (els.evidenceFilterValue) els.evidenceFilterValue.textContent = val;
+        } else {
+          if (els.evidenceFilterHint) els.evidenceFilterHint.classList.add('hidden');
+        }
       });
     }
     
@@ -9898,10 +18495,34 @@ cargo build --release -p edr-locald --bin edr-locald`;
       // Render facts
       renderFactInspectorTable();
       
-      // Update count badge
+      // Part B: Update count badge with clear "matching" semantics + run total subtext
       const countBadge = document.getElementById('factInspectorCount');
+      const runTotalSubtext = document.getElementById('factInspectorRunTotal');
       if (countBadge) {
-        countBadge.textContent = formatValue(factInspectorState.pagination.total);
+        const matchedCount = factInspectorState.pagination.total;
+        const coverage = state.runCoverage || {};
+        const totalFacts = coverage.facts_total || 0;
+        
+        // Badge shows matched count with "matching" context
+        countBadge.textContent = formatValue(matchedCount);
+        
+        // Build tooltip based on filter state
+        const hasFilters = factInspectorState.filters.fact_type || factInspectorState.filters.host || factInspectorState.filters.search;
+        if (hasFilters) {
+          countBadge.title = `${formatValue(matchedCount)} facts match current filters (from sampled table)`;
+        } else {
+          countBadge.title = `${formatValue(matchedCount)} facts in sample table`;
+        }
+        
+        // Show run total subtext if it differs from sample count
+        if (runTotalSubtext) {
+          if (totalFacts > 0 && matchedCount !== totalFacts && !hasFilters) {
+            runTotalSubtext.textContent = `Run total: ${formatValue(totalFacts)}`;
+            runTotalSubtext.classList.remove('hidden');
+          } else {
+            runTotalSubtext.classList.add('hidden');
+          }
+        }
       }
       
     } catch (err) {
@@ -10217,64 +18838,106 @@ cargo build --release -p edr-locald --bin edr-locald`;
   }
 
   /**
-   * Update data sources display based on run info
-   * Shows actual ETW channels that provided telemetry
+   * Part E: Update data sources display based on run info
+   * Shows dynamic data sources based on observed telemetry streams
+   * Prioritizes: Sysmon, Security Log, PowerShell Operational, then ETW baseline
    */
   function updateDataSourcesUI(run) {
     if (!els.dataSources) return;
     
-    // Build sources from observed channels or signal types
-    const sources = new Set();
+    // Build sources from multiple possible data points
+    const sources = new Map(); // Use Map for ordering priority
     
-    // Check for actual channel data from run state
+    // 1. Check for actual channel data from run state
     const channels = run.observed_channels || run.channels || state.runState?.channels || [];
-    if (channels.length > 0) {
-      channels.forEach(ch => {
-        // Map channel names to friendly display names
-        const name = typeof ch === 'string' ? ch : (ch.name || ch.channel);
-        if (name) {
-          if (name.includes('Security')) sources.add('Security');
-          else if (name.includes('Sysmon')) sources.add('Sysmon');
-          else if (name.includes('PowerShell')) sources.add('PowerShell');
-          else if (name.includes('System')) sources.add('System');
-          else if (name.includes('Microsoft-Windows-')) {
-            // Extract provider name
-            const provider = name.replace('Microsoft-Windows-', '').split('/')[0];
-            sources.add(provider);
-          } else {
-            sources.add(name);
-          }
-        }
-      });
-    }
+    channels.forEach(ch => {
+      const name = typeof ch === 'string' ? ch : (ch.name || ch.channel);
+      if (name) {
+        if (name.includes('Sysmon')) sources.set('Sysmon', { priority: 1, icon: '📊' });
+        else if (name.includes('Security')) sources.set('Security Log', { priority: 2, icon: '🔒' });
+        else if (name.includes('PowerShell')) sources.set('PowerShell', { priority: 3, icon: '⚡' });
+        else if (name.includes('System')) sources.set('System', { priority: 5, icon: '💻' });
+      }
+    });
     
-    // Derive from signal types if no channel data
-    if (sources.size === 0 && state.signals.length > 0) {
-      state.signals.forEach(sig => {
-        const sigType = sig.signal_type || '';
-        if (sigType.includes('Process')) sources.add('Process');
-        if (sigType.includes('File')) sources.add('File');
-        if (sigType.includes('Network') || sigType.includes('Dns')) sources.add('Network');
-        if (sigType.includes('Registry')) sources.add('Registry');
-        if (sigType.includes('WMI')) sources.add('WMI');
-        if (sigType.includes('PowerShell')) sources.add('PowerShell');
-        if (sigType.includes('Login') || sigType.includes('Auth')) sources.add('Security');
-      });
-    }
+    // 2. Derive from coverage fact types (most reliable)
+    const coverage = state.runCoverage || {};
+    const factTypes = coverage.fact_types || [];
+    const observedTelemetry = coverage.observed_telemetry || {};
     
-    // Final fallback based on run metadata
-    if (sources.size === 0) {
-      if (run.events_total > 0 || run.event_count > 0) {
-        sources.add('Windows ETW');
-      } else {
-        sources.add('No data');
+    // Infer sources from observed fact types
+    const hasProcessFacts = factTypes.some(ft => ['Exec', 'ProcessExec', 'ScriptExec'].includes(ft.fact_type) && ft.count > 0);
+    const hasNetworkFacts = factTypes.some(ft => ['OutboundConnect', 'DnsQuery'].includes(ft.fact_type) && ft.count > 0);
+    const hasFileFacts = factTypes.some(ft => ['FileCreate', 'CreatePath'].includes(ft.fact_type) && ft.count > 0);
+    const hasRegistryFacts = factTypes.some(ft => ['RegistryMod', 'RegistryAutorun'].includes(ft.fact_type) && ft.count > 0);
+    const hasPowerShellFacts = factTypes.some(ft => ['PowerShellExec', 'ScriptExec'].includes(ft.fact_type) && ft.count > 0);
+    const hasAuthFacts = factTypes.some(ft => ['Login', 'Logon', 'AuthAttempt'].includes(ft.fact_type) && ft.count > 0);
+    
+    // Sysmon provides network/file/registry monitoring
+    if ((hasNetworkFacts || hasFileFacts || hasRegistryFacts) && !sources.has('Sysmon')) {
+      // Check discovery_summary or sysmon_installed flag
+      const sysmonInstalled = run.sysmon_installed || coverage.sysmon_installed || 
+                              observedTelemetry.network || observedTelemetry.file || observedTelemetry.registry;
+      if (sysmonInstalled) {
+        sources.set('Sysmon', { priority: 1, icon: '📊' });
       }
     }
     
-    // Render as badges
-    els.dataSources.innerHTML = Array.from(sources).slice(0, 6).map(src => 
-      `<span class="badge badge-live" style="font-size: 11px;">${escapeHtml(src)}</span>`
-    ).join('');
+    // Security Log provides auth/process auditing
+    if ((hasAuthFacts || hasProcessFacts) && !sources.has('Security Log')) {
+      const securityAccessible = run.security_log_accessible || coverage.security_log_accessible ||
+                                  observedTelemetry.process || observedTelemetry.auth;
+      if (securityAccessible) {
+        sources.set('Security Log', { priority: 2, icon: '🔒' });
+      }
+    }
+    
+    // PowerShell Operational if PowerShell facts exist
+    if (hasPowerShellFacts && !sources.has('PowerShell')) {
+      sources.set('PowerShell', { priority: 3, icon: '⚡' });
+    }
+    
+    // 3. Derive from signal types if still no sources
+    if (sources.size === 0 && state.signals.length > 0) {
+      state.signals.forEach(sig => {
+        const sigType = sig.signal_type || '';
+        if (sigType.includes('Process')) sources.set('Process Events', { priority: 4, icon: '⚙️' });
+        if (sigType.includes('File')) sources.set('File Events', { priority: 4, icon: '📄' });
+        if (sigType.includes('Network') || sigType.includes('Dns')) sources.set('Network Events', { priority: 4, icon: '🌐' });
+        if (sigType.includes('Registry')) sources.set('Registry Events', { priority: 4, icon: '📝' });
+        if (sigType.includes('PowerShell')) sources.set('PowerShell', { priority: 3, icon: '⚡' });
+        if (sigType.includes('Login') || sigType.includes('Auth')) sources.set('Security Log', { priority: 2, icon: '🔒' });
+      });
+    }
+    
+    // 4. Always add ETW baseline if we have any facts
+    const factsTotal = coverage.facts_total || run.facts_extracted || run.facts_total || 0;
+    if (factsTotal > 0) {
+      if (sources.size === 0) {
+        sources.set('Windows ETW', { priority: 10, icon: '📡' });
+      }
+    }
+    
+    // 5. Final fallback
+    if (sources.size === 0) {
+      if (run.events_total > 0 || run.event_count > 0) {
+        sources.set('Windows ETW', { priority: 10, icon: '📡' });
+      } else {
+        sources.set('No data', { priority: 99, icon: '❌' });
+      }
+    }
+    
+    // Sort by priority and render as badges with icons
+    const sortedSources = Array.from(sources.entries())
+      .sort((a, b) => a[1].priority - b[1].priority)
+      .slice(0, 5);
+    
+    els.dataSources.innerHTML = sortedSources.map(([name, { icon }]) => {
+      // Use green for active sources, muted for fallback
+      const isActive = name !== 'No data' && name !== 'Windows ETW';
+      const badgeClass = isActive ? 'badge-live' : 'badge-stopped';
+      return `<span class="badge ${badgeClass}" style="font-size: 11px;" title="${escapeHtml(name)}">${icon} ${escapeHtml(name)}</span>`;
+    }).join('');
   }
 
   /**
@@ -10282,17 +18945,43 @@ cargo build --release -p edr-locald --bin edr-locald`;
    */
   function switchRunTab(tabName) {
     const previousTab = state.currentRunTab;
+    
+    // Alias 'findings' to 'investigate' for backward compatibility
+    if (tabName === 'findings') tabName = 'investigate';
+    
     state.currentRunTab = tabName;
     
-    // Stop explain refresh when leaving Explain tab
-    if (previousTab === 'explain' && tabName !== 'explain') {
+    // Stop explain refresh when leaving Investigate/Explain tabs
+    if ((previousTab === 'explain' || previousTab === 'investigate') && 
+        tabName !== 'explain' && tabName !== 'investigate') {
       stopExplainRefresh();
     }
     
-    // Update tab buttons
+    // OVERVIEW-ONLY PANELS: Hide System State, Highlights, Next Steps when NOT on Overview
+    // These panels are in the shared header area but should only display for Overview tab
+    const isOverviewTab = (tabName === 'overview');
+    if (els.runStatePanel) {
+      els.runStatePanel.classList.toggle('hidden', !isOverviewTab);
+    }
+    if (els.runSummaryGrid) {
+      els.runSummaryGrid.classList.toggle('hidden', !isOverviewTab);
+    }
+    // Also hide the individual panels inside runSummaryGrid
+    if (els.runHighlightsPanel && !isOverviewTab) {
+      els.runHighlightsPanel.classList.add('hidden');
+    }
+    if (els.runNextStepsPanel && !isOverviewTab) {
+      els.runNextStepsPanel.classList.add('hidden');
+    }
+    
+    // Update tab buttons (handle both 'investigate' and legacy 'findings' data attributes)
+    // Also highlight Investigate for 'facts' tab since it redirects there
     if (els.runTabs) {
       els.runTabs.forEach(tab => {
-        const isActive = tab.dataset.runTab === tabName;
+        const tabId = tab.dataset.runTab;
+        const isActive = tabId === tabName || 
+                        (tabName === 'investigate' && tabId === 'findings') ||
+                        (tabName === 'facts' && tabId === 'findings'); // Facts redirects to Investigate Evidence mode
         tab.classList.toggle('active', isActive);
         tab.style.color = isActive ? 'var(--text)' : 'var(--muted)';
         tab.style.borderBottomColor = isActive ? 'var(--accent)' : 'transparent';
@@ -10313,29 +19002,34 @@ cargo build --release -p edr-locald --bin edr-locald`;
         if (els.runTabChanges) els.runTabChanges.classList.remove('hidden');
         renderChangesTab();
         break;
-      case 'findings':
+      case 'investigate':
+        // INVESTIGATE_OBSERVED_FIRST-2: Reset to Observed mode when entering Investigate tab
+        // This ensures Observed is the true default, not Playbooks
         if (els.runTabFindings) els.runTabFindings.classList.remove('hidden');
-        renderFindingsTab();
+        if (!state.investigateWorkbenchMode || state.investigateWorkbenchMode === 'steps') {
+          state.investigateWorkbenchMode = 'observed';
+        }
+        renderInvestigateTab();
         break;
       case 'playbooks':
         if (els.runTabPlaybooks) els.runTabPlaybooks.classList.remove('hidden');
         renderPlaybooksTab();
         break;
       case 'facts':
-        if (els.runTabFacts) els.runTabFacts.classList.remove('hidden');
-        renderFactsTab();
+        // INVESTIGATE_EVIDENCE_WORKBENCH: Evidence tab now opens Investigate in Evidence mode
+        // WORKBENCH_BUGFIX-1: Use setInvestigateWorkbenchMode to properly update toggle buttons and container visibility
+        if (els.runTabFindings) els.runTabFindings.classList.remove('hidden');
+        setInvestigateWorkbenchMode('evidence');
+        renderInvestigateTab();
         break;
       case 'timeline':
         if (els.runTabTimeline) els.runTabTimeline.classList.remove('hidden');
         renderTimelineTab();
         break;
       case 'explain':
-        if (els.runTabExplain) els.runTabExplain.classList.remove('hidden');
-        renderExplainTab();
-        // Resume explain refresh if signal selected and explanation unavailable
-        if (state.selectedSignalId && state.signalExplanation?.available === false) {
-          startExplainRefresh(state.selectedSignalId);
-        }
+        // Legacy explain tab - redirect to investigate with current signal
+        if (els.runTabFindings) els.runTabFindings.classList.remove('hidden');
+        renderInvestigateTab();
         break;
       case 'explore':
         if (els.runTabExplore) els.runTabExplore.classList.remove('hidden');
@@ -10346,6 +19040,52 @@ cargo build --release -p edr-locald --bin edr-locald`;
         renderRawTab();
         break;
     }
+  }
+
+  /**
+   * Render the interrupted state for Facts tab
+   * Shows what was captured before interruption and recovery guidance
+   */
+  function renderFactsInterruptedState(coverage) {
+    // UPDATED: No longer shows large banner - just show subtle inline note
+    // The main authoritative interrupted banner is in the header area (#runInterruptBanner)
+    // This function now shows a minimal message and allows viewing partial data if available
+    
+    let container = els.factsInterrupted;
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'factsInterrupted';
+      container.className = 'facts-interrupted-state';
+      const factsTab = document.querySelector('[data-run-tab="facts"]')?.closest('.run-tab-content') 
+        || els.factsContent?.parentElement;
+      if (factsTab && els.factsLoading) {
+        factsTab.insertBefore(container, els.factsLoading.nextSibling);
+      }
+      els.factsInterrupted = container;
+    }
+    
+    const factsTotal = coverage.facts_total || 0;
+    const typesCount = coverage.fact_types?.length || 0;
+    
+    // If we have partial facts, show them instead of a big banner
+    if (factsTotal > 0) {
+      // Hide interrupted container, let normal facts content show
+      container.classList.add('hidden');
+      // The factsPartialNote will be shown by renderFactsTab
+      return;
+    }
+    
+    // Only show minimal message when NO facts at all
+    container.classList.remove('hidden');
+    container.style.padding = '24px';
+    
+    container.innerHTML = `
+      <div style="text-align: center; padding: 20px;">
+        <div style="font-size: 11px; color: var(--warn); padding: 8px 12px; background: rgba(243, 156, 18, 0.08); border-radius: var(--radius-sm); display: inline-block;">
+          ⚠️ Extraction interrupted — no facts captured. See banner above for details.
+        </div>
+      </div>
+    `;
   }
 
   /**
@@ -10479,43 +19219,3506 @@ cargo build --release -p edr-locald --bin edr-locald`;
       els.findingsCount.textContent = `${filtered.length} finding${filtered.length !== 1 ? 's' : ''}`;
     }
     
-    // Render findings list
-    if (els.findingsList) {
-      els.findingsList.innerHTML = filtered.map(sig => {
-        const isSelected = sig.signal_id === state.selectedSignalId;
-        const severityClass = {
-          'critical': 'badge-error',
-          'high': 'badge-error',
-          'medium': 'badge-running',
-          'low': 'badge-stopped'
-        }[sig.severity] || 'badge-stopped';
+    // Part E: Group findings by playbook ID with collapsible groups
+    const GROUPS_LIMIT = 3; // Default: show top 3 groups
+    
+    // Helper: extract best available identifier from a signal (never returns 'unknown' if ANY field exists)
+    const getSignalGroupKey = (sig) => {
+      // Priority order: playbook_id > detector_id > source_id > signal_type > title > signal_id prefix
+      const candidates = [
+        sig.playbook_id,
+        sig.detector_id,
+        sig.source_id,
+        sig.signal_type,
+        sig.title,
+        sig.name
+      ];
+      for (const c of candidates) {
+        if (c && c !== '' && c !== 'unknown' && c !== 'Unknown') return c;
+      }
+      // Absolute fallback: use signal_id prefix if available
+      if (sig.signal_id) return `unlabeled:${sig.signal_id.slice(0, 8)}`;
+      return 'unlabeled';
+    };
+    
+    // Group by best available identifier
+    const groups = {};
+    filtered.forEach(sig => {
+      const groupKey = getSignalGroupKey(sig);
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          playbook_id: groupKey,
+          signals: [],
+          highestSeverity: 'low'
+        };
+      }
+      groups[groupKey].signals.push(sig);
+      // Track highest severity in group
+      if (getSeverityRank(sig.severity) > getSeverityRank(groups[groupKey].highestSeverity)) {
+        groups[groupKey].highestSeverity = sig.severity;
+      }
+    });
+    
+    // Sort groups by highest severity, then by count
+    const sortedGroups = Object.values(groups).sort((a, b) => {
+      const sevDiff = getSeverityRank(b.highestSeverity) - getSeverityRank(a.highestSeverity);
+      if (sevDiff !== 0) return sevDiff;
+      return b.signals.length - a.signals.length;
+    });
+    
+    // Render helper for a single finding item
+    const renderFindingItem = (sig) => {
+      const isSelected = sig.signal_id === state.selectedSignalId;
+      const severityClass = {
+        'critical': 'badge-error',
+        'high': 'badge-error',
+        'medium': 'badge-running',
+        'low': 'badge-stopped'
+      }[sig.severity] || 'badge-stopped';
+      
+      const ts = new Date(sig.ts || 0).toLocaleTimeString();
+      const entity = sig.proc_key || sig.file_key || sig.identity_key || sig.host || '—';
+      const displayEntity = entity.length > 30 ? entity.slice(0, 30) + '...' : entity;
+      
+      return `
+        <div class="finding-item ${isSelected ? 'selected' : ''}" data-signal-id="${sig.signal_id}" 
+             style="padding: 8px 10px; background: ${isSelected ? 'var(--panel2)' : 'transparent'}; 
+                    border-left: 2px solid ${isSelected ? 'var(--accent)' : 'transparent'}; 
+                    cursor: pointer; transition: all 0.15s;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2px;">
+            <span style="font-size: 12px; font-weight: 500;">${escapeHtml(sig.signal_type || 'Unknown')}</span>
+            <span class="badge ${severityClass}" style="font-size: 9px; padding: 1px 4px;">${sig.severity || 'unknown'}</span>
+          </div>
+          <div style="font-size: 10px; color: var(--muted);">
+            <span>${ts}</span> · <span title="${escapeHtml(entity)}">${escapeHtml(displayEntity)}</span>
+          </div>
+        </div>
+      `;
+    };
+    
+    // Render helper for a group
+    const renderGroup = (group, isOpen = false) => {
+          const severityColor = {
+        'critical': 'var(--error)',
+        'high': 'var(--error)',
+        'medium': 'var(--warn)',
+        'low': 'var(--accent)'
+      }[group.highestSeverity] || 'var(--muted)';
+      
+      // Part C: Determine display name with proper fallback order
+      // NEVER show "Unknown Playbook" - always use best available identifier
+      const pbId = group.playbook_id;
+      
+      // Helper: format an identifier into a friendly display name
+      const formatDisplayName = (id) => {
+        if (!id) return null;
         
-        const ts = new Date(sig.ts || 0).toLocaleTimeString();
-        const entity = sig.proc_key || sig.file_key || sig.identity_key || sig.host || '—';
-        const displayEntity = entity.length > 30 ? entity.slice(0, 30) + '...' : entity;
+        // Handle prefixed identifiers: "playbook:credential_access" -> "Credential Access — playbook:credential_access"
+        const prefixMatch = id.match(/^(playbook|detector|source|rule|sigma|mitre):(.+)$/i);
+        if (prefixMatch) {
+          const [, prefix, name] = prefixMatch;
+          const titleCase = name.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          return `${titleCase} — ${id}`;
+        }
         
-        return `
-          <div class="finding-item ${isSelected ? 'selected' : ''}" data-signal-id="${sig.signal_id}" style="padding: 10px 12px; background: ${isSelected ? 'var(--panel2)' : 'var(--panel)'}; border: 1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}; border-radius: var(--radius-sm); cursor: pointer; transition: all 0.15s;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px;">
-              <span style="font-size: 13px; font-weight: 500;">${sig.signal_type || 'Unknown'}</span>
-              <span class="badge ${severityClass}" style="font-size: 10px; padding: 2px 6px;">${sig.severity || 'unknown'}</span>
-            </div>
-            <div style="font-size: 11px; color: var(--muted);">
-              <span>${ts}</span> · <span title="${entity}">${displayEntity}</span>
-            </div>
+        // Handle unlabeled fallback keys
+        if (id.startsWith('unlabeled:')) {
+          return `Findings — ${id.replace('unlabeled:', '')}`;
+        }
+        if (id === 'unlabeled') {
+          return 'Findings (unlabeled)';
+        }
+        
+        // Handle snake_case or kebab-case identifiers without prefix
+        if (id.includes('_') || id.includes('-')) {
+          const titleCase = id.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          // If it looks like an ID (short, no spaces originally), show both
+          if (id.length <= 40) {
+            return `${titleCase} — ${id}`;
+          }
+          return titleCase;
+        }
+        
+        // Plain string - use as-is (e.g. "Suspicious Process Execution")
+        return id;
+      };
+      
+      const displayName = formatDisplayName(pbId) || 'Findings (unlabeled)';
+      
+      // Compute first_seen / last_seen from group signals
+      let firstSeen = null;
+      let lastSeen = null;
+      group.signals.forEach(sig => {
+        const ts = sig.ts || sig.ts_ms;
+        if (ts) {
+          const tsMs = typeof ts === 'number' && ts < 1e12 ? ts * 1000 : ts; // Convert seconds to ms if needed
+          if (!firstSeen || tsMs < firstSeen) firstSeen = tsMs;
+          if (!lastSeen || tsMs > lastSeen) lastSeen = tsMs;
+        }
+      });
+      
+      // Format timestamps compactly
+      const formatCompact = (ts) => {
+        if (!ts) return '';
+        const d = new Date(ts);
+        return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      };
+      
+      const timeRange = firstSeen && lastSeen && firstSeen !== lastSeen 
+        ? `${formatCompact(firstSeen)} – ${formatCompact(lastSeen)}`
+        : (firstSeen ? formatCompact(firstSeen) : '');
+      
+      return `
+        <details class="finding-group" ${isOpen ? 'open' : ''} style="margin-bottom: 6px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;">
+          <summary style="padding: 10px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; border-left: 3px solid ${severityColor};">
+            <span class="collapse-arrow" style="transition: transform 0.2s; font-size: 10px;">▶</span>
+            <span style="font-weight: 600; font-size: 12px; flex: 1;">${escapeHtml(displayName)}</span>
+            ${timeRange ? `<span style="font-size: 9px; color: var(--muted); font-family: monospace;" title="Time range">${timeRange}</span>` : ''}
+            <span style="font-size: 11px; color: var(--muted);">${group.signals.length} finding${group.signals.length > 1 ? 's' : ''}</span>
+            <span class="badge" style="font-size: 9px; padding: 1px 4px; background: ${severityColor}20; color: ${severityColor};">${group.highestSeverity}</span>
+          </summary>
+          <div style="border-top: 1px solid var(--border);">
+            ${group.signals.map(renderFindingItem).join('')}
+          </div>
+        </details>
+      `;
+    };
+    
+    // Render grouped findings
+    if (els.findingsGrouped) {
+      const visibleGroups = sortedGroups.slice(0, GROUPS_LIMIT);
+      const hiddenGroups = sortedGroups.slice(GROUPS_LIMIT);
+      
+      // Render visible groups (first group expanded by default)
+      els.findingsGrouped.innerHTML = visibleGroups.map((g, i) => renderGroup(g, i === 0)).join('');
+      
+      // If there are more groups, add them hidden
+      if (hiddenGroups.length > 0) {
+        els.findingsGrouped.innerHTML += `
+          <div id="findingsHiddenGroups" class="hidden">
+            ${hiddenGroups.map(g => renderGroup(g, false)).join('')}
           </div>
         `;
-      }).join('');
+      }
       
-      // Bind click events
-      els.findingsList.querySelectorAll('.finding-item').forEach(el => {
-        el.addEventListener('click', () => selectSignal(el.dataset.signalId));
+      // Bind click events for all finding items
+      els.findingsGrouped.querySelectorAll('.finding-item').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectSignal(el.dataset.signalId);
+        });
       });
+    }
+    
+    // Show/hide "Show all groups" button
+    if (els.findingsShowAllGroups) {
+      const hiddenGroups = sortedGroups.slice(GROUPS_LIMIT);
+      if (hiddenGroups.length > 0) {
+        els.findingsShowAllGroups.classList.remove('hidden');
+        els.findingsShowAllGroups.textContent = `Show all groups (${sortedGroups.length})`;
+        els.findingsShowAllGroups.onclick = () => {
+          els.findingsShowAllGroups.classList.add('hidden');
+          const hiddenContainer = document.getElementById('findingsHiddenGroups');
+          if (hiddenContainer) hiddenContainer.classList.remove('hidden');
+        };
+      } else {
+        els.findingsShowAllGroups.classList.add('hidden');
+      }
+    }
+    
+    // Legacy flat list (hidden, kept for compatibility)
+    if (els.findingsList) {
+      els.findingsList.classList.add('hidden');
     }
   }
 
   /**
-   * Render Changes tab (Diff v2 - deterministic, evidence-backed)
+   * ============ INVESTIGATE TAB: PLAYBOOK EVAL-DRIVEN RENDERING ============
+   * Source of truth: GET /api/runs/:id/playbooks/eval
+   * 
+   * FIELD MAPPING TABLE:
+   * ┌──────────────────────────────────────────┬───────────────────────────────────────┬─────────────────────────────────┐
+   * │ Backend Field                            │ UI State Field                        │ Where Rendered                  │
+   * ├──────────────────────────────────────────┼───────────────────────────────────────┼─────────────────────────────────┤
+   * │ playbook_scope                           │ state.selectedRun.playbook_scope      │ renderInvestigateScopeBanner()  │
+   * │ playbook_scope.mode                      │ (derived)                             │ Scope banner label              │
+   * │ playbook_scope.effective_playbook_ids    │ (derived)                             │ Scope banner count              │
+   * │ playbook_scope.rationale.note            │ (derived)                             │ Scope banner subtext            │
+   * │ evaluations[]                            │ state.investigateEval.evaluations     │ renderInvestigateLeftPaneEval() │
+   * │ evaluations[].playbook_id                │ state.selectedPlaybookEvalId          │ Left pane item data attr        │
+   * │ evaluations[].playbook_name              │ (derived)                             │ Left pane item title            │
+   * │ evaluations[].status                     │ (derived)                             │ Status pill (getStatusPillHtml) │
+   * │ evaluations[].slots_matched/total_slots  │ (derived)                             │ Slot count in left pane         │
+   * │ evaluations[].reason_codes[]             │ (derived)                             │ "Why" chips in detail pane      │
+   * │ evaluations[].slots[]                    │ (derived)                             │ Slot table in detail pane       │
+   * │ evaluations[].slots[].search_hints       │ (passed to openEvidenceWithFilters)   │ Search button -> Evidence tab   │
+   * │ visibility                               │ state.investigateEval.visibility      │ Sensors present/missing         │
+   * └──────────────────────────────────────────┴───────────────────────────────────────┴─────────────────────────────────┘
+   */
+  
+  /**
+   * Fetch run brief data (Observed mode)
+   * INVESTIGATE_OBSERVED_FIRST-1: New fetch function for Observed mode
+   */
+  async function fetchRunBrief(runId) {
+    // Check cache
+    if (state.runBrief && state.runBrief._runId === runId) {
+      return state.runBrief;
+    }
+    
+    try {
+      const res = await fetch(`${API_BASE}/api/runs/${runId}/brief`);
+      if (!res.ok) {
+        return { 
+          available: false, 
+          reason: `HTTP ${res.status}: ${res.statusText}` 
+        };
+      }
+      const json = await res.json();
+      const brief = json.data || json;
+      brief._runId = runId;
+      brief.available = brief.available !== false; // Default to true if not specified
+      state.runBrief = brief;
+      return brief;
+    } catch (err) {
+      console.warn('[fetchRunBrief] Error:', err.message);
+      return {
+        available: false,
+        reason: err.message
+      };
+    }
+  }
+  
+  /**
+   * Fetch playbook evaluation data for the current run
+   * This is the single source of truth for the Investigate tab
+   */
+  async function fetchPlaybookEvalForRun(runId) {
+    try {
+      const rawData = await api(`/api/runs/${runId}/playbooks/eval`);
+      
+      // PHASE 2 MARKER: Log exact response shape
+      console.log('[fetchPlaybookEvalForRun] Raw API response:', {
+        hasData: !!rawData,
+        topLevelKeys: rawData ? Object.keys(rawData) : [],
+        hasEvaluations: !!rawData?.evaluations,
+        hasDataWrapper: !!rawData?.data,
+        evaluationsCount: rawData?.evaluations?.length ?? rawData?.data?.evaluations?.length ?? 0,
+        playbookScopeMode: rawData?.playbook_scope?.mode ?? rawData?.data?.playbook_scope?.mode,
+        rawData
+      });
+      
+      // Handle possible {data: {...}} wrapper from api() function
+      const data = rawData?.data ?? rawData;
+      
+      // Store in state with run ID for cache validation
+      state.investigateEval = data;
+      state.investigateEvalRunId = runId;
+      return data;
+    } catch (err) {
+      console.warn('[fetchPlaybookEvalForRun] Error:', err.message);
+      // Return empty structure for backward compatibility
+      return {
+        available: false,
+        reason: err.message,
+        playbook_scope: state.selectedRun?.playbook_scope || {
+          mode: 'legacy_unknown',
+          effective_playbook_ids: [],
+          rationale: { reason_code: 'FETCH_ERROR', note: err.message }
+        },
+        evaluations: [],
+        visibility: {}
+      };
+    }
+  }
+  
+  /**
+   * Get status pill HTML for a playbook eval status
+   */
+  function getStatusPillHtml(status) {
+    const statusConfig = {
+      'fired': { emoji: '🔴', label: 'Fired', bgColor: 'rgba(239, 68, 68, 0.2)', color: 'var(--bad)' },
+      'candidate': { emoji: '🟠', label: 'Candidate', bgColor: 'rgba(245, 158, 11, 0.2)', color: 'var(--warn)' },
+      'no_match': { emoji: '⚪', label: 'No Match', bgColor: 'rgba(107, 114, 128, 0.2)', color: 'var(--muted)' },
+      'blocked': { emoji: '⚫', label: 'Blocked', bgColor: 'rgba(0, 0, 0, 0.3)', color: '#888' },
+      'skipped': { emoji: '⏭️', label: 'Skipped', bgColor: 'rgba(107, 114, 128, 0.1)', color: 'var(--muted)' },
+      'error': { emoji: '❌', label: 'Error', bgColor: 'rgba(239, 68, 68, 0.2)', color: 'var(--bad)' }
+    };
+    const cfg = statusConfig[status] || statusConfig['no_match'];
+    return `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; font-size: 9px; border-radius: 3px; background: ${cfg.bgColor}; color: ${cfg.color};">${cfg.emoji} ${cfg.label}</span>`;
+  }
+  
+  /**
+   * Get scope mode label for display
+   * NOTE: No more "Legacy" terminology - treat unknown as General Discovery
+   */
+  function getScopeModeLabel(mode) {
+    const labels = {
+      'explicit': 'Selected Playbooks',
+      'general_discovery': 'General Discovery',
+      'preset_default': 'Preset Default',
+      'none': 'No playbooks selected',
+      'legacy_unknown': 'General Discovery'  // No more "Legacy" label
+    };
+    return labels[mode] || 'General Discovery';  // Default to General Discovery
+  }
+  
+  // ============================================================================
+  // INVESTIGATE TAB: Chain Stack Panel (INVESTIGATE_CHAINS-1)
+  // ============================================================================
+  
+  /**
+   * Fetch and render the Chain Stack panel for a run
+   * Uses chain_ids persisted with the run record
+   */
+  async function fetchAndRenderChainStack(run) {
+    if (!els.investigateChainStack) return;
+    
+    const runId = run?.run_id || run?.id;
+    const chainIds = run?.chain_ids; // Persisted chain IDs from backend
+    
+    // If no chains attached to this run, show empty state
+    if (!chainIds || chainIds.length === 0) {
+      els.investigateChainStack.classList.add('hidden');
+      state.chainStackData = null;
+      state.chainStackSelectedChain = null;
+      state.chainStackFilterActive = false;
+      return;
+    }
+    
+    // Show the panel
+    els.investigateChainStack.classList.remove('hidden');
+    if (els.chainStackCount) {
+      els.chainStackCount.textContent = `${chainIds.length} chain${chainIds.length !== 1 ? 's' : ''}`;
+    }
+    
+    // Show loading state
+    if (els.chainStackCards) {
+      els.chainStackCards.innerHTML = `
+        <div style="text-align: center; padding: 12px; color: var(--muted);">
+          <span style="font-size: 12px;">⏳ Loading chain status...</span>
+        </div>`;
+    }
+    if (els.chainStackEmpty) els.chainStackEmpty.classList.add('hidden');
+    
+    try {
+      // Fetch step_status from backend
+      const url = `${API_BASE}/api/runs/${runId}/step_status?chain_ids=${chainIds.join(',')}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      
+      const data = await resp.json();
+      state.chainStackData = data;
+      
+      // Render chain cards
+      renderChainStackCards(data);
+      
+    } catch (err) {
+      console.error('[fetchAndRenderChainStack] Error:', err);
+      if (els.chainStackCards) {
+        els.chainStackCards.innerHTML = `
+          <div style="text-align: center; padding: 12px; color: var(--bad); font-size: 11px;">
+            ⚠️ Failed to load chain status: ${escapeHtml(err.message)}
+          </div>`;
+      }
+    }
+  }
+  
+  /**
+   * Render chain cards from step_status data
+   */
+  function renderChainStackCards(data) {
+    if (!els.chainStackCards) return;
+    
+    const chains = data.chains || [];
+    const isLive = data.is_live || false;
+    
+    if (chains.length === 0) {
+      els.chainStackCards.innerHTML = '';
+      if (els.chainStackEmpty) els.chainStackEmpty.classList.remove('hidden');
+      return;
+    }
+    
+    if (els.chainStackEmpty) els.chainStackEmpty.classList.add('hidden');
+    
+    const cardsHtml = chains.map(chain => {
+      const steps = chain.steps || [];
+      
+      // Count by state
+      const stateCounts = { satisfied: 0, candidate: 0, blocked: 0, not_observed: 0, unverified: 0 };
+      steps.forEach(s => {
+        if (stateCounts.hasOwnProperty(s.state)) stateCounts[s.state]++;
+      });
+      
+      // Summary text
+      const totalSteps = steps.length;
+      const satisfiedCount = stateCounts.satisfied;
+      const progressPct = totalSteps > 0 ? Math.round((satisfiedCount / totalSteps) * 100) : 0;
+      
+      // Determine card highlight based on progress
+      let cardBorder = 'var(--border)';
+      let progressColor = 'var(--muted)';
+      if (satisfiedCount === totalSteps && totalSteps > 0) {
+        cardBorder = 'var(--good)';
+        progressColor = 'var(--good)';
+      } else if (satisfiedCount > 0) {
+        cardBorder = 'var(--warn)';
+        progressColor = 'var(--warn)';
+      }
+      
+      // Build step rows (collapsed by default, shown when expanded)
+      const stepsHtml = steps.map(step => {
+        const stateConfig = getChainStepStateConfig(step.state);
+        const evidenceCount = step.evidence_refs_count || 0;
+        
+        return `
+          <div class="chain-step-row" data-chain-id="${escapeHtml(chain.chain_id)}" data-step-id="${escapeHtml(step.step_id)}" 
+               style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; border-radius: var(--radius-sm); transition: background 0.15s;"
+               onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='transparent'">
+            <span style="font-size: 12px;">${step.icon || '📌'}</span>
+            <span style="flex: 1; font-size: 11px; color: var(--text);">${escapeHtml(step.title || step.step_id)}</span>
+            <span style="font-size: 10px; padding: 2px 6px; border-radius: 3px; background: ${stateConfig.bg}; color: ${stateConfig.color};">
+              ${stateConfig.emoji} ${stateConfig.label}
+            </span>
+            ${evidenceCount > 0 ? `<span style="font-size: 9px; color: var(--muted);">${evidenceCount} facts</span>` : ''}
+          </div>`;
+      }).join('');
+      
+      // Check if this chain is selected for filtering
+      const isSelected = state.chainStackSelectedChain === chain.chain_id;
+      
+      return `
+        <div class="chain-stack-card" data-chain-id="${escapeHtml(chain.chain_id)}" 
+             style="background: var(--panel); border: 1px solid ${cardBorder}; border-radius: var(--radius-sm); overflow: hidden;">
+          <!-- Chain header (always visible) -->
+          <div class="chain-card-header" style="padding: 8px 10px; display: flex; align-items: center; gap: 8px; cursor: pointer; ${isSelected ? 'background: rgba(99, 102, 241, 0.1);' : ''}">
+            <span style="font-size: 14px;">${chain.icon || '🔗'}</span>
+            <div style="flex: 1;">
+              <div style="font-size: 11px; font-weight: 600; color: var(--text);">${escapeHtml(chain.title || chain.chain_id)}</div>
+              <div style="font-size: 10px; color: ${progressColor};">
+                ${satisfiedCount}/${totalSteps} steps satisfied
+                ${isLive ? '<span style="color: var(--accent);">• Live</span>' : ''}
+              </div>
+            </div>
+            <span class="chain-expand-icon" style="font-size: 10px; color: var(--muted); transition: transform 0.2s;">▼</span>
+          </div>
+          <!-- Steps list (collapsible) -->
+          <div class="chain-steps-list" style="display: ${state.chainStackExpanded ? 'block' : 'none'}; border-top: 1px solid var(--border); padding: 4px 0;">
+            ${stepsHtml}
+          </div>
+        </div>`;
+    }).join('');
+    
+    els.chainStackCards.innerHTML = cardsHtml;
+    
+    // Attach event handlers
+    attachChainStackEventHandlers();
+  }
+  
+  /**
+   * Get state config for chain step rendering
+   */
+  function getChainStepStateConfig(state) {
+    const configs = {
+      'satisfied': { emoji: '✅', label: 'Satisfied', bg: 'rgba(34, 197, 94, 0.2)', color: 'var(--good)' },
+      'candidate': { emoji: '🟡', label: 'Candidate', bg: 'rgba(245, 158, 11, 0.2)', color: 'var(--warn)' },
+      'not_observed': { emoji: '⚪', label: 'Not Observed', bg: 'rgba(107, 114, 128, 0.15)', color: 'var(--muted)' },
+      'blocked': { emoji: '⛔', label: 'Blocked', bg: 'rgba(239, 68, 68, 0.15)', color: 'var(--bad)' },
+      'unverified': { emoji: '❓', label: 'Unverified', bg: 'rgba(59, 130, 246, 0.15)', color: 'var(--info)' }
+    };
+    return configs[state] || configs['not_observed'];
+  }
+  
+  /**
+   * Attach event handlers to chain stack cards
+   */
+  function attachChainStackEventHandlers() {
+    if (!els.chainStackCards) return;
+    
+    // Card header click - toggle steps visibility
+    els.chainStackCards.querySelectorAll('.chain-card-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        const card = header.closest('.chain-stack-card');
+        const stepsList = card.querySelector('.chain-steps-list');
+        const expandIcon = header.querySelector('.chain-expand-icon');
+        
+        if (stepsList) {
+          const isHidden = stepsList.style.display === 'none';
+          stepsList.style.display = isHidden ? 'block' : 'none';
+          if (expandIcon) expandIcon.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(-90deg)';
+        }
+      });
+    });
+    
+    // Step row click - open Evidence Drawer for chain step
+    els.chainStackCards.querySelectorAll('.chain-step-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const chainId = row.dataset.chainId;
+        const stepId = row.dataset.stepId;
+        openChainStepEvidenceDrawer(chainId, stepId);
+      });
+    });
+  }
+  
+  /**
+   * Open Evidence Drawer for a chain step
+   * INVESTIGATE_CHAINS-1: Extends drawer to support chain steps
+   */
+  function openChainStepEvidenceDrawer(chainId, stepId) {
+    if (!state.chainStackData) return;
+    
+    // Find the step data
+    const chain = (state.chainStackData.chains || []).find(c => c.chain_id === chainId);
+    if (!chain) return;
+    
+    const step = (chain.steps || []).find(s => s.step_id === stepId);
+    if (!step) return;
+    
+    // Build stepData for the drawer (same format as playbook steps)
+    const stepData = {
+      stepName: step.title || step.step_id,
+      stepStatus: step.state,
+      expectedFactTypes: [], // Chain steps don't have explicit fact types
+      searchHints: {
+        query: step.title || step.step_id,
+        playbook_ids: step.matched_playbooks || []
+      },
+      isBlocked: step.state === 'blocked',
+      blockedReason: step.why || 'Missing telemetry or access',
+      playbookName: chain.title || chain.chain_id,
+      // Chain-specific fields
+      isChainStep: true,
+      chainId: chainId,
+      chainTitle: chain.title,
+      evidenceRefsCount: step.evidence_refs_count || 0,
+      matchedSignals: step.matched_signals || [],
+      coverageGaps: step.coverage_gaps || []
+    };
+    
+    // Use the existing Evidence Drawer with chain step context
+    openEvidenceDrawer(stepData);
+  }
+  
+  /**
+   * Toggle filter playbooks by selected chain
+   */
+  function toggleChainFilter(chainId) {
+    if (state.chainStackSelectedChain === chainId && state.chainStackFilterActive) {
+      // Turn off filter
+      state.chainStackSelectedChain = null;
+      state.chainStackFilterActive = false;
+      if (els.btnFilterByChain) els.btnFilterByChain.classList.add('hidden');
+    } else {
+      // Turn on filter for this chain
+      state.chainStackSelectedChain = chainId;
+      state.chainStackFilterActive = true;
+      if (els.btnFilterByChain) els.btnFilterByChain.classList.remove('hidden');
+    }
+    
+    // Re-render chain cards to show selection
+    if (state.chainStackData) {
+      renderChainStackCards(state.chainStackData);
+    }
+    
+    // Re-render playbook list with filter
+    renderInvestigateTab();
+  }
+  
+  /**
+   * Render the Investigate Summary Banner (NEW)
+   * Shows: Playbooks N total · Fired X · Candidate Y · Blocked Z
+   * Plus blocking reasons expander when blocked > 0
+   */
+  function renderInvestigateSummaryBanner(evalData) {
+    if (!els.investigateSummaryBanner) return;
+    
+    const evaluations = evalData.evaluations || [];
+    const cap = evalData.capability || {};
+    
+    // Count by status
+    const statusCounts = { fired: 0, candidate: 0, blocked: 0, no_match: 0, skipped: 0 };
+    evaluations.forEach(e => {
+      if (statusCounts.hasOwnProperty(e.status)) {
+        statusCounts[e.status]++;
+      }
+    });
+    
+    // Update count displays
+    if (els.investigateTotalCount) els.investigateTotalCount.textContent = `${evaluations.length} total`;
+    if (els.investigateFiredCount) els.investigateFiredCount.textContent = `🔴 ${statusCounts.fired} fired`;
+    if (els.investigateCandidateCount) els.investigateCandidateCount.textContent = `🟠 ${statusCounts.candidate} candidate`;
+    if (els.investigateBlockedCount) els.investigateBlockedCount.textContent = `⚫ ${statusCounts.blocked} blocked`;
+    if (els.investigateNoMatchCount) els.investigateNoMatchCount.textContent = `⚪ ${statusCounts.no_match} no match`;
+    
+    // Show blockers summary if blocked > 0
+    if (els.investigateBlockersSummary) {
+      if (statusCounts.blocked > 0) {
+        els.investigateBlockersSummary.classList.remove('hidden');
+        
+        // WORKBENCH_BUGFIX-1: Aggregate blocking reasons from BOTH playbook-level AND step-level
+        const reasonCounts = {};
+        evaluations.filter(e => e.status === 'blocked').forEach(e => {
+          // First check playbook-level blocked_reason
+          if (e.blocked_reason) {
+            reasonCounts[e.blocked_reason] = (reasonCounts[e.blocked_reason] || 0) + 1;
+          } else {
+            // Fall back to step_statuses reasons
+            const steps = e.step_statuses || e.slots || [];
+            const blockedSteps = steps.filter(s => s.status === 'blocked' && s.reason);
+            if (blockedSteps.length > 0) {
+              // Use the first blocked step's reason as the playbook's blocking reason
+              blockedSteps.forEach(s => {
+                reasonCounts[s.reason] = (reasonCounts[s.reason] || 0) + 1;
+              });
+            } else {
+              // Truly unknown
+              reasonCounts['Unknown blocking reason'] = (reasonCounts['Unknown blocking reason'] || 0) + 1;
+            }
+          }
+        });
+        
+        // Find top reason
+        const sortedReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]);
+        const topReason = sortedReasons[0] ? sortedReasons[0][0] : 'Unknown';
+        
+        if (els.investigateBlockerReason) {
+          els.investigateBlockerReason.textContent = `Top blocking reason: ${topReason} (${statusCounts.blocked} playbooks)`;
+        }
+        
+        // Build blocker list for expanded detail
+        if (els.investigateBlockerList) {
+          const listHtml = sortedReasons.slice(0, 5).map(([reason, count]) => 
+            `<div style="margin-bottom: 4px;">• ${escapeHtml(reason)} <span style="color: var(--text);">(${count})</span></div>`
+          ).join('');
+          
+          // Add capability hints
+          let capabilityHint = '';
+          if (!cap.is_admin) capabilityHint += '⚠️ Not running as Admin — Security Log inaccessible. ';
+          if (!cap.sysmon_installed) capabilityHint += '⚠️ Sysmon not installed. ';
+          if (!cap.security_log_accessible) capabilityHint += '⚠️ Security Log not accessible. ';
+          
+          els.investigateBlockerList.innerHTML = listHtml + 
+            (capabilityHint ? `<div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); color: var(--warn); font-size: 10px;">${capabilityHint}</div>` : '');
+        }
+      } else {
+        els.investigateBlockersSummary.classList.add('hidden');
+      }
+    }
+    
+    els.investigateSummaryBanner.classList.remove('hidden');
+  }
+  
+  /**
+   * Render the Investigate scope banner
+   * NOTE: Banner is now HIDDEN - scope info moved to right pane detail
+   */
+  function renderInvestigateScopeBanner(playbookScope) {
+    // Hide the banner entirely - scope info is now in the right pane
+    if (els.investigateScopeBanner) {
+      els.investigateScopeBanner.style.display = 'none';
+    }
+    // Store scope for right pane to use
+    state.investigateScope = playbookScope;
+  }
+  
+  /**
+   * Render Investigate tab (INVESTIGATE_OBSERVED_FIRST-2: 4-mode system)
+   * 
+   * Modes:
+   * - observed (default): Notable findings, episodes, unmapped activity
+   * - chains: Chain-first view using step_status
+   * - playbooks: Debug surface with playbook list (Detectors debug)
+   * - evidence: Evidence workbench
+   */
+  async function renderInvestigateTab() {
+    const runId = state.selectedRunId;
+    
+    // INVESTIGATE_OBSERVED_FIRST-2: Enforce 'observed' as true default
+    // Convert legacy 'steps' mode to 'observed'
+    if (!state.investigateWorkbenchMode || state.investigateWorkbenchMode === 'steps') {
+      state.investigateWorkbenchMode = 'observed';
+    }
+    
+    const mode = state.investigateWorkbenchMode;
+    console.log('[INVESTIGATE] renderInvestigateTab called', { runId, mode });
+    
+    if (!runId) return;
+    
+    // === WORKBENCH MODE TOGGLE (INVESTIGATE_OBSERVED_FIRST-2) ===
+    // Initialize mode toggle button states AND container visibility
+    setInvestigateWorkbenchMode(mode);
+    
+    // Dispatch to appropriate mode renderer
+    switch (mode) {
+      case 'observed':
+        await renderInvestigateObservedMode();
+        break;
+      case 'chains':
+        await renderInvestigateChainsMode();
+        break;
+      case 'playbooks':
+        await renderInvestigatePlaybooksMode();
+        break;
+      case 'evidence':
+        renderInvestigateEvidenceContent();
+        break;
+      default:
+        console.warn('[INVESTIGATE] Unknown mode:', mode, '- defaulting to observed');
+        state.investigateWorkbenchMode = 'observed';
+        setInvestigateWorkbenchMode('observed');
+        await renderInvestigateObservedMode();
+    }
+  }
+  
+  /**
+   * Render Investigate Observed mode (default)
+   * INVESTIGATE_OBSERVED_FIRST-1: Uses /api/runs/:id/brief
+   */
+  async function renderInvestigateObservedMode() {
+    const runId = state.selectedRunId;
+    console.log('[INVESTIGATE] Rendering Observed mode for run:', runId);
+    
+    // Initialize Chain Lens for this run (INVESTIGATE_CHAIN_LENS-1)
+    // This is the primary investigation structure
+    await initChainLensForRun();
+    
+    // Show loading state
+    if (els.investigateObservedCoverage) els.investigateObservedCoverage.innerHTML = '<div style="color: var(--muted); font-size: 11px;">Loading...</div>';
+    if (els.investigateObservedFindingsList) els.investigateObservedFindingsList.innerHTML = '';
+    if (els.investigateObservedEpisodesList) els.investigateObservedEpisodesList.innerHTML = '';
+    if (els.investigateObservedUnmappedList) els.investigateObservedUnmappedList.innerHTML = '';
+    
+    // Fetch brief data
+    const brief = await fetchRunBrief(runId);
+    if (!brief || !brief.available) {
+      if (els.investigateObservedCoverage) {
+        els.investigateObservedCoverage.innerHTML = `
+          <div style="padding: 20px; text-align: center; color: var(--muted);">
+            <div style="font-size: 24px; margin-bottom: 8px;">⚠️</div>
+            <div style="font-size: 12px;">${brief?.reason || 'Brief not available'}</div>
+          </div>`;
+      }
+      return;
+    }
+    
+    // Render coverage section
+    renderObservedCoverage(brief);
+    
+    // Render notable findings
+    renderObservedFindings(brief);
+    
+    // Render episodes
+    renderObservedEpisodes(brief);
+    
+    // Render unmapped activity
+    renderObservedUnmapped(brief);
+    
+    // Update stats
+    updateObservedStats(brief);
+  }
+  
+  /**
+   * Render coverage section in Observed mode
+   */
+  function renderObservedCoverage(brief) {
+    if (!els.investigateObservedCoverage) return;
+    
+    const coverage = brief.coverage || {};
+    const playbooks = coverage.playbooks_evaluated || 0;
+    const steps = coverage.steps_evaluated || 0;
+    const fired = coverage.playbooks_fired || 0;
+    const candidates = coverage.candidates || 0;
+    const coverage_pct = coverage.coverage_pct || 0;
+    
+    els.investigateObservedCoverage.innerHTML = `
+      <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; padding: 12px 0;">
+        <div style="text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: var(--text);">${playbooks}</div>
+          <div style="font-size: 10px; color: var(--muted);">Playbooks</div>
+        </div>
+        <div style="text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: var(--text);">${steps}</div>
+          <div style="font-size: 10px; color: var(--muted);">Steps</div>
+        </div>
+        <div style="text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: ${fired > 0 ? 'var(--bad)' : 'var(--text)'}">${fired}</div>
+          <div style="font-size: 10px; color: var(--muted);">Fired</div>
+        </div>
+        <div style="text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: ${candidates > 0 ? 'var(--warn)' : 'var(--text)'}">${candidates}</div>
+          <div style="font-size: 10px; color: var(--muted);">Candidates</div>
+        </div>
+        <div style="text-align: center;">
+          <div style="font-size: 20px; font-weight: 600; color: var(--good);">${coverage_pct}%</div>
+          <div style="font-size: 10px; color: var(--muted);">Coverage</div>
+        </div>
+      </div>`;
+  }
+  
+  /**
+   * Render notable findings in Observed mode
+   */
+  function renderObservedFindings(brief) {
+    if (!els.investigateObservedFindingsList) return;
+    
+    const findings = brief.notable_findings || [];
+    
+    if (findings.length === 0) {
+      els.investigateObservedFindingsList.innerHTML = `
+        <div style="padding: 16px; text-align: center; color: var(--muted); font-size: 11px;">
+          No notable findings detected
+        </div>`;
+      return;
+    }
+    
+    const findingsHtml = findings.map(f => {
+      const severityColor = f.severity === 'high' ? 'var(--bad)' : f.severity === 'medium' ? 'var(--warn)' : 'var(--muted)';
+      const typeIcon = f.type === 'fired' ? '🔴' : f.type === 'candidate' ? '🟠' : '📋';
+      
+      return `
+        <div style="padding: 10px 12px; background: var(--panel2); border-radius: var(--radius-sm); margin-bottom: 8px; border-left: 3px solid ${severityColor};">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-size: 11px; font-weight: 500; color: var(--text);">${typeIcon} ${escapeHtml(f.title || f.playbook_name || 'Finding')}</span>
+            <span style="font-size: 9px; padding: 2px 6px; border-radius: 10px; background: ${severityColor}; color: white;">${f.severity || 'info'}</span>
+          </div>
+          ${f.description ? `<div style="font-size: 10px; color: var(--muted); margin-top: 4px;">${escapeHtml(f.description)}</div>` : ''}
+          ${f.evidence_count ? `<div style="font-size: 9px; color: var(--accent); margin-top: 4px;">📎 ${f.evidence_count} evidence items</div>` : ''}
+        </div>`;
+    }).join('');
+    
+    els.investigateObservedFindingsList.innerHTML = findingsHtml;
+  }
+  
+  /**
+   * Render episodes in Observed mode
+   */
+  function renderObservedEpisodes(brief) {
+    if (!els.investigateObservedEpisodesList) return;
+    
+    const episodes = brief.episodes || [];
+    
+    if (episodes.length === 0) {
+      els.investigateObservedEpisodesList.innerHTML = `
+        <div style="padding: 16px; text-align: center; color: var(--muted); font-size: 11px;">
+          No behavioral episodes identified
+        </div>`;
+      return;
+    }
+    
+    const episodesHtml = episodes.map(ep => {
+      const eventsCount = ep.events?.length || ep.event_count || 0;
+      return `
+        <div style="padding: 10px 12px; background: var(--panel2); border-radius: var(--radius-sm); margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; font-weight: 500; color: var(--text);">${escapeHtml(ep.name || ep.chain_id || 'Episode')}</span>
+            <span style="font-size: 9px; color: var(--muted);">${eventsCount} events</span>
+          </div>
+          ${ep.technique ? `<div style="font-size: 9px; color: var(--accent); margin-top: 4px;">🎯 ${escapeHtml(ep.technique)}</div>` : ''}
+          ${ep.timespan ? `<div style="font-size: 9px; color: var(--muted); margin-top: 4px;">⏱️ ${escapeHtml(ep.timespan)}</div>` : ''}
+        </div>`;
+    }).join('');
+    
+    els.investigateObservedEpisodesList.innerHTML = episodesHtml;
+  }
+  
+  /**
+   * Render unmapped activity in Observed mode
+   */
+  function renderObservedUnmapped(brief) {
+    if (!els.investigateObservedUnmappedList) return;
+    
+    const unmapped = brief.unmapped || [];
+    const unmappedCount = brief.unmapped_count || unmapped.length;
+    
+    if (unmappedCount === 0) {
+      els.investigateObservedUnmappedList.innerHTML = `
+        <div style="padding: 16px; text-align: center; color: var(--good); font-size: 11px;">
+          ✓ All activity mapped to playbooks
+        </div>`;
+      return;
+    }
+    
+    // Show summary with top unmapped types
+    const typeCounts = {};
+    unmapped.forEach(u => {
+      const type = u.fact_type || u.type || 'unknown';
+      typeCounts[type] = (typeCounts[type] || 0) + 1;
+    });
+    
+    const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    
+    const unmappedHtml = `
+      <div style="padding: 10px 12px; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm);">
+        <div style="font-size: 11px; font-weight: 500; color: var(--warn); margin-bottom: 8px;">
+          ${unmappedCount} unmapped facts
+        </div>
+        <div style="font-size: 10px; color: var(--muted);">
+          ${sortedTypes.map(([type, count]) => `<span style="margin-right: 12px;">${escapeHtml(type)}: ${count}</span>`).join('')}
+        </div>
+        <button class="btn-view-unmapped" style="margin-top: 8px; padding: 4px 8px; font-size: 9px; background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); cursor: pointer;">
+          View in Evidence →
+        </button>
+      </div>`;
+    
+    els.investigateObservedUnmappedList.innerHTML = unmappedHtml;
+    
+    // Attach handler
+    const viewBtn = els.investigateObservedUnmappedList.querySelector('.btn-view-unmapped');
+    if (viewBtn) {
+      viewBtn.addEventListener('click', () => {
+        setInvestigateWorkbenchMode('evidence');
+        renderInvestigateTab();
+      });
+    }
+  }
+  
+  /**
+   * Update stats bar in Observed mode
+   */
+  function updateObservedStats(brief) {
+    // Update stats using correct element names
+    if (els.investigateObservedStatFacts) {
+      els.investigateObservedStatFacts.textContent = brief.fact_count || brief.facts_count || 0;
+    }
+    if (els.investigateObservedStatSignals) {
+      els.investigateObservedStatSignals.textContent = brief.signals_count || brief.playbooks_fired || 0;
+    }
+    if (els.investigateObservedStatEvents) {
+      els.investigateObservedStatEvents.textContent = brief.event_count || brief.events_count || 0;
+    }
+  }
+  
+  /**
+   * Render Investigate Chains mode
+   * INVESTIGATE_OBSERVED_FIRST-1: Chain-first view using /api/runs/:id/step_status
+   */
+  async function renderInvestigateChainsMode() {
+    const runId = state.selectedRunId;
+    console.log('[INVESTIGATE] Rendering Chains mode for run:', runId);
+    
+    // Show loading state
+    if (els.chainsStack) els.chainsStack.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--muted); font-size: 11px;">Loading chains...</div>';
+    if (els.chainsStepEvidence) els.chainsStepEvidence.innerHTML = '';
+    
+    // Use existing chain stack fetch
+    await fetchAndRenderChainStack(state.selectedRun);
+    
+    // Render chain stack in new container
+    renderChainsStackPane();
+  }
+  
+  /**
+   * Render chains stack in the Chains mode pane
+   */
+  function renderChainsStackPane() {
+    if (!els.chainsStack || !state.chainStackData) {
+      if (els.chainsStack) {
+        els.chainsStack.innerHTML = `
+          <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 11px;">
+            No chains available
+          </div>`;
+      }
+      return;
+    }
+    
+    const chains = state.chainStackData.chains || [];
+    
+    if (chains.length === 0) {
+      els.chainsStack.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 11px;">
+          No behavioral chains identified
+        </div>`;
+      return;
+    }
+    
+    const chainsHtml = chains.map((chain, idx) => {
+      const isSelected = chain.chain_id === state.chainsSelectedChainId;
+      const stepsCount = chain.steps?.length || chain.step_count || 0;
+      const factsCount = chain.facts?.length || chain.fact_count || 0;
+      
+      return `
+        <div class="chain-card ${isSelected ? 'selected' : ''}" data-chain-id="${escapeHtml(chain.chain_id)}"
+             style="padding: 10px 12px; background: ${isSelected ? 'var(--accent)' : 'var(--panel2)'}; 
+                    border-radius: var(--radius-sm); margin-bottom: 8px; cursor: pointer;
+                    border: 1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; font-weight: 500; color: ${isSelected ? 'white' : 'var(--text)'};">
+              ${escapeHtml(chain.name || chain.chain_id || `Chain ${idx + 1}`)}
+            </span>
+            <span style="font-size: 9px; color: ${isSelected ? 'rgba(255,255,255,0.7)' : 'var(--muted)'};">
+              ${stepsCount} steps
+            </span>
+          </div>
+          ${chain.technique ? `<div style="font-size: 9px; color: ${isSelected ? 'rgba(255,255,255,0.7)' : 'var(--accent)'}; margin-top: 4px;">🎯 ${escapeHtml(chain.technique)}</div>` : ''}
+          <div style="font-size: 9px; color: ${isSelected ? 'rgba(255,255,255,0.7)' : 'var(--muted)'}; margin-top: 4px;">
+            ${factsCount} facts
+          </div>
+        </div>`;
+    }).join('');
+    
+    els.chainsStack.innerHTML = chainsHtml;
+    
+    // Attach click handlers
+    els.chainsStack.querySelectorAll('.chain-card').forEach(card => {
+      card.addEventListener('click', () => {
+        state.chainsSelectedChainId = card.dataset.chainId;
+        renderChainsStackPane();
+        renderChainsStepEvidence();
+      });
+    });
+    
+    // Auto-select first chain if none selected
+    if (!state.chainsSelectedChainId && chains.length > 0) {
+      state.chainsSelectedChainId = chains[0].chain_id;
+      renderChainsStepEvidence();
+    }
+  }
+  
+  /**
+   * Render step evidence for selected chain in Chains mode
+   */
+  function renderChainsStepEvidence() {
+    if (!els.chainsStepEvidence || !state.chainsSelectedChainId || !state.chainStackData) {
+      if (els.chainsStepEvidence) {
+        els.chainsStepEvidence.innerHTML = `
+          <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 11px;">
+            Select a chain to view steps
+          </div>`;
+      }
+      return;
+    }
+    
+    const chain = (state.chainStackData.chains || []).find(c => c.chain_id === state.chainsSelectedChainId);
+    if (!chain) return;
+    
+    const steps = chain.steps || [];
+    
+    if (steps.length === 0) {
+      els.chainsStepEvidence.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 11px;">
+          No steps in this chain
+        </div>`;
+      return;
+    }
+    
+    const stepsHtml = steps.map((step, idx) => {
+      const statusIcon = step.status === 'matched' ? '✅' : step.status === 'blocked' ? '⚫' : '⚪';
+      const factsCount = step.facts?.length || step.fact_count || 0;
+      
+      return `
+        <div style="padding: 10px 12px; background: var(--panel2); border-radius: var(--radius-sm); margin-bottom: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; font-weight: 500; color: var(--text);">
+              ${statusIcon} ${escapeHtml(step.step_name || step.name || `Step ${idx + 1}`)}
+            </span>
+            <span style="font-size: 9px; color: var(--muted);">${factsCount} facts</span>
+          </div>
+          ${step.reason ? `<div style="font-size: 9px; color: var(--muted); margin-top: 4px;">${escapeHtml(step.reason)}</div>` : ''}
+          <button class="btn-step-evidence" data-step-idx="${idx}" 
+                  style="margin-top: 8px; padding: 4px 8px; font-size: 9px; background: var(--panel); color: var(--accent); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;">
+            🔍 View Evidence
+          </button>
+        </div>`;
+    }).join('');
+    
+    els.chainsStepEvidence.innerHTML = `
+      <div style="font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 12px; text-transform: uppercase;">
+        Steps in "${escapeHtml(chain.name || chain.chain_id)}"
+      </div>
+      ${stepsHtml}`;
+    
+    // Attach evidence button handlers
+    els.chainsStepEvidence.querySelectorAll('.btn-step-evidence').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const stepIdx = parseInt(btn.dataset.stepIdx);
+        const step = steps[stepIdx];
+        if (step) {
+          openEvidenceDrawer({
+            stepName: step.step_name || step.name,
+            stepStatus: step.status,
+            expectedFactTypes: step.expected_fact_types || [],
+            chainId: chain.chain_id
+          });
+        }
+      });
+    });
+  }
+  
+  /**
+   * Render Investigate Playbooks mode (debug surface)
+   * INVESTIGATE_OBSERVED_FIRST-2: Compact summary with collapsed verifier
+   */
+  async function renderInvestigatePlaybooksMode() {
+    const runId = state.selectedRunId;
+    console.log('[INVESTIGATE] Rendering Detectors (debug) mode for run:', runId);
+    
+    // INVESTIGATE_OBSERVED_FIRST-2: Ensure verifier is collapsed by default
+    const splitPane = els.playbooksSplitPane || document.getElementById('playbooksSplitPane');
+    const verifierToggle = document.getElementById('playbooksVerifierToggle');
+    const openVerifierBtn = document.getElementById('btnOpenVerifier');
+    
+    if (splitPane) {
+      splitPane.classList.add('hidden');
+      splitPane.style.display = 'none';
+    }
+    if (verifierToggle) {
+      verifierToggle.style.display = 'block';
+    }
+    
+    // Attach verifier toggle handler
+    if (openVerifierBtn && !openVerifierBtn._handlerAttached) {
+      openVerifierBtn._handlerAttached = true;
+      openVerifierBtn.addEventListener('click', () => {
+        const isHidden = splitPane.classList.contains('hidden');
+        if (isHidden) {
+          splitPane.classList.remove('hidden');
+          splitPane.style.display = 'grid';
+          openVerifierBtn.innerHTML = '<span>🔍</span> <span>Close Playbook Verifier</span> <span style="font-size: 10px;">▲</span>';
+        } else {
+          splitPane.classList.add('hidden');
+          splitPane.style.display = 'none';
+          openVerifierBtn.innerHTML = '<span>🔍</span> <span>Open Playbook Verifier</span> <span style="font-size: 10px;">▼</span>';
+        }
+      });
+    }
+    
+    // Show loading state
+    if (els.playbooksSummaryBanner) {
+      els.playbooksSummaryBanner.innerHTML = '<div style="padding: 8px; color: var(--muted); font-size: 11px;">Loading summary...</div>';
+    }
+    
+    // Fetch playbook eval data (single source of truth)
+    const evalData = await fetchPlaybookEvalForRun(runId);
+    
+    if (!evalData.available && evalData.reason) {
+      if (els.playbooksSummaryBanner) {
+        els.playbooksSummaryBanner.innerHTML = `
+          <div style="padding: 12px; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius-sm); color: var(--bad); font-size: 11px;">
+            ⚠️ ${evalData.reason}
+          </div>`;
+      }
+      return;
+    }
+    
+    // Render compact summary banner with proper blocker aggregation
+    renderPlaybooksSummaryBanner(evalData);
+    
+    // Get evaluations and apply filters
+    let evaluations = evalData.evaluations || [];
+    evaluations = evaluations.filter(e => e.in_scope !== false);
+    
+    // Sort by status priority
+    const statusPriority = { 'fired': 5, 'candidate': 4, 'no_match': 3, 'blocked': 2, 'skipped': 1, 'error': 0 };
+    evaluations.sort((a, b) => (statusPriority[b.status] || 0) - (statusPriority[a.status] || 0));
+    
+    // Pre-render playbooks list (will show when verifier is opened)
+    renderPlaybooksListPane(evaluations);
+  }
+  
+  /**
+   * Render summary banner in Playbooks (Detectors debug) mode
+   * INVESTIGATE_OBSERVED_FIRST-2: Improved blocker aggregation - no more "Unknown"
+   */
+  function renderPlaybooksSummaryBanner(evalData) {
+    if (!els.playbooksSummaryBanner) return;
+    
+    const evaluations = evalData.evaluations || [];
+    const total = evaluations.length;
+    const fired = evaluations.filter(e => e.status === 'fired').length;
+    const candidates = evaluations.filter(e => e.status === 'candidate').length;
+    const blocked = evaluations.filter(e => e.status === 'blocked').length;
+    const noMatch = evaluations.filter(e => e.status === 'no_match').length;
+    
+    // INVESTIGATE_OBSERVED_FIRST-2: Aggregate blocking reasons properly
+    // Priority: playbook.blocked_reason > playbook.reason_code > step blocked reasons > capability blockers
+    const blockedEvals = evaluations.filter(e => e.status === 'blocked');
+    const reasonCounts = {};
+    
+    blockedEvals.forEach(e => {
+      // Try multiple sources for the blocking reason
+      let reason = null;
+      
+      // 1. Direct blocked_reason field (canonical)
+      if (e.blocked_reason && e.blocked_reason !== 'unknown' && e.blocked_reason !== 'Unknown') {
+        reason = e.blocked_reason;
+      }
+      // 2. reason_code from evaluation
+      else if (e.reason_code && e.reason_code !== 'UNKNOWN') {
+        reason = e.reason_code;
+      }
+      // 3. reason_codes array (first one)
+      else if (e.reason_codes?.length > 0) {
+        reason = e.reason_codes[0];
+      }
+      // 4. Check step_statuses for blocked steps
+      else if (e.step_statuses?.length > 0) {
+        const blockedStep = e.step_statuses.find(s => s.status === 'blocked' && s.reason);
+        if (blockedStep?.reason) {
+          reason = blockedStep.reason;
+        }
+      }
+      // 5. Fallback: check slots
+      else if (e.slots?.length > 0) {
+        const blockedSlot = e.slots.find(s => s.status === 'blocked' && s.reason);
+        if (blockedSlot?.reason) {
+          reason = blockedSlot.reason;
+        }
+      }
+      
+      // Only add to counts if we have a real reason
+      if (reason) {
+        reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+      }
+    });
+    
+    // Find top blocking reason (only if we have any)
+    const sortedReasons = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1]);
+    const topReason = sortedReasons.length > 0 ? sortedReasons[0][0] : null;
+    
+    // Build compact summary HTML
+    let html = `
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 8px;">
+        <span style="font-size: 12px; font-weight: 600; color: var(--text);">🔧 Detectors (Debug):</span>
+        <span id="playbooksTotalCount" style="font-size: 11px; color: var(--text);">${total} total</span>
+        <span style="color: var(--border);">·</span>
+        <span id="playbooksFiredCount" style="font-size: 11px; color: ${fired > 0 ? 'var(--bad)' : 'var(--muted)'};">🔴 ${fired} fired</span>
+        <span style="color: var(--border);">·</span>
+        <span id="playbooksCandidateCount" style="font-size: 11px; color: ${candidates > 0 ? 'var(--warn)' : 'var(--muted)'};">🟠 ${candidates} candidate</span>
+        <span style="color: var(--border);">·</span>
+        <span id="playbooksBlockedCount" style="font-size: 11px; color: #888;">⚫ ${blocked} blocked</span>
+        <span style="color: var(--border);">·</span>
+        <span id="playbooksNoMatchCount" style="font-size: 11px; color: var(--muted);">⚪ ${noMatch} no match</span>
+      </div>`;
+    
+    // Add blocker summary only if we have blocked playbooks AND a real reason
+    if (blocked > 0 && topReason) {
+      html += `
+      <div id="playbooksBlockersSummary" style="padding: 8px 10px; background: rgba(0, 0, 0, 0.15); border-radius: var(--radius-sm); margin-top: 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 12px;">⚠️</span>
+            <span id="playbooksBlockerReason" style="font-size: 11px; color: var(--text);">Top blocking reason: <code style="background: var(--panel); padding: 1px 4px; border-radius: 3px; font-size: 10px;">${escapeHtml(topReason)}</code> (${sortedReasons[0][1]} playbook${sortedReasons[0][1] > 1 ? 's' : ''})</span>
+          </div>
+        </div>`;
+      
+      // Show additional reasons if more than one
+      if (sortedReasons.length > 1) {
+        html += `
+        <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 10px; color: var(--muted);">
+          Other reasons: ${sortedReasons.slice(1, 4).map(([r, c]) => `<code style="background: var(--panel); padding: 1px 3px; border-radius: 2px;">${escapeHtml(r)}</code> (${c})`).join(', ')}
+          ${sortedReasons.length > 4 ? ` +${sortedReasons.length - 4} more` : ''}
+        </div>`;
+      }
+      
+      html += `</div>`;
+    } else if (blocked > 0) {
+      // Blocked but no extractable reason - show capability hint instead of "Unknown"
+      const cap = evalData.capability || {};
+      let capHints = [];
+      if (!cap.is_admin) capHints.push('Not running as Admin');
+      if (!cap.sysmon_installed) capHints.push('Sysmon not installed');
+      if (!cap.security_log_accessible) capHints.push('Security Log not accessible');
+      
+      if (capHints.length > 0) {
+        html += `
+        <div id="playbooksBlockersSummary" style="padding: 8px 10px; background: rgba(0, 0, 0, 0.15); border-radius: var(--radius-sm); margin-top: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 12px;">⚠️</span>
+            <span style="font-size: 11px; color: var(--text);">Likely blockers: ${capHints.join(', ')}</span>
+          </div>
+        </div>`;
+      }
+    }
+    
+    els.playbooksSummaryBanner.innerHTML = html;
+  }
+  
+  /**
+   * Render playbooks list in Playbooks mode
+   */
+  function renderPlaybooksListPane(evaluations) {
+    if (!els.playbooksListPane) return;
+    
+    if (evaluations.length === 0) {
+      els.playbooksListPane.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 11px;">
+          No playbooks match the current filter
+        </div>`;
+      return;
+    }
+    
+    const html = evaluations.map(evalItem => {
+      const isSelected = evalItem.playbook_id === state.selectedPlaybookDebugId;
+      const statusPill = getStatusPillHtml(evalItem.status);
+      const steps = evalItem.step_statuses || [];
+      const stepsMatched = steps.filter(s => s.status === 'matched').length;
+      const stepsTotal = steps.length;
+      
+      return `
+        <div class="playbook-debug-item ${isSelected ? 'selected' : ''}" 
+             data-playbook-id="${escapeHtml(evalItem.playbook_id)}"
+             style="padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 4px;
+                    background: ${isSelected ? 'var(--accent)' : 'var(--panel2)'}; 
+                    border: 1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <span style="font-size: 11px; font-weight: 500; color: ${isSelected ? 'white' : 'var(--text)'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${escapeHtml(evalItem.playbook_name || evalItem.playbook_id)}
+            </span>
+            ${statusPill}
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            <span style="font-size: 9px; color: ${isSelected ? 'rgba(255,255,255,0.7)' : 'var(--muted)'};">${stepsMatched}/${stepsTotal} steps</span>
+            ${evalItem.blocked_reason ? `<span style="font-size: 9px; color: ${isSelected ? 'rgba(255,255,255,0.7)' : 'var(--muted)'}; overflow: hidden; text-overflow: ellipsis; max-width: 150px;">${escapeHtml(evalItem.blocked_reason)}</span>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+    
+    els.playbooksListPane.innerHTML = html;
+    
+    // Attach click handlers
+    els.playbooksListPane.querySelectorAll('.playbook-debug-item').forEach(el => {
+      el.addEventListener('click', () => {
+        selectPlaybookForDebug(el.dataset.playbookId);
+      });
+    });
+  }
+  
+  /**
+   * Select a playbook for debug detail view
+   */
+  function selectPlaybookForDebug(playbookId) {
+    state.selectedPlaybookDebugId = playbookId;
+    
+    // Update selection in list
+    if (els.playbooksListPane) {
+      els.playbooksListPane.querySelectorAll('.playbook-debug-item').forEach(el => {
+        const isSelected = el.dataset.playbookId === playbookId;
+        el.classList.toggle('selected', isSelected);
+        el.style.background = isSelected ? 'var(--accent)' : 'var(--panel2)';
+        el.style.borderColor = isSelected ? 'var(--accent)' : 'var(--border)';
+      });
+    }
+    
+    // Render detail pane
+    renderPlaybooksDetailPane();
+  }
+  
+  /**
+   * Render playbook detail in Playbooks mode
+   */
+  function renderPlaybooksDetailPane() {
+    if (!els.playbooksDetailPane) return;
+    
+    const playbookId = state.selectedPlaybookDebugId;
+    const evalData = state.investigateEval;
+    
+    if (!playbookId || !evalData?.evaluations) {
+      els.playbooksDetailPane.innerHTML = `
+        <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
+          <div style="font-size: 32px; margin-bottom: 12px;">🔧</div>
+          <div style="font-size: 13px; font-weight: 500; margin-bottom: 8px;">Playbook Debug</div>
+          <div style="font-size: 11px;">Select a playbook to see its evaluation details.</div>
+        </div>`;
+      return;
+    }
+    
+    const playbook = evalData.evaluations.find(e => e.playbook_id === playbookId);
+    if (!playbook) {
+      els.playbooksDetailPane.innerHTML = '<div style="padding: 20px; color: var(--muted);">Playbook not found</div>';
+      return;
+    }
+    
+    // Reuse existing detail rendering logic
+    const statusPill = getStatusPillHtml(playbook.status);
+    const steps = playbook.step_statuses || [];
+    const stepsMatched = steps.filter(s => s.status === 'matched').length;
+    
+    const stepsHtml = steps.map((step, idx) => {
+      const statusIcon = step.status === 'matched' ? '✅' : step.status === 'blocked' ? '⚫' : '⚪';
+      return `
+        <tr style="border-bottom: 1px solid var(--border-subtle);">
+          <td style="padding: 6px 8px; font-size: 11px;">${escapeHtml(step.step_name || step.step_id)}</td>
+          <td style="padding: 6px 8px; text-align: center;">${statusIcon}</td>
+          <td style="padding: 6px 8px; font-size: 10px; color: var(--muted);">${escapeHtml(step.reason || '')}</td>
+        </tr>`;
+    }).join('');
+    
+    els.playbooksDetailPane.innerHTML = `
+      <div style="padding: 4px 0;">
+        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+          <h3 style="font-size: 14px; font-weight: 600; margin: 0;">${escapeHtml(playbook.playbook_name || playbook.playbook_id)}</h3>
+          ${statusPill}
+        </div>
+        
+        ${playbook.blocked_reason ? `
+        <div style="margin-bottom: 12px; padding: 8px 10px; background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--bad); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;">
+          <span style="font-size: 10px; font-weight: 500; color: var(--bad);">Blocked:</span>
+          <span style="font-size: 10px; color: var(--text); margin-left: 4px;">${escapeHtml(playbook.blocked_reason)}</span>
+        </div>` : ''}
+        
+        <div style="margin-top: 16px;">
+          <h4 style="font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 8px; text-transform: uppercase;">
+            Steps (${stepsMatched}/${steps.length})
+          </h4>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background: var(--panel2);">
+                <th style="padding: 6px 8px; text-align: left; font-size: 10px; font-weight: 500;">Step</th>
+                <th style="padding: 6px 8px; text-align: center; font-size: 10px; font-weight: 500;">Status</th>
+                <th style="padding: 6px 8px; text-align: left; font-size: 10px; font-weight: 500;">Reason</th>
+              </tr>
+            </thead>
+            <tbody>${stepsHtml || '<tr><td colspan="3" style="padding: 12px; text-align: center; color: var(--muted); font-size: 10px;">No steps</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+  
+  // === LEGACY INVESTIGATE FUNCTIONS (kept for reference during migration) ===
+  
+  /**
+   * Render left pane with playbook evaluation list
+   * LEGACY: Used by old Steps mode, now used by Playbooks mode
+   */
+  function renderInvestigateLeftPaneEval(evaluations) {
+    if (!els.findingsGrouped) return;
+    
+    if (evaluations.length === 0) {
+      els.findingsGrouped.innerHTML = `
+        <div style="padding: 20px; text-align: center; color: var(--muted); font-size: 12px;">
+          No playbooks match the current filter
+        </div>`;
+      return;
+    }
+    
+    // WORKBENCH_BUGFIX-1: Detect duplicate playbook_name values for disambiguation
+    const nameCounts = {};
+    evaluations.forEach(e => {
+      const name = e.playbook_name || e.playbook_id;
+      nameCounts[name] = (nameCounts[name] || 0) + 1;
+    });
+    
+    // Render playbook items
+    const html = evaluations.map(evalItem => {
+      const isSelected = evalItem.playbook_id === state.selectedPlaybookEvalId;
+      const statusPill = getStatusPillHtml(evalItem.status);
+      
+      // Normalize: backend uses step_statuses, UI expected slots
+      const steps = evalItem.step_statuses || evalItem.slots || [];
+      const stepsMatched = steps.filter(s => s.status === 'matched').length;
+      const stepsTotal = steps.length;
+      const stepsInfo = stepsTotal > 0 
+        ? `<span style="font-size: 9px; color: var(--muted);">${stepsMatched}/${stepsTotal} steps</span>`
+        : '';
+      
+      // Show reason preview for blocked/skipped - use blocked_reason (string) not reason_codes (array)
+      let reasonPreview = '';
+      if ((evalItem.status === 'blocked' || evalItem.status === 'skipped') && evalItem.blocked_reason) {
+        const reason = evalItem.blocked_reason;
+        reasonPreview = `<div style="font-size: 9px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(reason)}</div>`;
+      }
+      
+      // WORKBENCH_BUGFIX-1: Show playbook_id when there are duplicates OR when name equals id
+      const displayName = evalItem.playbook_name || evalItem.playbook_id;
+      const showIdLine = nameCounts[displayName] > 1 || (evalItem.playbook_name && evalItem.playbook_name !== evalItem.playbook_id);
+      const idLine = showIdLine 
+        ? `<div style="font-size: 8px; color: ${isSelected ? 'rgba(255,255,255,0.7)' : 'var(--muted)'}; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(evalItem.playbook_id)}</div>`
+        : '';
+      
+      return `
+        <div class="playbook-eval-item ${isSelected ? 'selected' : ''}" 
+             data-playbook-id="${escapeHtml(evalItem.playbook_id)}"
+             style="padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer; margin-bottom: 4px;
+                    background: ${isSelected ? 'var(--accent)' : 'var(--panel2)'}; 
+                    border: 1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'};">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <span style="font-size: 11px; font-weight: 500; color: ${isSelected ? 'white' : 'var(--text)'}; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${escapeHtml(displayName)}
+            </span>
+            ${statusPill}
+          </div>
+          ${idLine}
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+            ${stepsInfo}
+            ${evalItem.severity ? `<span style="font-size: 9px; color: var(--warn);">${evalItem.severity}</span>` : ''}
+          </div>
+          ${reasonPreview}
+        </div>`;
+    }).join('');
+    
+    els.findingsGrouped.innerHTML = html;
+    
+    // Attach click handlers
+    els.findingsGrouped.querySelectorAll('.playbook-eval-item').forEach(el => {
+      el.addEventListener('click', () => {
+        selectPlaybookEvalForInvestigate(el.dataset.playbookId);
+      });
+    });
+  }
+  
+  /**
+   * Select a playbook eval and render its detail
+   */
+  function selectPlaybookEvalForInvestigate(playbookId) {
+    state.selectedPlaybookEvalId = playbookId;
+    
+    // Update selection state in left pane
+    if (els.findingsGrouped) {
+      els.findingsGrouped.querySelectorAll('.playbook-eval-item').forEach(el => {
+        const isSelected = el.dataset.playbookId === playbookId;
+        el.classList.toggle('selected', isSelected);
+        el.style.background = isSelected ? 'var(--accent)' : 'var(--panel2)';
+        el.style.borderColor = isSelected ? 'var(--accent)' : 'var(--border)';
+        // Update text color
+        const nameSpan = el.querySelector('span');
+        if (nameSpan) nameSpan.style.color = isSelected ? 'white' : 'var(--text)';
+      });
+    }
+    
+    renderInvestigateRightPaneEval();
+  }
+  
+  /**
+   * Render right pane with playbook detail, slots, and reason codes
+   * 
+   * FIELD MAPPING (backend → UI):
+   * - blocked_reason (string) → primary reason display
+   * - step_statuses[] → slots (step_id, step_name, status, reason, expected_fact_types)
+   * - step.status: "blocked"/"unmatched"/"matched" → slot status badges
+   */
+  function renderInvestigateRightPaneEval() {
+    const playbookId = state.selectedPlaybookEvalId;
+    const evalData = state.investigateEval;
+    
+    // Empty state: no playbook selected
+    if (!playbookId || !evalData?.evaluations) {
+      if (els.investigateDetailTitle) els.investigateDetailTitle.textContent = 'Investigate';
+      if (els.investigateDetailContent) {
+        els.investigateDetailContent.innerHTML = `
+          <div style="padding: 40px 20px; text-align: center; color: var(--muted);">
+            <div style="font-size: 32px; margin-bottom: 12px;">📋</div>
+            <div style="font-size: 13px; font-weight: 500; margin-bottom: 8px;">Select a playbook</div>
+            <div style="font-size: 11px;">Click a playbook on the left to see its evaluation details, step results, and evidence actions.</div>
+          </div>`;
+      }
+      return;
+    }
+    
+    const playbook = evalData.evaluations.find(e => e.playbook_id === playbookId);
+    if (!playbook) {
+      if (els.investigateDetailTitle) els.investigateDetailTitle.textContent = 'Playbook not found';
+      return;
+    }
+    
+    // Update title
+    if (els.investigateDetailTitle) {
+      els.investigateDetailTitle.textContent = playbook.playbook_name || playbook.playbook_id;
+    }
+    
+    // Hide placeholder, show action bar
+    if (els.investigatePlaceholder) els.investigatePlaceholder.classList.add('hidden');
+    
+    // === NORMALIZE BACKEND DATA ===
+    // Backend uses step_statuses[], UI expected slots[]
+    const steps = playbook.step_statuses || playbook.slots || [];
+    const stepsMatched = steps.filter(s => s.status === 'matched').length;
+    const stepsTotal = steps.length;
+    
+    // Backend uses blocked_reason (string), not reason_codes (array)
+    const primaryReason = playbook.blocked_reason || 
+                          (playbook.reason_codes?.length > 0 ? playbook.reason_codes.join(', ') : null);
+    
+    // Determine if playbook is blocked
+    const isPlaybookBlocked = playbook.status === 'blocked' || playbook.status === 'skipped';
+    
+    // Build detail content
+    const statusPill = getStatusPillHtml(playbook.status);
+    
+    // === RUN EXPLANATION BLOCK (Part A) ===
+    const explanationHtml = generatePlaybookExplanation(playbook, evalData);
+    
+    // === STEPS/SLOTS TABLE (ALWAYS SHOW, even if empty) ===
+    let stepsHtml = '';
+    const stepRows = steps.map((step, idx) => {
+      // Normalize step fields
+      const stepName = step.step_name || step.slot_name || step.step_id || step.slot_id || 'Unknown';
+      const stepStatus = step.status || 'unknown';
+      const stepReason = step.reason || step.reason_code || '';
+      const expectedTypes = step.expected_fact_types || [];
+      const isStepBlocked = stepStatus === 'blocked';
+      
+      const stepStatusBadge = {
+        'matched': '✅',
+        'unmatched': '⚪',
+        'blocked': '⚫',
+        'skipped': '⏭️',
+        'missing': '❌'
+      }[stepStatus] || '❓';
+      
+      // Build step data for Evidence Drawer
+      const stepData = {
+        stepName: stepName,
+        stepStatus: stepStatus,
+        stepReason: stepReason,
+        expectedFactTypes: expectedTypes,
+        searchHints: step.search_hints || {
+          fact_types: expectedTypes.length > 0 ? expectedTypes : ['*'],
+          query: stepName.replace(/_/g, ' ')
+        },
+        isBlocked: isStepBlocked || isPlaybookBlocked,
+        blockedReason: isStepBlocked ? stepReason : (isPlaybookBlocked ? primaryReason : null),
+        playbookName: playbook.playbook_name || playbook.playbook_id
+      };
+      
+      // Button shows different text for blocked steps
+      const btnLabel = isStepBlocked ? '⚫ Why blocked?' : '🔍 Evidence';
+      const btnStyle = isStepBlocked 
+        ? 'background: rgba(0,0,0,0.2); color: #888;' 
+        : 'background: var(--panel); color: var(--accent);';
+      
+      const searchBtn = `<button class="slot-evidence-btn" data-step-idx="${idx}" data-step='${JSON.stringify(stepData).replace(/'/g, "&#39;")}' 
+                   style="padding: 2px 6px; font-size: 9px; ${btnStyle} border: 1px solid var(--border); border-radius: 3px; cursor: pointer;">${btnLabel}</button>`;
+      
+      return `
+        <tr style="border-bottom: 1px solid var(--border-subtle);">
+          <td style="padding: 6px 8px; font-size: 11px;">${escapeHtml(stepName)}</td>
+          <td style="padding: 6px 8px; font-size: 11px; text-align: center;">${stepStatusBadge}</td>
+          <td style="padding: 6px 8px; font-size: 9px; color: var(--muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(stepReason)}</td>
+          <td style="padding: 6px 8px; font-size: 9px; color: var(--muted);">${expectedTypes.join(', ')}</td>
+          <td style="padding: 6px 8px;">${searchBtn}</td>
+        </tr>`;
+    }).join('');
+    
+    // Show table even with 0 steps (empty state row)
+    const tableContent = steps.length > 0 ? stepRows : `
+      <tr>
+        <td colspan="5" style="padding: 16px; text-align: center; color: var(--muted); font-style: italic;">
+          No detection steps defined for this playbook.
+        </td>
+      </tr>`;
+    
+    stepsHtml = `
+      <div style="margin-top: 16px;">
+        <h4 style="font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 8px; text-transform: uppercase;">Detection Steps (${stepsMatched}/${stepsTotal} matched)</h4>
+        <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+          <thead>
+            <tr style="background: var(--panel2); border-bottom: 1px solid var(--border);">
+              <th style="padding: 6px 8px; text-align: left; font-weight: 500;">Step</th>
+              <th style="padding: 6px 8px; text-align: center; font-weight: 500;">Status</th>
+              <th style="padding: 6px 8px; text-align: left; font-weight: 500;">Reason</th>
+              <th style="padding: 6px 8px; text-align: left; font-weight: 500;">Expected Facts</th>
+              <th style="padding: 6px 8px; text-align: left; font-weight: 500;">Action</th>
+            </tr>
+          </thead>
+          <tbody>${tableContent}</tbody>
+        </table>
+      </div>`;
+    
+    // === CAPABILITY/VISIBILITY INFO ===
+    let capabilityHtml = '';
+    if (evalData.capability) {
+      const cap = evalData.capability;
+      capabilityHtml = `
+        <div style="margin-top: 12px; padding: 8px 10px; background: var(--panel2); border-radius: var(--radius-sm); font-size: 10px;">
+          <span style="color: var(--muted); font-weight: 500;">System Capability: </span>
+          <span style="color: ${cap.is_admin ? 'var(--good)' : 'var(--bad)'};">${cap.is_admin ? '✓' : '✗'} Admin</span>
+          <span style="margin-left: 8px; color: ${cap.security_log_accessible ? 'var(--good)' : 'var(--bad)'};">${cap.security_log_accessible ? '✓' : '✗'} Security Log</span>
+          <span style="margin-left: 8px; color: ${cap.sysmon_installed ? 'var(--good)' : 'var(--bad)'};">${cap.sysmon_installed ? '✓' : '✗'} Sysmon</span>
+        </div>`;
+    }
+    
+    // === SCOPE CONTEXT (moved from banner) ===
+    const scope = state.investigateScope;
+    const scopeMode = scope?.mode || 'general_discovery';
+    const scopeLabel = getScopeModeLabel(scopeMode);
+    const scopeCount = evalData?.evaluations?.length || 0;
+    const scopeHtml = `
+      <div style="margin-bottom: 12px; padding: 6px 10px; background: var(--panel2); border-radius: var(--radius-sm); font-size: 10px; display: flex; align-items: center; gap: 8px;">
+        <span style="color: var(--muted);">📋</span>
+        <span style="color: var(--text); font-weight: 500;">${scopeLabel}</span>
+        <span style="color: var(--muted);">(${scopeCount} playbook${scopeCount !== 1 ? 's' : ''} evaluated)</span>
+      </div>`;
+    
+    // === EVIDENCE FOOTER (sticky action) ===
+    const evidenceFooterHtml = `
+      <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end;">
+        <button id="btnOpenEvidenceScoped" 
+                style="padding: 8px 16px; font-size: 11px; font-weight: 500; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; display: flex; align-items: center; gap: 6px;">
+          🔍 Open Evidence (scoped to "${escapeHtml(playbook.playbook_name || playbook.playbook_id)}")
+        </button>
+      </div>`;
+    
+    const html = `
+      <div style="padding: 4px 0; display: flex; flex-direction: column; height: 100%;">
+        <div style="flex: 1; overflow-y: auto;">
+          <!-- Scope Context (moved from banner) -->
+          ${scopeHtml}
+          
+          <!-- Status Header -->
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+            ${statusPill}
+            ${playbook.severity ? `<span style="font-size: 11px; color: var(--warn);">Severity: ${playbook.severity}</span>` : ''}
+            <span style="font-size: 10px; color: var(--muted);">${stepsMatched}/${stepsTotal} steps matched</span>
+          </div>
+          
+          <!-- Explanation Block -->
+          ${explanationHtml}
+          
+          <!-- Primary Reason (if blocked/skipped) -->
+          ${primaryReason ? `
+          <div style="margin-bottom: 12px; padding: 8px 10px; background: rgba(239, 68, 68, 0.1); border-left: 3px solid var(--bad); border-radius: 0 var(--radius-sm) var(--radius-sm) 0;">
+            <span style="font-size: 10px; font-weight: 500; color: var(--bad);">Blocking Reason:</span>
+            <span style="font-size: 10px; color: var(--text); margin-left: 4px;">${escapeHtml(primaryReason)}</span>
+          </div>` : ''}
+          
+          ${capabilityHtml}
+          ${stepsHtml}
+        </div>
+        
+        <!-- Sticky Evidence Footer -->
+        ${evidenceFooterHtml}
+      </div>`;
+    
+    if (els.investigateDetailContent) {
+      els.investigateDetailContent.innerHTML = html;
+      
+      // Attach Evidence Drawer handlers for each step row (NEW - opens drawer instead of switching tabs)
+      els.investigateDetailContent.querySelectorAll('.slot-evidence-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const stepData = JSON.parse(btn.dataset.step || '{}');
+          openEvidenceDrawer(stepData);
+        });
+      });
+      
+      // Attach handler for main Evidence footer button (still switches tabs)
+      const btnOpenEvidenceScoped = els.investigateDetailContent.querySelector('#btnOpenEvidenceScoped');
+      if (btnOpenEvidenceScoped) {
+        btnOpenEvidenceScoped.addEventListener('click', () => {
+          // Gather all expected fact types from steps for scoped evidence search
+          const allFactTypes = steps.flatMap(s => s.expected_fact_types || []);
+          const uniqueFactTypes = [...new Set(allFactTypes)];
+          openEvidenceWithFilters({
+            fact_types: uniqueFactTypes.length > 0 ? uniqueFactTypes : ['*'],
+            query: playbook.playbook_name || playbook.playbook_id
+          });
+        });
+      }
+    }
+    
+    // Show action bar
+    if (els.investigateActionBar) {
+      els.investigateActionBar.classList.remove('hidden');
+    }
+  }
+  
+  /**
+   * Generate human-readable explanation for a playbook evaluation
+   * Part A: Verbose explanation based on status
+   */
+  function generatePlaybookExplanation(playbook, evalData) {
+    const status = playbook.status;
+    const steps = playbook.step_statuses || [];
+    const blockedReason = playbook.blocked_reason;
+    const cap = evalData?.capability || {};
+    
+    let title = '';
+    let explanation = '';
+    let actionHint = '';
+    
+    switch (status) {
+      case 'fired':
+        title = '🔴 Detection Fired';
+        const matchedSteps = steps.filter(s => s.status === 'matched');
+        explanation = `This playbook matched ${matchedSteps.length} detection step(s). ` +
+          `The observed facts align with the behavioral pattern defined in "${playbook.playbook_name || playbook.playbook_id}". ` +
+          `Review the matched steps below to understand which specific behaviors triggered this detection.`;
+        actionHint = 'Click "🔍 Evidence" on matched steps to see the underlying facts.';
+        break;
+        
+      case 'candidate':
+        title = '🟠 Candidate (Partial Match)';
+        const candidateMatched = steps.filter(s => s.status === 'matched').length;
+        explanation = `This playbook partially matched (${candidateMatched}/${steps.length} steps). ` +
+          `Some expected behaviors were observed, but not enough to definitively fire the detection. ` +
+          `This may indicate early-stage activity or incomplete visibility.`;
+        actionHint = 'Review unmatched steps to understand what additional evidence would be needed.';
+        break;
+        
+      case 'no_match':
+        title = '⚪ No Match';
+        explanation = `This playbook was fully evaluated but no matching facts were found. ` +
+          `The system had sufficient visibility to check all ${steps.length} detection step(s), ` +
+          `but the observed telemetry did not match the expected behavioral patterns.`;
+        actionHint = 'This is normal for most playbooks in a given run. No action required unless you expected this detection to fire.';
+        break;
+        
+      case 'blocked':
+        title = '⚫ Blocked (Cannot Evaluate)';
+        // Explain why blocked based on capability
+        let blockReason = blockedReason || 'Required visibility is not available';
+        if (!cap.security_log_accessible) {
+          explanation = `This playbook requires access to the Windows Security log, which is not accessible. ` +
+            `This typically happens when the collector is not running with Administrator privileges. `;
+        } else if (!cap.sysmon_installed) {
+          explanation = `This playbook requires Sysmon telemetry, but Sysmon is not installed or not generating events. `;
+        } else {
+          explanation = `This playbook could not be evaluated: ${blockReason}. `;
+        }
+        explanation += `Without this visibility, the detection engine cannot determine if the behavior occurred.`;
+        actionHint = cap.is_admin ? 'Ensure required sensors are installed and configured.' : 
+                     'Run the collector with Administrator privileges to access Security logs.';
+        break;
+        
+      case 'skipped':
+        title = '⏭️ Skipped';
+        explanation = `This playbook was skipped, either because it was out of scope for this run ` +
+          `or disabled by policy. The detection logic was not executed.`;
+        actionHint = 'If you want to evaluate this playbook, select it explicitly in Mission before starting a run.';
+        break;
+        
+      default:
+        title = '❓ Unknown Status';
+        explanation = `Unexpected status: ${status}. This may indicate a version mismatch or data issue.`;
+        actionHint = '';
+    }
+    
+    return `
+      <div style="margin-bottom: 16px; padding: 12px; background: var(--panel2); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+        <div style="font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 8px;">${title}</div>
+        <div style="font-size: 11px; color: var(--muted); line-height: 1.5; margin-bottom: 8px;">${explanation}</div>
+        ${actionHint ? `<div style="font-size: 10px; color: var(--accent); font-style: italic;">💡 ${actionHint}</div>` : ''}
+      </div>`;
+  }
+  
+  /**
+   * Open Evidence tab with filters from search_hints
+   */
+  function openEvidenceWithFilters(searchHints) {
+    // Switch to Evidence tab
+    switchRunTab('facts');
+    
+    // Apply filters from search_hints
+    if (searchHints.lens && els.evidenceLensSelect) {
+      // Try to find matching lens option
+      const options = Array.from(els.evidenceLensSelect.options);
+      const match = options.find(opt => 
+        opt.value.toLowerCase().includes(searchHints.lens.toLowerCase())
+      );
+      if (match) {
+        els.evidenceLensSelect.value = match.value;
+      }
+    }
+    
+    if (searchHints.query && els.evidenceSearchInput) {
+      els.evidenceSearchInput.value = searchHints.query;
+    }
+    
+    // Apply fact_types filter if available
+    if (searchHints.fact_types?.length > 0 && els.evidenceLensSelect) {
+      // Try to match first fact type to a lens
+      const factType = searchHints.fact_types[0];
+      const options = Array.from(els.evidenceLensSelect.options);
+      const match = options.find(opt => opt.value === factType);
+      if (match) {
+        els.evidenceLensSelect.value = match.value;
+      }
+    }
+    
+    // Show filter banner
+    if (els.evidenceFilterBanner) {
+      els.evidenceFilterBanner.classList.remove('hidden');
+      if (els.evidenceFilterStatus) {
+        els.evidenceFilterStatus.textContent = `🔍 Filtered from Investigate: ${searchHints.fact_types?.join(', ') || searchHints.query || 'slot search'}`;
+      }
+    }
+    
+    // Trigger evidence refresh
+    if (typeof renderEvidenceTab === 'function') {
+      renderEvidenceTab();
+    }
+  }
+  
+  /**
+   * Open Evidence Drawer inside Investigate tab (INVESTIGATE_DRAWER-1)
+   * Shows step evidence inline without switching tabs
+   * @param {Object} stepData - { stepName, stepStatus, expectedFactTypes, searchHints, isBlocked, blockedReason, playbookName }
+   *                           For chain steps also: { isChainStep, chainId, chainTitle, evidenceRefsCount, matchedSignals, coverageGaps }
+   */
+  async function openEvidenceDrawer(stepData) {
+    // Store current step in state
+    state.evidenceDrawerStep = stepData;
+    state.evidenceDrawerOpen = true;
+    
+    // Show the drawer
+    if (els.investigateEvidenceDrawer) {
+      els.investigateEvidenceDrawer.classList.remove('hidden');
+    }
+    
+    // Update drawer title (include context for chain steps)
+    if (els.evidenceDrawerTitle) {
+      if (stepData.isChainStep) {
+        els.evidenceDrawerTitle.textContent = `${stepData.stepName} (${stepData.chainTitle || 'Chain'})`;
+      } else {
+        els.evidenceDrawerTitle.textContent = stepData.stepName || 'Step Evidence';
+      }
+    }
+    
+    // Clear loading state
+    if (els.evidenceDrawerContent) {
+      els.evidenceDrawerContent.innerHTML = `
+        <div style="text-align: center; padding: 40px 20px; color: var(--muted);">
+          <div style="font-size: 18px; margin-bottom: 8px;">⏳</div>
+          <div style="font-size: 12px;">Loading evidence...</div>
+        </div>`;
+    }
+    
+    // If step is blocked, show explanation instead of evidence
+    if (stepData.isBlocked) {
+      renderBlockedStepExplanation(stepData);
+      return;
+    }
+    
+    // INVESTIGATE_CHAINS-1: Handle chain steps differently - they may have matched signals
+    if (stepData.isChainStep) {
+      await fetchAndRenderChainStepEvidence(stepData);
+    } else {
+      // Fetch facts for the expected fact types (original behavior)
+      await fetchAndRenderDrawerFacts(stepData);
+    }
+  }
+  
+  /**
+   * Fetch and render evidence for a chain step
+   * INVESTIGATE_CHAINS-1: Chain steps use matched_signals from step_status
+   */
+  async function fetchAndRenderChainStepEvidence(stepData) {
+    if (!els.evidenceDrawerContent) return;
+    
+    const matchedSignals = stepData.matchedSignals || [];
+    const evidenceRefsCount = stepData.evidenceRefsCount || 0;
+    const coverageGaps = stepData.coverageGaps || [];
+    
+    // Determine the step state config for display
+    const stateConfig = getChainStepStateConfig(stepData.stepStatus);
+    
+    // If step has matched signals, show them
+    if (matchedSignals.length > 0) {
+      // Build signal summaries
+      const signalsHtml = matchedSignals.slice(0, 10).map(sig => `
+        <div style="background: var(--surface-dim); border-radius: var(--radius-sm); padding: 10px; margin-bottom: 6px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-size: 11px; font-weight: 500; color: var(--text);">${escapeHtml(sig.playbook_id || 'Unknown')}</span>
+            <span style="font-size: 9px; padding: 2px 6px; border-radius: 3px; background: rgba(239, 68, 68, 0.2); color: var(--bad);">${escapeHtml(sig.severity || 'medium')}</span>
+          </div>
+          <div style="font-size: 10px; color: var(--muted);">
+            ${sig.evidence_count || 0} evidence refs
+          </div>
+        </div>
+      `).join('');
+      
+      els.evidenceDrawerContent.innerHTML = `
+        <div style="padding: 16px;">
+          <!-- Step Status Header -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+            <span style="font-size: 16px;">${stateConfig.emoji}</span>
+            <span style="font-size: 13px; font-weight: 500; color: ${stateConfig.color};">${stateConfig.label}</span>
+          </div>
+          
+          <!-- Evidence Summary -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding: 8px 12px; background: rgba(34, 197, 94, 0.1); border-radius: var(--radius-sm);">
+            <span style="font-size: 14px;">✨</span>
+            <span style="font-size: 12px; color: var(--good);">
+              ${matchedSignals.length} signal${matchedSignals.length !== 1 ? 's' : ''} · ${evidenceRefsCount} evidence ref${evidenceRefsCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+          
+          <!-- Matched Signals -->
+          <div style="margin-bottom: 16px;">
+            <div style="font-size: 10px; font-weight: 500; color: var(--muted); margin-bottom: 8px;">Matched Signals:</div>
+            ${signalsHtml}
+            ${matchedSignals.length > 10 ? `
+              <div style="text-align: center; padding: 8px; color: var(--muted); font-size: 10px;">
+                +${matchedSignals.length - 10} more signals...
+              </div>
+            ` : ''}
+          </div>
+        </div>`;
+    } else if (stepData.stepStatus === 'candidate') {
+      // Candidate state: signals fired but no evidence refs
+      els.evidenceDrawerContent.innerHTML = `
+        <div style="padding: 16px;">
+          <!-- Step Status Header -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+            <span style="font-size: 16px;">🟡</span>
+            <span style="font-size: 13px; font-weight: 500; color: var(--warn);">Candidate</span>
+          </div>
+          
+          <!-- Explanation -->
+          <div style="background: rgba(245, 158, 11, 0.1); border-left: 3px solid var(--warn); padding: 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 16px;">
+            <div style="font-size: 12px; color: var(--text);">
+              Signals were detected, but no direct evidence refs are available.
+            </div>
+          </div>
+          
+          <!-- Placeholder -->
+          <div style="text-align: center; padding: 20px; color: var(--muted);">
+            <div style="font-size: 14px; margin-bottom: 4px;">🔍</div>
+            <div style="font-size: 11px;">This step has signal matches but needs more evidence to be fully satisfied.</div>
+          </div>
+        </div>`;
+    } else if (stepData.stepStatus === 'not_observed') {
+      // Not observed: no signals at all
+      els.evidenceDrawerContent.innerHTML = `
+        <div style="padding: 16px;">
+          <!-- Step Status Header -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+            <span style="font-size: 16px;">⚪</span>
+            <span style="font-size: 13px; font-weight: 500; color: var(--muted);">Not Observed</span>
+          </div>
+          
+          <!-- Explanation -->
+          <div style="background: rgba(0,0,0,0.1); border-left: 3px solid var(--muted); padding: 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 16px;">
+            <div style="font-size: 12px; color: var(--text);">
+              No signals were fired for this step's playbooks during the run.
+            </div>
+          </div>
+          
+          ${coverageGaps.length > 0 ? `
+          <!-- Coverage Gaps -->
+          <div style="margin-bottom: 16px;">
+            <div style="font-size: 10px; font-weight: 500; color: var(--muted); margin-bottom: 8px;">Coverage Gaps:</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              ${coverageGaps.map(gap => `
+                <span style="font-size: 10px; padding: 2px 6px; background: rgba(239, 68, 68, 0.1); border-radius: 4px; color: var(--bad);">⚠️ ${escapeHtml(gap)}</span>
+              `).join('')}
+            </div>
+          </div>
+          ` : ''}
+          
+          <!-- No Evidence Placeholder -->
+          <div style="text-align: center; padding: 20px; color: var(--muted);">
+            <div style="font-size: 14px; margin-bottom: 4px;">📭</div>
+            <div style="font-size: 11px;">No evidence for this step yet.</div>
+          </div>
+        </div>`;
+    } else {
+      // Fallback for unverified or unknown states
+      els.evidenceDrawerContent.innerHTML = `
+        <div style="padding: 16px;">
+          <!-- Step Status Header -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+            <span style="font-size: 16px;">${stateConfig.emoji}</span>
+            <span style="font-size: 13px; font-weight: 500; color: ${stateConfig.color};">${stateConfig.label}</span>
+          </div>
+          
+          <div style="text-align: center; padding: 20px; color: var(--muted);">
+            <div style="font-size: 14px; margin-bottom: 4px;">❓</div>
+            <div style="font-size: 11px;">Step status could not be fully determined.</div>
+          </div>
+        </div>`;
+    }
+  }
+  
+  /**
+   * Render explanation for blocked steps in Evidence Drawer
+   */
+  function renderBlockedStepExplanation(stepData) {
+    if (!els.evidenceDrawerContent) return;
+    
+    const reason = stepData.blockedReason || 'Unknown blocking reason';
+    
+    // Try to determine capability hint from reason
+    let capabilityHint = '';
+    const reasonLower = reason.toLowerCase();
+    if (reasonLower.includes('sysmon') || reasonLower.includes('event_id')) {
+      capabilityHint = 'This step requires Sysmon event logs. Ensure Sysmon is installed and configured with appropriate event collection.';
+    } else if (reasonLower.includes('registry') || reasonLower.includes('reg_')) {
+      capabilityHint = 'This step requires registry monitoring. Check that registry audit policies are enabled.';
+    } else if (reasonLower.includes('network') || reasonLower.includes('dns') || reasonLower.includes('connection')) {
+      capabilityHint = 'This step requires network monitoring. Verify firewall/network audit logs are being collected.';
+    } else if (reasonLower.includes('file') || reasonLower.includes('filesystem')) {
+      capabilityHint = 'This step requires file system monitoring. Ensure file audit policies are configured.';
+    }
+    
+    els.evidenceDrawerContent.innerHTML = `
+      <div style="padding: 16px;">
+        <!-- Blocked Status -->
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+          <span style="font-size: 16px;">⚫</span>
+          <span style="font-size: 13px; font-weight: 500; color: var(--muted);">Step Blocked</span>
+        </div>
+        
+        <!-- Reason Box -->
+        <div style="background: rgba(0,0,0,0.2); border-left: 3px solid var(--muted); padding: 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 16px;">
+          <div style="font-size: 10px; font-weight: 500; color: var(--muted); margin-bottom: 4px;">Why this step couldn't run:</div>
+          <div style="font-size: 12px; color: var(--text);">${escapeHtml(reason)}</div>
+        </div>
+        
+        ${capabilityHint ? `
+        <!-- Capability Hint -->
+        <div style="background: rgba(59, 130, 246, 0.1); border-left: 3px solid var(--info); padding: 12px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; margin-bottom: 16px;">
+          <div style="font-size: 10px; font-weight: 500; color: var(--info); margin-bottom: 4px;">💡 Hint:</div>
+          <div style="font-size: 11px; color: var(--text);">${escapeHtml(capabilityHint)}</div>
+        </div>` : ''}
+        
+        <!-- Expected Fact Types -->
+        ${stepData.expectedFactTypes?.length > 0 ? `
+        <div style="margin-bottom: 16px;">
+          <div style="font-size: 10px; font-weight: 500; color: var(--muted); margin-bottom: 8px;">Expected fact types:</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+            ${stepData.expectedFactTypes.map(ft => `
+              <span style="font-size: 10px; padding: 2px 6px; background: var(--surface-dim); border-radius: 4px; color: var(--muted);">${escapeHtml(ft)}</span>
+            `).join('')}
+          </div>
+        </div>` : ''}
+        
+        <!-- No Evidence Notice -->
+        <div style="text-align: center; padding: 20px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 16px;">
+          <div style="font-size: 14px; margin-bottom: 4px;">📭</div>
+          <div style="font-size: 11px;">No evidence available for blocked steps</div>
+        </div>
+      </div>`;
+  }
+  
+  /**
+   * Fetch facts for step's expected fact types and render in drawer
+   */
+  async function fetchAndRenderDrawerFacts(stepData) {
+    if (!els.evidenceDrawerContent) return;
+    
+    const runId = state.selectedRun?.id || state.selectedRun?.run_id;
+    if (!runId) {
+      els.evidenceDrawerContent.innerHTML = `
+        <div style="text-align: center; padding: 40px 20px; color: var(--bad);">
+          <div style="font-size: 18px; margin-bottom: 8px;">⚠️</div>
+          <div style="font-size: 12px;">No run selected</div>
+        </div>`;
+      return;
+    }
+    
+    const factTypes = stepData.expectedFactTypes || [];
+    
+    try {
+      // Fetch facts - filter by fact types if available
+      let url = `${API_BASE}/api/runs/${runId}/facts`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      
+      const rawData = await resp.json();
+      
+      // WORKBENCH_BUGFIX-1: Normalize API response safely
+      // Handle various response shapes: array, {facts:[]}, {data:{facts:[]}}, {data:[]}
+      let facts = rawData?.data?.facts ?? rawData?.facts ?? rawData?.data ?? rawData;
+      if (!Array.isArray(facts)) {
+        if (DEBUG_UI) {
+          console.warn('[Evidence Drawer] API returned non-array facts, raw payload:', rawData);
+        }
+        facts = [];
+      }
+      
+      // Filter by expected fact types
+      if (factTypes.length > 0) {
+        facts = facts.filter(f => factTypes.includes(f.fact_type));
+      }
+      
+      // Store in state
+      state.evidenceDrawerFacts = facts;
+      
+      // Render the facts
+      renderDrawerFacts(stepData, facts);
+      
+    } catch (err) {
+      console.error('Error fetching drawer facts:', err);
+      els.evidenceDrawerContent.innerHTML = `
+        <div style="text-align: center; padding: 40px 20px; color: var(--bad);">
+          <div style="font-size: 18px; margin-bottom: 8px;">⚠️</div>
+          <div style="font-size: 12px;">Failed to load evidence: ${escapeHtml(err.message)}</div>
+        </div>`;
+    }
+  }
+  
+  /**
+   * Render facts in the Evidence Drawer
+   */
+  function renderDrawerFacts(stepData, facts) {
+    if (!els.evidenceDrawerContent) return;
+    
+    if (facts.length === 0) {
+      els.evidenceDrawerContent.innerHTML = `
+        <div style="padding: 16px;">
+          <!-- Step Info -->
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+            <span style="font-size: 16px;">${stepData.stepStatus === 'matched' ? '✅' : stepData.stepStatus === 'unmatched' ? '⚪' : '🔍'}</span>
+            <span style="font-size: 13px; font-weight: 500; color: var(--text);">${escapeHtml(stepData.stepName)}</span>
+          </div>
+          
+          <!-- Expected Fact Types -->
+          ${stepData.expectedFactTypes?.length > 0 ? `
+          <div style="margin-bottom: 16px;">
+            <div style="font-size: 10px; font-weight: 500; color: var(--muted); margin-bottom: 8px;">Looking for:</div>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+              ${stepData.expectedFactTypes.map(ft => `
+                <span style="font-size: 10px; padding: 2px 6px; background: var(--surface-dim); border-radius: 4px; color: var(--muted);">${escapeHtml(ft)}</span>
+              `).join('')}
+            </div>
+          </div>` : ''}
+          
+          <!-- No Evidence Message -->
+          <div style="text-align: center; padding: 30px 20px; color: var(--muted); background: var(--surface-dim); border-radius: var(--radius);">
+            <div style="font-size: 20px; margin-bottom: 8px;">📭</div>
+            <div style="font-size: 12px; font-weight: 500; margin-bottom: 4px;">No matching evidence found</div>
+            <div style="font-size: 11px;">The expected fact types were not found in the collected evidence.</div>
+          </div>
+        </div>`;
+      return;
+    }
+    
+    // Group facts by type
+    const byType = {};
+    facts.forEach(f => {
+      const t = f.fact_type || 'unknown';
+      if (!byType[t]) byType[t] = [];
+      byType[t].push(f);
+    });
+    
+    // Render grouped facts
+    const groupsHtml = Object.entries(byType).map(([type, items]) => `
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <span style="font-size: 11px; font-weight: 600; color: var(--text);">${escapeHtml(type)}</span>
+          <span style="font-size: 10px; color: var(--muted);">${items.length} fact${items.length !== 1 ? 's' : ''}</span>
+        </div>
+        ${items.slice(0, 10).map(fact => `
+          <div style="background: var(--surface-dim); border-radius: var(--radius-sm); padding: 8px 10px; margin-bottom: 6px; font-size: 11px;">
+            ${renderFactMiniCard(fact)}
+          </div>
+        `).join('')}
+        ${items.length > 10 ? `
+          <div style="text-align: center; padding: 8px; color: var(--muted); font-size: 10px;">
+            +${items.length - 10} more facts...
+          </div>
+        ` : ''}
+      </div>
+    `).join('');
+    
+    els.evidenceDrawerContent.innerHTML = `
+      <div style="padding: 16px;">
+        <!-- Step Info -->
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
+          <span style="font-size: 16px;">${stepData.stepStatus === 'matched' ? '✅' : '🔍'}</span>
+          <span style="font-size: 13px; font-weight: 500; color: var(--text);">${escapeHtml(stepData.stepName)}</span>
+        </div>
+        
+        <!-- Facts Summary -->
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px; padding: 8px 12px; background: rgba(34, 197, 94, 0.1); border-radius: var(--radius-sm);">
+          <span style="font-size: 14px;">✨</span>
+          <span style="font-size: 12px; color: var(--good);">${facts.length} matching fact${facts.length !== 1 ? 's' : ''} found</span>
+        </div>
+        
+        <!-- Fact Groups -->
+        ${groupsHtml}
+      </div>`;
+  }
+  
+  /**
+   * Render a mini fact card for the drawer
+   */
+  function renderFactMiniCard(fact) {
+    // Extract key fields to display
+    const summary = fact.summary || fact.description || '';
+    const timestamp = fact.timestamp || fact.collected_at || '';
+    const source = fact.source || '';
+    
+    // Build mini display
+    let html = '';
+    if (summary) {
+      html += `<div style="color: var(--text); margin-bottom: 4px; word-break: break-word;">${escapeHtml(summary.substring(0, 200))}${summary.length > 200 ? '...' : ''}</div>`;
+    }
+    if (timestamp || source) {
+      html += `<div style="display: flex; gap: 12px; color: var(--muted); font-size: 10px;">`;
+      if (timestamp) html += `<span>⏱️ ${escapeHtml(typeof timestamp === 'string' ? timestamp.substring(0, 19) : String(timestamp))}</span>`;
+      if (source) html += `<span>📁 ${escapeHtml(source)}</span>`;
+      html += `</div>`;
+    }
+    if (!html) {
+      // Fallback: show raw JSON snippet
+      const raw = JSON.stringify(fact).substring(0, 150);
+      html = `<div style="color: var(--muted); font-family: var(--font-mono); font-size: 10px;">${escapeHtml(raw)}...</div>`;
+    }
+    return html;
+  }
+  
+  /**
+   * Close the Evidence Drawer
+   */
+  function closeEvidenceDrawer() {
+    state.evidenceDrawerOpen = false;
+    state.evidenceDrawerStep = null;
+    state.evidenceDrawerFacts = [];
+    
+    if (els.investigateEvidenceDrawer) {
+      els.investigateEvidenceDrawer.classList.add('hidden');
+    }
+  }
+  
+  /**
+   * Render empty state for "no playbooks selected" mode
+   */
+  function renderInvestigateEmptyStateNoPlaybooks() {
+    if (els.investigateSplitPane) els.investigateSplitPane.classList.add('hidden');
+    if (els.findingsEmpty) {
+      els.findingsEmpty.classList.remove('hidden');
+      els.findingsEmpty.innerHTML = `
+        <div style="font-size: 24px; margin-bottom: 8px; opacity: 0.5;">📭</div>
+        <div style="font-size: 14px; color: var(--muted);">No playbooks selected for this run</div>
+        <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">Go to Mission to configure playbook selection</div>
+        <button onclick="switchTab('mission')" style="margin-top: 12px; padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer;">Go to Mission</button>`;
+    }
+  }
+
+  /**
+   * Render Investigate tab LEGACY (using signals)
+   * Kept for backward compatibility with old runs that don't have playbook_scope
+   * Left pane: Findings list (grouped by playbook, severity filter)
+   * Right pane: Explain/trace detail for selected finding, or run-level summary if no findings
+   */
+  function renderInvestigateTabLegacy() {
+    // PHASE 1 MARKER: Prove this LEGACY renderer is being called
+    console.log('[INVESTIGATE LEGACY] renderInvestigateTabLegacy called - THIS SHOULD NOT APPEAR');
+    
+    // Check if endpoint available
+    if (state.capabilities.signals === false) {
+      if (els.investigateSplitPane) els.investigateSplitPane.classList.add('hidden');
+      if (els.findingsEmpty) els.findingsEmpty.classList.add('hidden');
+      if (els.findingsUnavailable) els.findingsUnavailable.classList.remove('hidden');
+      if (els.findingsMissingEndpoint) els.findingsMissingEndpoint.textContent = '(missing: /api/signals)';
+      return;
+    }
+    
+    if (els.findingsUnavailable) els.findingsUnavailable.classList.add('hidden');
+    
+    // Get filtered signals
+    const severityFilter = els.findingsSeverityFilter?.value || '';
+    let filtered = state.signals || [];
+    if (severityFilter) {
+      filtered = filtered.filter(s => s.severity === severityFilter);
+    }
+    
+    // === Show split pane if we have data ===
+    if (els.investigateSplitPane) els.investigateSplitPane.classList.remove('hidden');
+    if (els.findingsEmpty) els.findingsEmpty.classList.add('hidden');
+    
+    // Update findings count
+    if (els.findingsCount) {
+      els.findingsCount.textContent = `${filtered.length} finding${filtered.length !== 1 ? 's' : ''}`;
+    }
+    
+    // === RENDER LEFT PANE: Findings List ===
+    renderInvestigateLeftPane(filtered);
+    
+    // === RENDER RIGHT PANE: Detail View ===
+    // Auto-select highest severity finding if none selected and we have findings
+    if (filtered.length > 0 && !state.selectedSignalId) {
+      // Sort by severity and select first
+      const sorted = [...filtered].sort((a, b) => getSeverityRank(b.severity) - getSeverityRank(a.severity));
+      selectSignalForInvestigate(sorted[0].signal_id);
+    } else if (filtered.length > 0 && state.selectedSignalId) {
+      // Already have a selection, render detail
+      renderInvestigateRightPane();
+    } else {
+      // No findings - show run-level summary
+      renderInvestigateEmptyState();
+    }
+    
+    // === Setup Next/Prev navigation ===
+    setupInvestigateNavigation(filtered);
+  }
+
+  /**
+   * Render the left pane (findings list) for Investigate tab
+   * 
+   * SCOPING NOTE (2025-01): This shows playbooks that FIRED during the run,
+   * NOT playbooks that were SELECTED in Mission. The `playbook_selection` data
+   * IS persisted in run_meta.json (mode, preset, selected_playbooks) but is
+   * NOT exposed via /api/runs or /api/runs/:id endpoints. Without backend
+   * changes to expose playbook_selection, we honestly label this as "fired"
+   * playbooks. If a user selected only "persistence" but "defense_evasion"
+   * fired, it's because the backend evaluates ALL loaded playbooks regardless
+   * of UI selection state for that run.
+   */
+  function renderInvestigateLeftPane(filtered) {
+    // Part E: Group findings by playbook ID with collapsible groups
+    const GROUPS_LIMIT = 5; // Show more groups in split view
+    
+    // Helper: extract best available identifier from a signal
+    const getSignalGroupKey = (sig) => {
+      const candidates = [
+        sig.playbook_id,
+        sig.detector_id,
+        sig.source_id,
+        sig.signal_type,
+        sig.title,
+        sig.name
+      ];
+      for (const c of candidates) {
+        if (c && c !== '' && c !== 'unknown' && c !== 'Unknown') return c;
+      }
+      if (sig.signal_id) return `unlabeled:${sig.signal_id.slice(0, 8)}`;
+      return 'unlabeled';
+    };
+    
+    // Group by best available identifier
+    const groups = {};
+    filtered.forEach(sig => {
+      const groupKey = getSignalGroupKey(sig);
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          playbook_id: groupKey,
+          signals: [],
+          highestSeverity: 'low'
+        };
+      }
+      groups[groupKey].signals.push(sig);
+      if (getSeverityRank(sig.severity) > getSeverityRank(groups[groupKey].highestSeverity)) {
+        groups[groupKey].highestSeverity = sig.severity;
+      }
+    });
+    
+    // Sort groups by highest severity, then by count
+    const sortedGroups = Object.values(groups).sort((a, b) => {
+      const sevDiff = getSeverityRank(b.highestSeverity) - getSeverityRank(a.highestSeverity);
+      if (sevDiff !== 0) return sevDiff;
+      return b.signals.length - a.signals.length;
+    });
+    
+    // Render helper for a single finding item (compact for split view)
+    const renderFindingItem = (sig) => {
+      const isSelected = sig.signal_id === state.selectedSignalId;
+      const severityColor = {
+        'critical': 'var(--error)',
+        'high': 'var(--error)',
+        'medium': 'var(--warn)',
+        'low': 'var(--muted)'
+      }[sig.severity] || 'var(--muted)';
+      
+      const ts = new Date(sig.ts || 0).toLocaleTimeString();
+      
+      return `
+        <div class="finding-item ${isSelected ? 'selected' : ''}" data-signal-id="${sig.signal_id}" 
+             style="padding: 6px 8px; background: ${isSelected ? 'var(--accent)22' : 'transparent'}; 
+                    border-left: 2px solid ${isSelected ? 'var(--accent)' : 'transparent'}; 
+                    cursor: pointer; transition: all 0.15s; font-size: 11px;"
+             onmouseover="if(!this.classList.contains('selected')) this.style.background='var(--panel2)'"
+             onmouseout="if(!this.classList.contains('selected')) this.style.background='transparent'">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: 500; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              ${escapeHtml(sig.signal_type || 'Unknown')}
+            </span>
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: ${severityColor};" title="${sig.severity}"></span>
+          </div>
+          <div style="font-size: 10px; color: var(--muted); margin-top: 2px;">${ts}</div>
+        </div>
+      `;
+    };
+    
+    // Helper: format an identifier into a friendly display name
+    const formatDisplayName = (id) => {
+      if (!id) return null;
+      const prefixMatch = id.match(/^(playbook|detector|source|rule|sigma|mitre):(.+)$/i);
+      if (prefixMatch) {
+        const [, prefix, name] = prefixMatch;
+        return name.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      }
+      if (id.startsWith('unlabeled:')) return `Findings (${id.replace('unlabeled:', '').slice(0, 6)})`;
+      if (id === 'unlabeled') return 'Findings';
+      if (id.includes('_') || id.includes('-')) {
+        return id.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      }
+      return id;
+    };
+    
+    // Render helper for a group (compact)
+    const renderGroup = (group, isOpen = false) => {
+      const severityColor = {
+        'critical': 'var(--error)',
+        'high': 'var(--error)',
+        'medium': 'var(--warn)',
+        'low': 'var(--muted)'
+      }[group.highestSeverity] || 'var(--muted)';
+      
+      const displayName = formatDisplayName(group.playbook_id) || 'Findings';
+      
+      return `
+        <details class="finding-group" ${isOpen ? 'open' : ''} style="margin-bottom: 4px; background: var(--panel2); border-radius: var(--radius-sm); overflow: hidden;">
+          <summary style="padding: 6px 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; border-left: 3px solid ${severityColor}; font-size: 11px;">
+            <span class="collapse-arrow" style="transition: transform 0.2s; font-size: 8px;">▶</span>
+            <span style="font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(displayName)}</span>
+            <span style="color: var(--muted);">${group.signals.length}</span>
+          </summary>
+          <div style="border-top: 1px solid var(--border);">
+            ${group.signals.map(renderFindingItem).join('')}
+          </div>
+        </details>
+      `;
+    };
+    
+    // Build scope header text based on groups found
+    const playbookCount = sortedGroups.filter(g => 
+      g.playbook_id?.startsWith('playbook:') || 
+      (!g.playbook_id?.includes(':') && g.playbook_id !== 'unlabeled')
+    ).length;
+    const scopeText = playbookCount > 0 
+      ? `${playbookCount} playbook${playbookCount === 1 ? '' : 's'} fired`
+      : 'Playbook findings';
+    
+    // Render grouped findings
+    if (els.findingsGrouped) {
+      if (filtered.length === 0) {
+        // Empty state: No playbooks fired findings for this run
+        els.findingsGrouped.innerHTML = `
+          <div style="padding: 24px; text-align: center; color: var(--muted);">
+            <div style="font-size: 20px; margin-bottom: 8px; opacity: 0.5;">✓</div>
+            <div style="font-size: 12px; font-weight: 500; margin-bottom: 4px;">No playbook findings</div>
+            <div style="font-size: 11px; line-height: 1.4;">
+              Playbooks were evaluated but none<br/>matched the activity in this run.
+            </div>
+          </div>
+        `;
+      } else {
+        const visibleGroups = sortedGroups.slice(0, GROUPS_LIMIT);
+        const hiddenGroups = sortedGroups.slice(GROUPS_LIMIT);
+        
+        // Scope header: tell user what they're seeing
+        const scopeHeader = `
+          <div style="padding: 6px 8px; font-size: 10px; color: var(--muted); border-bottom: 1px solid var(--border); margin-bottom: 4px;">
+            🎯 ${scopeText}
+          </div>
+        `;
+        
+        // First group expanded by default
+        els.findingsGrouped.innerHTML = scopeHeader + visibleGroups.map((g, i) => renderGroup(g, i === 0)).join('');
+        
+        if (hiddenGroups.length > 0) {
+          els.findingsGrouped.innerHTML += `
+            <div id="findingsHiddenGroups" class="hidden">
+              ${hiddenGroups.map(g => renderGroup(g, false)).join('')}
+            </div>
+          `;
+        }
+        
+        // Bind click events for all finding items
+        els.findingsGrouped.querySelectorAll('.finding-item').forEach(el => {
+          el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectSignalForInvestigate(el.dataset.signalId);
+          });
+        });
+      }
+    }
+    
+    // Show/hide "Show all groups" button
+    if (els.findingsShowAllGroups) {
+      const hiddenGroups = sortedGroups.slice(GROUPS_LIMIT);
+      if (hiddenGroups.length > 0) {
+        els.findingsShowAllGroups.classList.remove('hidden');
+        els.findingsShowAllGroups.textContent = `Show all (${sortedGroups.length} groups)`;
+        els.findingsShowAllGroups.onclick = () => {
+          els.findingsShowAllGroups.classList.add('hidden');
+          const hiddenContainer = document.getElementById('findingsHiddenGroups');
+          if (hiddenContainer) hiddenContainer.classList.remove('hidden');
+        };
+      } else {
+        els.findingsShowAllGroups.classList.add('hidden');
+      }
+    }
+  }
+
+  /**
+   * Select a signal for the Investigate view (updates right pane without tab switch)
+   */
+  async function selectSignalForInvestigate(signalId) {
+    stopExplainRefresh();
+    
+    state.selectedSignalId = signalId;
+    state.selectedSignal = state.signals.find(s => s.signal_id === signalId);
+    state.signalExplanation = null;
+    state.signalNarrative = null;
+    
+    // Update left pane selection styling
+    if (els.findingsGrouped) {
+      els.findingsGrouped.querySelectorAll('.finding-item').forEach(el => {
+        const isSelected = el.dataset.signalId === signalId;
+        el.classList.toggle('selected', isSelected);
+        el.style.background = isSelected ? 'var(--accent)22' : 'transparent';
+        el.style.borderLeftColor = isSelected ? 'var(--accent)' : 'transparent';
+      });
+    }
+    
+    // Render right pane with loading state
+    renderInvestigateRightPane(true);
+    
+    // Fetch explanation data
+    state.signalExplanation = await fetchSignalExplanation(signalId);
+    state.signalNarrative = await fetchSignalNarrative(signalId);
+    
+    // Re-render right pane with data
+    renderInvestigateRightPane(false);
+    
+    // Update navigation position
+    updateInvestigateNavPosition();
+    
+    // Start auto-refresh if explanation unavailable
+    if (state.signalExplanation?.available === false) {
+      startExplainRefresh(signalId);
+    }
+  }
+
+  /**
+   * Render the right pane (detail view) for Investigate tab
+   * SLOT-FIRST LAYOUT: Compact header + Why + Slot Table (above fold)
+   * Designed as playbook compiler workbench (why fired / missing / actions)
+   */
+  function renderInvestigateRightPane(isLoading = false) {
+    const container = els.investigateDetailContent;
+    if (!container) return;
+    
+    const sig = state.selectedSignal;
+    
+    // Update header
+    if (els.investigateDetailTitle) {
+      els.investigateDetailTitle.textContent = sig ? (sig.signal_type || 'Finding Detail') : 'Select a finding';
+    }
+    
+    // Show/hide nav controls based on findings count
+    const findingsCount = state.signals?.length || 0;
+    if (els.investigateNavControls) {
+      els.investigateNavControls.classList.toggle('hidden', !sig || findingsCount <= 1);
+    }
+    
+    // Show/hide sticky action bar
+    if (els.investigateActionBar) {
+      els.investigateActionBar.classList.toggle('hidden', !sig);
+    }
+    
+    if (!sig) {
+      container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted);">
+          <div style="text-align: center;">
+            <div style="font-size: 28px; margin-bottom: 6px; opacity: 0.5;">👈</div>
+            <div style="font-size: 12px;">Select a finding from the list</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    
+    if (isLoading) {
+      container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 150px;">
+          <div style="text-align: center; color: var(--muted);">
+            <div class="spinner-small" style="margin: 0 auto 8px;"></div>
+            <div style="font-size: 11px;">Loading...</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    
+    // Extract data
+    const explainResp = state.signalExplanation || {};
+    const explainAvailable = explainResp.available !== false;
+    const explanation = explainResp.explanation || {};
+    const evidencePtrs = explainResp.evidence_ptrs || sig.evidence_ptrs || [];
+    const matchedSlots = explainResp.matched_slots;
+    
+    // Extract slots with full evaluation data
+    const slots = matchedSlots || explanation?.slots;
+    const slotArray = Array.isArray(slots) ? slots : 
+      (slots && typeof slots === 'object' ? Object.entries(slots).map(([name, data]) => ({
+        name,
+        ...(typeof data === 'object' ? data : { value: data })
+      })) : []);
+    const totalSlots = slotArray.length || (matchedSlots?.total ?? 0);
+    const filledSlots = slotArray.filter(s => s.matched || s.value || s.fact_id).length || (matchedSlots?.filled ?? 0);
+    const matchedSlotNames = slotArray.filter(s => s.matched || s.value || s.fact_id).map(s => s.name || s.slot_id).filter(Boolean);
+    
+    // Determine playbook status
+    const playbookTitle = explanation?.playbook_title || explanation?.playbook || sig.signal_type || 'Detection';
+    let playbookStatus = 'Fired';
+    let statusClass = 'badge-error';
+    if (sig.status === 'candidate' || sig.candidate) {
+      playbookStatus = 'Candidate';
+      statusClass = 'badge-running';
+    } else if (sig.blocked || explanation?.blocked) {
+      playbookStatus = 'Blocked';
+      statusClass = 'badge-stopped';
+    } else if (filledSlots === 0 && totalSlots > 0) {
+      playbookStatus = 'No-match';
+      statusClass = 'badge-stopped';
+    }
+    
+    let html = '';
+    
+    // === COMPACT HEADER: Playbook name + Status + Severity + Timestamp ===
+    const severityClass = { 'critical': 'badge-error', 'high': 'badge-error', 'medium': 'badge-running', 'low': 'badge-stopped' }[sig.severity] || 'badge-stopped';
+    
+    html += `
+      <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+        <span style="font-weight: 600; font-size: 12px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(playbookTitle)}">${escapeHtml(playbookTitle)}</span>
+        <span class="badge ${statusClass}" style="font-size: 8px; padding: 2px 5px;">${playbookStatus}</span>
+        <span class="badge ${severityClass}" style="font-size: 8px; padding: 2px 5px;">${sig.severity || 'low'}</span>
+        <span style="font-size: 9px; color: var(--muted);">${sig.ts ? new Date(sig.ts).toLocaleTimeString() : ''}</span>
+      </div>
+    `;
+    
+    // === WHY FIRED / WHY NOT (1-2 lines max) ===
+    let whyText = explanation?.why_fired || '';
+    let whyIcon = '💡';
+    let whyBg = 'rgba(139, 92, 246, 0.1)';
+    let whyBorder = 'var(--accent)';
+    
+    if (playbookStatus === 'Blocked') {
+      whyText = explanation?.blocked_reason || 'Blocked: telemetry source inaccessible';
+      whyIcon = '🚫';
+      whyBg = 'rgba(239, 68, 68, 0.1)';
+      whyBorder = 'var(--error)';
+    } else if (playbookStatus === 'No-match') {
+      whyText = `No slots matched – check slot conditions below`;
+      whyIcon = '⚠️';
+      whyBg = 'rgba(251, 191, 36, 0.1)';
+      whyBorder = 'var(--warn)';
+    } else if (playbookStatus === 'Candidate') {
+      whyText = explanation?.candidate_reason || `Partial match: ${filledSlots}/${totalSlots} slots`;
+      whyIcon = '🔸';
+      whyBg = 'rgba(251, 191, 36, 0.1)';
+      whyBorder = 'var(--warn)';
+    } else if (!whyText) {
+      if (matchedSlotNames.length > 0) {
+        whyText = `Matched slots: ${matchedSlotNames.slice(0, 3).join(', ')}${matchedSlotNames.length > 3 ? '...' : ''}`;
+      } else {
+        whyText = 'Detection triggered based on behavior pattern';
+      }
+    }
+    
+    html += `
+      <div style="margin-bottom: 8px; padding: 5px 8px; background: ${whyBg}; border-left: 2px solid ${whyBorder}; border-radius: 2px; font-size: 10px; color: var(--text); line-height: 1.4;">
+        ${whyIcon} ${escapeHtml(whyText)}
+      </div>
+    `;
+    
+    // === SLOT TABLE (immediately visible, no scrolling required) ===
+    if (totalSlots > 0) {
+      html += `
+        <div style="margin-bottom: 8px;">
+          <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 3px; display: flex; justify-content: space-between;">
+            <span>Slot Trace</span>
+            <span style="color: ${filledSlots === totalSlots ? 'var(--good)' : 'var(--warn)'};">${filledSlots}/${totalSlots}</span>
+          </div>
+          <div style="background: var(--panel2); border-radius: 3px; overflow: hidden;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+              <thead>
+                <tr style="background: var(--bg); border-bottom: 1px solid var(--border);">
+                  <th style="padding: 3px 6px; text-align: left; font-weight: 500; color: var(--muted); width: 24px;"></th>
+                  <th style="padding: 3px 6px; text-align: left; font-weight: 500; color: var(--muted);">Slot</th>
+                  <th style="padding: 3px 6px; text-align: center; font-weight: 500; color: var(--muted); width: 40px;">Req</th>
+                  <th style="padding: 3px 6px; text-align: left; font-weight: 500; color: var(--muted);">Status / Reason</th>
+                  <th style="padding: 3px 6px; text-align: center; font-weight: 500; color: var(--muted); width: 50px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${slotArray.map(slot => renderSlotRow(slot, sig)).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+    
+    // === ENTITIES (compact, only if present) ===
+    const entities = [];
+    if (sig.host) entities.push({ type: 'host', value: sig.host, icon: '🖥️' });
+    if (sig.proc_key) entities.push({ type: 'process', value: sig.proc_key, icon: '⚙️' });
+    if (sig.file_key) entities.push({ type: 'file', value: sig.file_key, icon: '📄' });
+    if (sig.identity_key) entities.push({ type: 'user', value: sig.identity_key, icon: '👤' });
+    
+    if (entities.length > 0) {
+      html += `
+        <div style="margin-bottom: 6px;">
+          <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 2px;">Scope</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 3px;">
+            ${entities.map(e => {
+              const displayVal = e.value.length > 20 ? e.value.slice(0, 20) + '…' : e.value;
+              return `<span style="font-size: 9px; padding: 2px 5px; background: var(--panel2); border-radius: 2px; cursor: pointer;" title="${escapeHtml(e.value)}" onclick="openEvidenceWithFilters({query: '${escapeHtml(e.value).replace(/'/g, "\\'")}'})">${e.icon} ${escapeHtml(displayVal)}</span>`;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+    
+    // === Unavailable warning (if applicable) ===
+    if (!explainAvailable) {
+      html += `
+        <div style="padding: 5px 8px; background: rgba(251, 191, 36, 0.1); border-left: 2px solid var(--warn); border-radius: 2px; font-size: 10px; color: var(--warn);">
+          ⚠️ Explanation unavailable: ${explainResp.reason_code || 'UNKNOWN'}
+        </div>
+      `;
+    }
+    
+    container.innerHTML = html;
+    
+    // Bind slot search buttons
+    container.querySelectorAll('.slot-search-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const slotName = btn.dataset.slotName;
+        const factType = btn.dataset.factType;
+        openEvidenceWithFilters({
+          lens: factType,
+          query: slotName,
+          host: sig.host,
+          timeRange: sig.ts ? { center: sig.ts, window: 600000 } : null // ±10 min
+        });
+      });
+    });
+  }
+
+  /**
+   * Render a single slot row for the Investigate slot table
+   * Shows status, reason label, and Search action
+   */
+  function renderSlotRow(slot, sig) {
+    const isMatched = slot.matched || slot.value || slot.fact_id;
+    const slotName = slot.name || slot.slot_id || 'Step';
+    const required = slot.required !== false;
+    const factType = slot.fact_type || slot.expected_fact_type || '';
+    
+    // Determine status and reason
+    let statusIcon, statusColor, reasonLabel;
+    
+    if (isMatched) {
+      statusIcon = '✓';
+      statusColor = 'var(--good)';
+      reasonLabel = slot.value ? `Matched: ${String(slot.value).slice(0, 20)}` : 'Matched';
+    } else {
+      statusIcon = '✗';
+      statusColor = 'var(--error)';
+      
+      // Determine WHY it's missing based on available data
+      if (slot.eval_status === 'blocked' || slot.blocked) {
+        reasonLabel = 'Blocked (permission/log inaccessible)';
+      } else if (slot.eval_status === 'no_telemetry' || slot.sensor_disabled) {
+        reasonLabel = 'Telemetry not present (sensor disabled)';
+      } else if (slot.eval_status === 'window_mismatch' || slot.outside_window) {
+        reasonLabel = 'Outside time window';
+      } else if (slot.eval_status === 'no_coverage') {
+        reasonLabel = 'No coverage for this source';
+      } else {
+        // Default: no matching facts
+        reasonLabel = 'No matching facts';
+      }
+    }
+    
+    return `
+      <tr style="border-bottom: 1px solid var(--border);">
+        <td style="padding: 4px 6px; color: ${statusColor}; font-weight: bold;">${statusIcon}</td>
+        <td style="padding: 4px 6px; font-family: monospace; font-size: 9px;">${escapeHtml(slotName)}</td>
+        <td style="padding: 4px 6px; text-align: center;">
+          <span style="font-size: 8px; padding: 1px 4px; background: ${required ? 'rgba(239, 68, 68, 0.15)' : 'var(--panel)'}; color: ${required ? 'var(--error)' : 'var(--muted)'}; border-radius: 2px;">${required ? 'REQ' : 'OPT'}</span>
+        </td>
+        <td style="padding: 4px 6px; font-size: 9px; color: ${isMatched ? 'var(--good)' : 'var(--muted)'};">${escapeHtml(reasonLabel)}</td>
+        <td style="padding: 4px 6px; text-align: center;">
+          <button class="slot-search-btn" data-slot-name="${escapeHtml(slotName)}" data-fact-type="${escapeHtml(factType)}" style="padding: 2px 6px; font-size: 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 2px; cursor: pointer; color: var(--accent);">🔍</button>
+        </td>
+      </tr>
+    `;
+  }
+
+  /**
+   * Open Evidence tab with pre-applied filters (deep-link from Investigate)
+   * @param {Object} opts - Filter options
+   * @param {string} opts.lens - Fact type to filter by (populates lens dropdown)
+   * @param {string} opts.query - Search term to prefill
+   * @param {string} opts.host - Host filter
+   * @param {Object} opts.timeRange - { center: timestamp, window: ms } for time filtering
+   * @param {string} opts.mode - 'grouped' or 'raw' (default: 'raw' for slot searches)
+   */
+  function openEvidenceWithFilters(opts = {}) {
+    // Set evidence filter state
+    if (opts.lens) {
+      state.evidenceLensFilter = opts.lens;
+    }
+    if (opts.query) {
+      state.evidenceSearchTerm = opts.query;
+    }
+    if (opts.host) {
+      state.evidenceHostFilter = opts.host;
+    }
+    if (opts.timeRange) {
+      state.evidenceTimeRange = opts.timeRange;
+    }
+    
+    // Default to raw mode for targeted searches
+    state.evidenceMode = opts.mode || (opts.lens || opts.query ? 'raw' : 'grouped');
+    
+    // Switch to Evidence tab
+    switchRunTab('facts');
+    
+    // Update UI controls to reflect filters
+    if (els.evidenceLensSelect && opts.lens) {
+      els.evidenceLensSelect.value = opts.lens;
+    }
+    if (els.evidenceSearchInput && opts.query) {
+      els.evidenceSearchInput.value = opts.query;
+    }
+    
+    // Update mode toggle buttons
+    updateEvidenceModeButtons();
+    
+    // Re-render with filters applied
+    renderEvidenceTab();
+  }
+  
+  // Expose for inline onclick handlers
+  window.openEvidenceWithFilters = openEvidenceWithFilters;
+
+  /**
+   * LEGACY: Render the right pane (detail view) for Investigate tab
+   */
+  function renderInvestigateRightPaneLegacy(isLoading = false) {
+    const container = els.investigateDetailContent;
+    if (!container) return;
+    
+    const sig = state.selectedSignal;
+    
+    // Update header
+    if (els.investigateDetailTitle) {
+      els.investigateDetailTitle.textContent = sig ? (sig.signal_type || 'Finding Detail') : 'Select a finding';
+    }
+    
+    // Show/hide nav controls
+    if (els.investigateNavControls) {
+      els.investigateNavControls.classList.toggle('hidden', !sig);
+    }
+    
+    if (!sig) {
+      container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted);">
+          <div style="text-align: center;">
+            <div style="font-size: 32px; margin-bottom: 8px; opacity: 0.5;">👈</div>
+            <div style="font-size: 13px;">Select a finding from the list to see details</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    
+    if (isLoading) {
+      container.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 200px;">
+          <div style="text-align: center; color: var(--muted);">
+            <div class="spinner-small" style="margin: 0 auto 12px;"></div>
+            <div style="font-size: 12px;">Loading explanation...</div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    
+    // Render the explain content inline (reuse existing renderExplainTab logic)
+    const explainResp = state.signalExplanation || {};
+    const explainAvailable = explainResp.available !== false;
+    const narrative = state.signalNarrative;
+    
+    // Extract canonical fields
+    const sourceRaw = explainResp.source;
+    const source = typeof sourceRaw === 'object' ? sourceRaw : { kind: 'unknown', id: sourceRaw };
+    const evidencePtrs = explainResp.evidence_ptrs || sig.evidence_ptrs || [];
+    const evidenceCount = explainResp.evidence_ptrs_count ?? evidencePtrs.length;
+    const explanation = explainResp.explanation || {};
+    const matchedSlots = explainResp.matched_slots;
+    
+    let html = '';
+    
+    // === Severity badge + signal ID ===
+    const severityClass = {
+      'critical': 'badge-error',
+      'high': 'badge-error',
+      'medium': 'badge-running',
+      'low': 'badge-stopped'
+    }[sig.severity] || 'badge-stopped';
+    
+    html += `
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+        <div>
+          <h4 style="font-size: 14px; font-weight: 600; margin: 0 0 4px 0;">${escapeHtml(sig.signal_type || 'Unknown Signal')}</h4>
+          <div style="font-size: 10px; color: var(--muted); font-family: monospace;">${escapeHtml(sig.signal_id || '—')}</div>
+        </div>
+        <span class="badge ${severityClass}">${sig.severity || 'unknown'}</span>
+      </div>
+    `;
+    
+    // === Unavailable banner ===
+    if (!explainAvailable) {
+      html += `
+        <div style="margin-bottom: 12px; padding: 10px; background: rgba(251, 191, 36, 0.1); border: 1px solid var(--warn); border-radius: var(--radius-sm);">
+          <div style="font-size: 12px; color: var(--warn); font-weight: 500;">⚠️ Explanation unavailable: ${explainResp.reason_code || 'UNKNOWN'}</div>
+          <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">${explainResp.message || 'Details not available'}</div>
+        </div>
+      `;
+    }
+    
+    // === Summary header row ===
+    const kind = source.kind || (explanation?.playbook_id ? 'playbook' : 'unknown');
+    const sourceId = source.id || explanation?.playbook_id || sig.signal_type;
+    const sourceDisplay = kind === 'playbook' ? `Playbook: ${explanation?.playbook_title || sourceId?.replace('playbook:', '') || 'unknown'}` : (sourceId || 'Unknown');
+    
+    html += `
+      <div style="margin-bottom: 12px; padding: 10px; background: var(--panel2); border-radius: var(--radius-sm); display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; font-size: 11px;">
+        <div>
+          <div style="color: var(--muted); text-transform: uppercase; font-size: 9px; margin-bottom: 2px;">Source</div>
+          <div style="font-weight: 600; font-family: monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(sourceDisplay)}</div>
+        </div>
+        <div>
+          <div style="color: var(--muted); text-transform: uppercase; font-size: 9px; margin-bottom: 2px;">Evidence</div>
+          <div style="font-weight: 600;">${evidenceCount} pointer${evidenceCount !== 1 ? 's' : ''}</div>
+        </div>
+        <div>
+          <div style="color: var(--muted); text-transform: uppercase; font-size: 9px; margin-bottom: 2px;">Timestamp</div>
+          <div style="font-weight: 600;">${sig.ts ? new Date(sig.ts).toLocaleString() : '—'}</div>
+        </div>
+      </div>
+    `;
+    
+    // === Why This Fired ===
+    const playbookTitle = explanation?.playbook_title || explanation?.playbook || '';
+    const slots = matchedSlots || explanation?.slots;
+    const slotArray = Array.isArray(slots) ? slots : 
+      (slots && typeof slots === 'object' ? Object.entries(slots).map(([name, data]) => ({
+        name,
+        ...(typeof data === 'object' ? data : { value: data })
+      })) : []);
+    const matchedSlotNames = slotArray.filter(s => s.matched || s.value || s.fact_id).map(s => s.name || s.slot_id).filter(Boolean);
+    
+    let whyText = '';
+    if (explanation?.why_fired) {
+      whyText = explanation.why_fired;
+    } else if (playbookTitle && matchedSlotNames.length > 0) {
+      whyText = `Playbook "${playbookTitle}" triggered because slots matched: ${matchedSlotNames.join(', ')}`;
+    } else if (playbookTitle) {
+      whyText = `Playbook "${playbookTitle}" triggered based on observed telemetry patterns`;
+    } else if (sig.signal_type) {
+      whyText = `Detection "${sig.signal_type}" triggered based on behavior pattern match`;
+    }
+    
+    if (whyText) {
+      html += `
+        <div style="margin-bottom: 12px; padding: 8px 10px; background: rgba(139, 92, 246, 0.1); border-left: 3px solid var(--accent); border-radius: var(--radius-sm);">
+          <div style="font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 2px;">💡 Why This Fired</div>
+          <div style="font-size: 12px; color: var(--text);">${escapeHtml(whyText)}</div>
+        </div>
+      `;
+    }
+    
+    // === Narrative summary ===
+    const narrativeText = explainResp.narrative || narrative?.sentences?.map(s => s.text).join(' ') || explanation?.summary || explanation?.why_fired || sig.metadata?.description;
+    if (narrativeText) {
+      html += `
+        <div style="margin-bottom: 12px;">
+          <h5 style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin: 0 0 6px 0;">Summary</h5>
+          <div style="font-size: 12px; line-height: 1.5; color: var(--text); background: var(--panel2); padding: 10px; border-radius: var(--radius-sm);">
+            ${escapeHtml(narrativeText)}
+          </div>
+        </div>
+      `;
+    }
+    
+    // === Entities ===
+    const entities = [];
+    if (sig.proc_key) entities.push({ type: 'process', value: sig.proc_key });
+    if (sig.file_key) entities.push({ type: 'file', value: sig.file_key });
+    if (sig.identity_key) entities.push({ type: 'user', value: sig.identity_key });
+    if (sig.host) entities.push({ type: 'host', value: sig.host });
+    
+    if (entities.length > 0) {
+      html += `
+        <div style="margin-bottom: 12px;">
+          <h5 style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin: 0 0 6px 0;">Entities</h5>
+          <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+            ${entities.map(e => {
+              const icon = { process: '⚙️', file: '📄', user: '👤', host: '🖥️' }[e.type] || '•';
+              const displayVal = e.value.length > 30 ? e.value.slice(0, 30) + '...' : e.value;
+              return `<span class="badge badge-stopped" style="font-size: 10px;" title="${escapeHtml(e.value)}">${icon} ${escapeHtml(displayVal)}</span>`;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+    
+    // === Matched Slots (compact) ===
+    const totalSlots = slotArray.length || (matchedSlots?.total ?? 0);
+    const filledSlots = slotArray.filter(s => s.matched || s.value || s.fact_id).length || (matchedSlots?.filled ?? 0);
+    
+    if (totalSlots > 0) {
+      const pct = Math.round((filledSlots / totalSlots) * 100);
+      html += `
+        <div style="margin-bottom: 12px;">
+          <h5 style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin: 0 0 6px 0;">
+            Playbook Trace (${filledSlots}/${totalSlots} slots)
+          </h5>
+          <div style="margin-bottom: 6px; height: 4px; background: var(--panel2); border-radius: 2px; overflow: hidden;">
+            <div style="width: ${pct}%; height: 100%; background: ${pct === 100 ? 'var(--good)' : 'var(--accent)'}; transition: width 0.3s;"></div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto;">
+            ${slotArray.map(slot => {
+              const isMatched = slot.matched || slot.value || slot.fact_id;
+              const slotName = slot.name || slot.slot_id || 'Step';
+              return `
+                <div style="display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: var(--panel2); border-radius: 3px; font-size: 10px;">
+                  <span style="color: ${isMatched ? 'var(--good)' : 'var(--error)'};">${isMatched ? '✅' : '❌'}</span>
+                  <span style="flex: 1;">${escapeHtml(slotName)}</span>
+                  <span style="color: var(--muted);">${isMatched ? 'MATCHED' : 'MISSING'}</span>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+    
+    // === Evidence Pointers (compact) ===
+    if (evidenceCount > 0) {
+      html += `
+        <div style="margin-bottom: 12px;">
+          <h5 style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin: 0 0 6px 0;">
+            Evidence Pointers (${evidenceCount})
+          </h5>
+          <div style="font-size: 10px; background: var(--panel2); padding: 8px; border-radius: var(--radius-sm); max-height: 100px; overflow-y: auto; font-family: monospace;">
+            ${evidencePtrs.slice(0, 5).map((ptr, i) => {
+              const ptrSummary = ptr.summary || `${ptr.stream_id || '?'}:${ptr.segment_id ?? '?'}:${ptr.record_index ?? '?'}`;
+              return `<div style="margin-bottom: 2px; color: var(--muted);">${i + 1}. ${escapeHtml(ptrSummary)}</div>`;
+            }).join('')}
+            ${evidencePtrs.length > 5 ? `<div style="color: var(--accent);">... and ${evidencePtrs.length - 5} more</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+    
+    // === Related Facts ===
+    // Show facts relevant to this finding: same host + matching entity_key or fact types from playbook trace
+    const relatedFacts = getRelatedFactsForSignal(sig, slotArray, 20);
+    if (relatedFacts.length > 0) {
+      const coverage = state.runCoverage || {};
+      const isPartial = coverage.compile_status === 'interrupted' || coverage.facts_partial;
+      
+      html += `
+        <div style="margin-bottom: 12px;">
+          <h5 style="font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; margin: 0 0 6px 0;">
+            Related Facts (${relatedFacts.length})
+            ${isPartial ? '<span style="font-weight: normal; opacity: 0.7;"> · partial sample</span>' : ''}
+          </h5>
+          <div style="background: var(--panel2); border-radius: var(--radius-sm); overflow: hidden; max-height: 200px; overflow-y: auto;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 10px;">
+              <thead>
+                <tr style="background: var(--bg); border-bottom: 1px solid var(--border);">
+                  <th style="padding: 4px 6px; text-align: left; font-weight: 500; color: var(--muted);">Type</th>
+                  <th style="padding: 4px 6px; text-align: left; font-weight: 500; color: var(--muted);">Summary</th>
+                  <th style="padding: 4px 6px; text-align: right; font-weight: 500; color: var(--muted);">Time</th>
+                  <th style="padding: 4px 6px; text-align: center; font-weight: 500; color: var(--muted);"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${relatedFacts.map((fact, i) => {
+                  const factType = fact.fact_type || 'unknown';
+                  const summary = fact.summary || fact.fact_id || '—';
+                  const shortSummary = summary.length > 40 ? summary.slice(0, 40) + '...' : summary;
+                  const ts = fact.ts ? new Date(fact.ts).toLocaleTimeString() : '—';
+                  return `
+                    <tr style="border-bottom: 1px solid var(--border);">
+                      <td style="padding: 4px 6px; font-family: monospace; white-space: nowrap;">${escapeHtml(factType)}</td>
+                      <td style="padding: 4px 6px; color: var(--muted); overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(summary)}">${escapeHtml(shortSummary)}</td>
+                      <td style="padding: 4px 6px; text-align: right; color: var(--muted); white-space: nowrap;">${ts}</td>
+                      <td style="padding: 4px 6px; text-align: center;">
+                        <button onclick="window.viewFactDetail('${escapeHtml(fact.fact_id || '')}')" style="font-size: 9px; padding: 2px 6px; background: var(--accent); color: white; border: none; border-radius: 3px; cursor: pointer;">View</button>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+    
+    // === Action buttons ===
+    html += `
+      <div style="display: flex; gap: 8px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border);">
+        <button onclick="switchRunTab('facts')" style="flex: 1; padding: 8px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">
+          📊 View Evidence
+        </button>
+        <button onclick="switchRunTab('raw')" style="flex: 1; padding: 8px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">
+          📄 Raw JSON
+        </button>
+      </div>
+    `;
+    
+    container.innerHTML = html;
+  }
+
+  /**
+   * Render empty state for Investigate tab (0 findings)
+   * Shows run-level summary with CTAs to Facts/Coverage
+   */
+  function renderInvestigateEmptyState() {
+    const container = els.investigateDetailContent;
+    if (!container) return;
+    
+    // Update header
+    if (els.investigateDetailTitle) {
+      els.investigateDetailTitle.textContent = 'Run Analysis';
+    }
+    if (els.investigateNavControls) {
+      els.investigateNavControls.classList.add('hidden');
+    }
+    
+    const coverage = state.runCoverage || {};
+    const isInterrupted = coverage.compile_status === 'interrupted' || coverage.facts_partial;
+    const metadataUnavailable = coverage.metadata_unavailable;
+    
+    let html = '';
+    
+    // === Zero findings banner ===
+    if (!isInterrupted && !metadataUnavailable) {
+      html += `
+        <div style="padding: 24px; text-align: center; background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05)); border-radius: var(--radius-sm); border-left: 4px solid var(--good); margin-bottom: 16px;">
+          <div style="font-size: 32px; margin-bottom: 8px;">✅</div>
+          <div style="font-size: 16px; font-weight: 600; color: var(--good);">Nothing Fired</div>
+          <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">No detection playbooks triggered during this analysis window</div>
+        </div>
+      `;
+    }
+    
+    // === Interrupted warning ===
+    if (isInterrupted) {
+      html += `
+        <div style="padding: 12px; background: rgba(243, 156, 18, 0.1); border-left: 3px solid var(--warn); border-radius: var(--radius-sm); margin-bottom: 16px;">
+          <div style="font-size: 12px; color: var(--warn); font-weight: 500;">⚠️ Run Interrupted</div>
+          <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">${coverage.abandoned_reason || 'Run was interrupted before completion'}</div>
+        </div>
+      `;
+    }
+    
+    // === Legacy run ===
+    if (metadataUnavailable) {
+      html += `
+        <div style="padding: 12px; background: var(--panel2); border-left: 3px solid var(--muted); border-radius: var(--radius-sm); margin-bottom: 16px;">
+          <div style="font-size: 12px; color: var(--muted);">📜 <strong>Legacy Run</strong> - Limited metadata available</div>
+        </div>
+      `;
+    }
+    
+    // === CTAs ===
+    html += `
+      <div style="margin-top: 16px;">
+        <div style="font-size: 12px; color: var(--muted); margin-bottom: 12px;">Explore this run:</div>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button onclick="switchRunTab('facts')" style="width: 100%; padding: 12px; text-align: left; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">
+            <div style="font-weight: 600;">📊 Review Facts</div>
+            <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">See extracted facts and coverage data</div>
+          </button>
+          <button onclick="switchRunTab('playbooks')" style="width: 100%; padding: 12px; text-align: left; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">
+            <div style="font-weight: 600;">📓 Playbook Status</div>
+            <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">See near misses and blocked detections</div>
+          </button>
+          <button onclick="switchRunTab('overview')" style="width: 100%; padding: 12px; text-align: left; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; color: var(--text);">
+            <div style="font-weight: 600;">📋 Overview</div>
+            <div style="font-size: 11px; color: var(--muted); margin-top: 2px;">Run summary and data sources</div>
+          </button>
+        </div>
+      </div>
+    `;
+    
+    container.innerHTML = html;
+  }
+
+  /**
+   * Setup Next/Prev navigation for Investigate tab
+   */
+  function setupInvestigateNavigation(filtered) {
+    if (!els.btnPrevFinding || !els.btnNextFinding) return;
+    
+    // Sort by severity (highest first)
+    const sorted = [...filtered].sort((a, b) => getSeverityRank(b.severity) - getSeverityRank(a.severity));
+    
+    els.btnPrevFinding.onclick = () => {
+      if (!state.selectedSignalId || sorted.length === 0) return;
+      const currentIdx = sorted.findIndex(s => s.signal_id === state.selectedSignalId);
+      const prevIdx = (currentIdx - 1 + sorted.length) % sorted.length;
+      selectSignalForInvestigate(sorted[prevIdx].signal_id);
+    };
+    
+    els.btnNextFinding.onclick = () => {
+      if (!state.selectedSignalId || sorted.length === 0) return;
+      const currentIdx = sorted.findIndex(s => s.signal_id === state.selectedSignalId);
+      const nextIdx = (currentIdx + 1) % sorted.length;
+      selectSignalForInvestigate(sorted[nextIdx].signal_id);
+    };
+    
+    updateInvestigateNavPosition();
+  }
+
+  /**
+   * Update the position indicator for Investigate navigation
+   */
+  function updateInvestigateNavPosition() {
+    if (!els.investigateFindingPosition) return;
+    
+    const filtered = state.signals || [];
+    const sorted = [...filtered].sort((a, b) => getSeverityRank(b.severity) - getSeverityRank(a.severity));
+    
+    if (sorted.length === 0 || !state.selectedSignalId) {
+      els.investigateFindingPosition.textContent = '—';
+      return;
+    }
+    
+    const currentIdx = sorted.findIndex(s => s.signal_id === state.selectedSignalId);
+    els.investigateFindingPosition.textContent = `${currentIdx + 1} / ${sorted.length}`;
+  }
+
+  /**
+   * Show Raw JSON drawer for current selected signal (Investigate tab)
+   * Opens as overlay drawer instead of pushing content
+   * Includes evidence pointers (moved from main view)
+   */
+  function showInvestigateRawJsonDrawer() {
+    const sig = state.selectedSignal;
+    const explainResp = state.signalExplanation || {};
+    
+    if (!sig) {
+      showToast('No finding selected', 'info');
+      return;
+    }
+    
+    // Build combined data object
+    const data = {
+      signal: sig,
+      explanation: explainResp
+    };
+    
+    // Extract evidence pointers
+    const evidencePtrs = explainResp.evidence_ptrs || sig.evidence_ptrs || [];
+    const evidenceCount = explainResp.evidence_ptrs_count ?? evidencePtrs.length;
+    
+    // Remove existing drawer if any
+    const existing = document.getElementById('investigateRawJsonDrawer');
+    if (existing) existing.remove();
+    
+    // Create drawer
+    const drawer = document.createElement('div');
+    drawer.id = 'investigateRawJsonDrawer';
+    drawer.style.cssText = `
+      position: fixed; top: 0; right: 0; width: 50%; max-width: 600px; height: 100%;
+      background: var(--panel); border-left: 1px solid var(--border);
+      box-shadow: -4px 0 24px rgba(0,0,0,0.3); z-index: 1000;
+      display: flex; flex-direction: column;
+      animation: slideInRight 0.2s ease-out;
+    `;
+    
+    // Build evidence pointers section if present
+    let evidencePointersHtml = '';
+    if (evidenceCount > 0) {
+      evidencePointersHtml = `
+        <div style="padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--panel2);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 10px; font-weight: 600; color: var(--muted);">Evidence Pointers (${evidenceCount})</span>
+            <button id="btnCopyPointersDrawer" style="padding: 3px 8px; font-size: 9px; background: var(--panel); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; color: var(--text);">📋 Copy Pointers</button>
+          </div>
+          <div style="font-size: 9px; font-family: monospace; color: var(--muted); max-height: 80px; overflow-y: auto;">
+            ${evidencePtrs.slice(0, 10).map((ptr, i) => {
+              const ptrSummary = ptr.summary || `${ptr.stream_id || '?'}:${ptr.segment_id ?? '?'}:${ptr.record_index ?? '?'}`;
+              return `<div style="padding: 2px 0;">${i + 1}. ${escapeHtml(ptrSummary)}</div>`;
+            }).join('')}
+            ${evidencePtrs.length > 10 ? `<div style="color: var(--accent); padding: 2px 0;">+${evidencePtrs.length - 10} more in JSON below</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+    
+    drawer.innerHTML = `
+      <style>
+        @keyframes slideInRight {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+      </style>
+      <div style="padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <span style="font-size: 11px; font-weight: 600;">📄 Raw Data</span>
+        <div style="display: flex; gap: 6px;">
+          <button id="btnCopyRawJsonDrawer" style="padding: 4px 8px; font-size: 10px; background: var(--accent); color: white; border: none; border-radius: 3px; cursor: pointer;">📋 Copy All</button>
+          <button id="btnCloseRawJsonDrawer" style="padding: 4px 8px; font-size: 10px; background: var(--panel2); border: 1px solid var(--border); border-radius: 3px; cursor: pointer; color: var(--text);">✕</button>
+        </div>
+      </div>
+      ${evidencePointersHtml}
+      <pre id="rawJsonDrawerContent" style="flex: 1; overflow: auto; padding: 12px; margin: 0; font-size: 10px; font-family: 'SF Mono', Consolas, monospace; background: var(--bg); white-space: pre-wrap; word-break: break-word;"></pre>
+    `;
+    
+    document.body.appendChild(drawer);
+    
+    // Render JSON
+    const pre = drawer.querySelector('#rawJsonDrawerContent');
+    pre.textContent = JSON.stringify(data, null, 2);
+    
+    // Bind close
+    drawer.querySelector('#btnCloseRawJsonDrawer').onclick = () => drawer.remove();
+    
+    // Bind copy all
+    drawer.querySelector('#btnCopyRawJsonDrawer').onclick = () => {
+      navigator.clipboard.writeText(pre.textContent).then(() => {
+        const btn = drawer.querySelector('#btnCopyRawJsonDrawer');
+        btn.textContent = '✅ Copied';
+        setTimeout(() => { btn.textContent = '📋 Copy All'; }, 1500);
+      }).catch(err => console.warn('[copyRawJson] Failed:', err));
+    };
+    
+    // Bind copy pointers (if button exists)
+    const copyPtrsBtn = drawer.querySelector('#btnCopyPointersDrawer');
+    if (copyPtrsBtn) {
+      copyPtrsBtn.onclick = () => {
+        const ptrsJson = JSON.stringify(evidencePtrs, null, 2);
+        navigator.clipboard.writeText(ptrsJson).then(() => {
+          copyPtrsBtn.textContent = '✅ Copied';
+          setTimeout(() => { copyPtrsBtn.textContent = '📋 Copy Pointers'; }, 1500);
+        }).catch(err => console.warn('[copyPointers] Failed:', err));
+      };
+    }
+    
+    // Close on escape
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        drawer.remove();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+    
+    // Close on click outside (click on backdrop)
+    const backdrop = document.createElement('div');
+    backdrop.id = 'rawJsonDrawerBackdrop';
+    backdrop.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.3); z-index: 999;
+    `;
+    backdrop.onclick = () => {
+      drawer.remove();
+      backdrop.remove();
+    };
+    document.body.insertBefore(backdrop, drawer);
+  }
+
+  /**
+   * Render the Changes/Diff tab (Pro Diff UX)
    */
   async function renderChangesTab() {
     if (!state.selectedRunId) return;
@@ -10615,14 +22818,22 @@ cargo build --release -p edr-locald --bin edr-locald`;
         els.changesModifiedCount.textContent = modCount;
       }
       
-      // Render highlights
+      // Render Delta Highlights (top 3 as actionable cards)
       if (els.changesHighlightsList) {
-        if (highlights.length === 0) {
-          els.changesHighlightsList.innerHTML = '<div style="color: var(--muted); font-size: 12px;">No high-severity changes detected</div>';
+        const topHighlights = highlights.slice(0, 3);
+        if (topHighlights.length === 0) {
+          els.changesHighlightsList.innerHTML = `
+            <div style="grid-column: 1 / -1; color: var(--muted); font-size: 12px; padding: 12px; background: var(--panel); border-radius: var(--radius-sm); text-align: center;">
+              No high-severity changes detected in current filter. Try <a href="#" onclick="applyDiffGoalPreset('all'); return false;" style="color: var(--accent);">clearing filters</a>.
+            </div>
+          `;
         } else {
-          els.changesHighlightsList.innerHTML = highlights.map(h => renderDiffChangeItem(h, true)).join('');
+          els.changesHighlightsList.innerHTML = topHighlights.map((h, idx) => renderDeltaHighlightCard(h, idx)).join('');
         }
       }
+      
+      // Render "What to do next" panel based on current goal and findings
+      renderDiffWhatNext(highlights, changes, categories);
       
       // Render categories
       if (els.changesCategoriesList) {
@@ -10671,7 +22882,218 @@ cargo build --release -p edr-locald --bin edr-locald`;
         els.changesMissingEndpoint.textContent = `(error: ${err.message || 'network error'})`;
       }
     }
+    
+    // Render Structure Snapshot
+    renderStructureSnapshot();
+    
+    // Render Desired Outcome guidance
+    renderDesiredOutcomeGuidance();
   }
+  
+  /**
+   * Outcome Guidance: what to emphasize for each session type
+   */
+  const OUTCOME_GUIDANCE = {
+    'none': {
+      label: 'No preset',
+      emphasis: [],
+      why: 'No outcome selected. All categories shown equally.'
+    },
+    'clean-workstation': {
+      label: 'Clean workstation session',
+      emphasis: [
+        '🔒 Persistence changes — should be minimal on a clean system',
+        '🔑 Auth anomalies — unexpected credential use or elevation',
+        '🛡️ Defense evasion — any tampering is suspicious'
+      ],
+      why: 'A clean workstation should have predictable activity. Any persistence mechanism, auth anomaly, or evasion attempt stands out as potentially malicious.'
+    },
+    'lab-htb': {
+      label: 'Lab / HTB session',
+      emphasis: [
+        '🔒 Persistence — even in a lab, persistence signals intent to stay',
+        '🔑 Auth changes — look for lateral movement prep',
+        '⚙️ Unusual executions — filter noise by focusing on new persistence/auth'
+      ],
+      why: 'Labs have heavy exec/network traffic. Focus on changes that indicate the attacker wants to maintain access or move laterally.'
+    },
+    'dev-workstation': {
+      label: 'Dev workstation',
+      emphasis: [
+        '🔧 Autoruns & Services — devs shouldn\'t add startup items casually',
+        '🌐 New outbound endpoints — unexpected network destinations',
+        '📁 Unusual file drops — outside of known project paths'
+      ],
+      why: 'Developers run many tools and compilers. Focus on autoruns, services, and outbound connections that don\'t match expected dev patterns.'
+    }
+  };
+  
+  /**
+   * Render the "Desired Outcome" guidance section
+   */
+  function renderDesiredOutcomeGuidance() {
+    const outcome = els.desiredOutcomeSelect?.value || 'none';
+    const guidance = OUTCOME_GUIDANCE[outcome];
+    
+    if (!guidance || !els.desiredOutcomeGuidance) return;
+    
+    if (outcome === 'none' || guidance.emphasis.length === 0) {
+      els.desiredOutcomeGuidance.innerHTML = `
+        <div style="color: var(--muted); font-size: 12px; font-style: italic;">
+          Select an outcome to see what to emphasize
+        </div>
+      `;
+      return;
+    }
+    
+    els.desiredOutcomeGuidance.innerHTML = `
+      <div style="font-size: 11px; color: var(--muted); margin-bottom: 4px;">We'll emphasize:</div>
+      <ul style="margin: 0; padding-left: 16px; font-size: 12px; line-height: 1.6;">
+        ${guidance.emphasis.map(e => `<li>${e}</li>`).join('')}
+      </ul>
+      <div id="outcomeWhyContent" class="hidden" style="margin-top: 8px; padding: 8px; background: var(--panel); border-radius: var(--radius-sm); font-size: 11px; color: var(--muted);">
+        <strong>Why?</strong> ${guidance.why}
+      </div>
+    `;
+  }
+  
+  /**
+   * Toggle the "Why" explanation for Desired Outcome
+   */
+  window.toggleOutcomeWhy = function() {
+    const whyEl = document.getElementById('outcomeWhyContent');
+    if (whyEl) {
+      whyEl.classList.toggle('hidden');
+      if (els.btnShowOutcomeWhy) {
+        els.btnShowOutcomeWhy.textContent = whyEl.classList.contains('hidden') ? 'Why?' : 'Hide';
+      }
+    }
+  };
+  
+  /**
+   * Render the Structure Snapshot section with 5 compact cards
+   * Extracts data from state.facts and state.runCoverage
+   */
+  function renderStructureSnapshot() {
+    if (!els.structureSnapshotCards) return;
+    
+    const facts = state.facts || [];
+    const coverage = state.runCoverage || {};
+    
+    // Helper to get facts by type
+    const factsByType = (types) => facts.filter(f => types.includes(f.fact_type));
+    
+    // Build snapshot data
+    const snapshotData = {
+      services: {
+        icon: '⚙️',
+        title: 'Services',
+        items: factsByType(['service_created', 'service_changed', 'service_start_type_changed']),
+        evidenceFilter: 'services'
+      },
+      tasks: {
+        icon: '📅',
+        title: 'Scheduled Tasks',
+        items: factsByType(['scheduled_task_created', 'scheduled_task_modified', 'schtask_execution']),
+        evidenceFilter: 'scheduled-tasks'
+      },
+      autoruns: {
+        icon: '🔒',
+        title: 'Autoruns / Registry',
+        items: factsByType(['autorun_created', 'registry_persistence', 'run_key_added', 'startup_folder_entry']),
+        evidenceFilter: 'autoruns'
+      },
+      binaries: {
+        icon: '📦',
+        title: 'New Binaries',
+        items: factsByType(['binary_first_seen', 'new_executable', 'pe_metadata', 'dropped_executable']),
+        evidenceFilter: 'binaries'
+      },
+      network: {
+        icon: '🌐',
+        title: 'Outbound Endpoints',
+        items: factsByType(['network_connection', 'dns_query', 'outbound_connection', 'new_endpoint_contacted']),
+        evidenceFilter: 'network'
+      }
+    };
+    
+    // Check if we have any data
+    const totalItems = Object.values(snapshotData).reduce((sum, d) => sum + d.items.length, 0);
+    
+    if (totalItems === 0) {
+      if (els.structureSnapshotSection) {
+        els.structureSnapshotSection.classList.add('hidden');
+      }
+      return;
+    }
+    
+    if (els.structureSnapshotSection) {
+      els.structureSnapshotSection.classList.remove('hidden');
+    }
+    
+    // Extract sample/total from coverage if available
+    let sampleNote = '';
+    if (coverage.facts_sampled && coverage.facts_total && coverage.facts_sampled < coverage.facts_total) {
+      sampleNote = `Showing sample of ${coverage.facts_sampled} / ${coverage.facts_total} facts`;
+    }
+    
+    if (els.structureSnapshotSampleNote) {
+      els.structureSnapshotSampleNote.textContent = sampleNote;
+    }
+    
+    // Render the 5 cards
+    const cards = Object.entries(snapshotData).map(([key, data]) => {
+      const count = data.items.length;
+      if (count === 0) {
+        return `
+          <div class="structure-card" style="padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); opacity: 0.5;">
+            <div style="font-size: 14px; margin-bottom: 4px;">${data.icon} ${data.title}</div>
+            <div style="font-size: 20px; font-weight: 600; color: var(--muted);">0</div>
+          </div>
+        `;
+      }
+      
+      // Get top 3 items for preview
+      const topItems = data.items.slice(0, 3).map(f => {
+        // Try to extract a meaningful name
+        const name = f.subject || f.details?.name || f.details?.path || f.details?.exe_path || 
+                     f.details?.dst_addr || f.summary?.substring(0, 30) || 'Unknown';
+        // Truncate to reasonable length
+        return name.length > 25 ? name.substring(0, 22) + '...' : name;
+      });
+      
+      return `
+        <div class="structure-card" style="padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;"
+             onclick="window.pivotSnapshotToEvidence('${data.evidenceFilter}')">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div style="font-size: 14px; font-weight: 500;">${data.icon} ${data.title}</div>
+            <div style="font-size: 18px; font-weight: 600; color: var(--accent);">${count}</div>
+          </div>
+          <div style="margin-top: 6px; font-size: 11px; color: var(--muted); line-height: 1.4;">
+            ${topItems.map(item => `<div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">• ${escapeHtml(item)}</div>`).join('')}
+            ${count > 3 ? `<div style="color: var(--accent); margin-top: 2px;">+${count - 3} more →</div>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    els.structureSnapshotCards.innerHTML = cards;
+  }
+  
+  /**
+   * Pivot from Structure Snapshot card to Evidence tab with filter
+   */
+  window.pivotSnapshotToEvidence = function(filterType) {
+    // Switch to Evidence tab
+    switchRunTab('facts');
+    
+    // Apply filter after a brief delay to allow tab switch
+    setTimeout(() => {
+      if (typeof window.filterEvidenceByType === 'function') {
+        window.filterEvidenceByType(filterType);
+      }
+    }, 100);
+  };
   
   /**
    * Render a single Diff v2 change item
@@ -10791,6 +23213,223 @@ cargo build --release -p edr-locald --bin edr-locald`;
   }
   
   /**
+   * Render a Delta Highlight card (actionable card with pivot buttons)
+   */
+  function renderDeltaHighlightCard(change, index) {
+    const severityColors = {
+      'critical': 'var(--bad)',
+      'high': 'var(--bad)',
+      'medium': 'var(--warn)',
+      'low': 'var(--muted)',
+      'info': 'var(--muted)'
+    };
+    const color = severityColors[change.severity] || 'var(--muted)';
+    
+    const categoryIcon = {
+      'process': '⚙️',
+      'file': '📁',
+      'network': '🌐',
+      'persistence': '🔒',
+      'auth': '🔑',
+      'evasion': '🛡️',
+      'other': '📋'
+    }[change.category?.toLowerCase()] || '📋';
+    
+    const directionIcons = {
+      'added': '➕',
+      'removed': '➖',
+      'increased': '📈',
+      'decreased': '📉',
+      'modified': '✏️'
+    };
+    const dirIcon = directionIcons[change.direction] || '';
+    
+    const evidenceCount = (change.evidence_ptrs || []).length;
+    const hasEvidence = evidenceCount > 0;
+    
+    // Build pivot actions based on what's available
+    const pivotActions = [];
+    if (change.linked_signal_id) {
+      pivotActions.push(`<button onclick="selectSignalForInvestigate('${change.linked_signal_id}'); switchRunTab('investigate');" style="padding: 4px 8px; font-size: 10px; background: var(--accent); color: var(--bg); border: none; border-radius: 3px; cursor: pointer;">→ Investigate</button>`);
+    }
+    if (hasEvidence) {
+      pivotActions.push(`<button onclick="showEvidenceViewer(${JSON.stringify(change.evidence_ptrs).replace(/"/g, '&quot;')}, '${escapeHtml(change.title || 'Change')}')" style="padding: 4px 8px; font-size: 10px; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;">🔗 Evidence</button>`);
+    }
+    if (change.entity_id) {
+      pivotActions.push(`<button onclick="pivotToEntity('${change.entity_id}');" style="padding: 4px 8px; font-size: 10px; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;">👤 Entity</button>`);
+    }
+    
+    // Add default pivot if none available
+    if (pivotActions.length === 0) {
+      pivotActions.push(`<button onclick="switchRunTab('facts');" style="padding: 4px 8px; font-size: 10px; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;">📊 View Facts</button>`);
+    }
+    
+    return `
+      <div class="delta-highlight-card" 
+           data-change-id="${change.change_id}"
+           style="padding: 14px; background: var(--panel); border: 1px solid var(--border); border-top: 3px solid ${color}; border-radius: var(--radius-sm);">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 16px;">${categoryIcon}</span>
+            <span style="font-size: 11px; font-weight: 600; padding: 2px 6px; background: ${color}22; border-radius: 2px; color: ${color};">${change.severity}</span>
+            ${change.direction ? `<span style="font-size: 10px; color: var(--muted);">${dirIcon} ${change.direction}</span>` : ''}
+          </div>
+          <span style="font-size: 10px; color: var(--muted);">#${index + 1}</span>
+        </div>
+        <div style="font-size: 13px; font-weight: 500; margin-bottom: 6px; line-height: 1.3;">
+          ${escapeHtml(change.title || 'Unknown change')}
+        </div>
+        <div style="font-size: 11px; color: var(--text); margin-bottom: 10px; line-height: 1.4;">
+          ${escapeHtml((change.summary || '').substring(0, 120))}${(change.summary || '').length > 120 ? '...' : ''}
+        </div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          ${pivotActions.join('')}
+        </div>
+      </div>
+    `;
+  }
+  
+  /**
+   * Render "What to do next" panel based on current goal and findings
+   */
+  function renderDiffWhatNext(highlights, changes, categories) {
+    const content = document.getElementById('diffWhatNextContent');
+    if (!content) return;
+    
+    const goal = state.currentDiffGoal || 'all';
+    const items = [];
+    
+    // Add goal-specific recommendations
+    if (goal === 'all') {
+      if (highlights.length > 0) {
+        items.push({
+          icon: '🎯',
+          text: `Review ${highlights.length} high-severity changes in Delta Highlights above`,
+          action: null
+        });
+      }
+      if (categories['Persistence'] > 0) {
+        items.push({
+          icon: '🔒',
+          text: `${categories['Persistence']} persistence changes detected — consider filtering by Persistence goal`,
+          action: `applyDiffGoalPreset('persistence')`
+        });
+      }
+      if (categories['Evasion'] > 0) {
+        items.push({
+          icon: '🛡️',
+          text: `${categories['Evasion']} evasion-related changes — investigate for suspicious activity`,
+          action: `applyDiffGoalPreset('suspicious')`
+        });
+      }
+    } else if (goal === 'suspicious') {
+      items.push({
+        icon: '🔍',
+        text: 'Looking for evasion patterns — process hollowing, DLL injection, anti-forensics',
+        action: null
+      });
+      if (highlights.length === 0) {
+        items.push({
+          icon: '✅',
+          text: 'No obvious evasion patterns detected in this filter',
+          action: null
+        });
+      } else {
+        items.push({
+          icon: '⚠️',
+          text: `Found ${highlights.length} suspicious changes — review each carefully`,
+          action: null
+        });
+      }
+    } else if (goal === 'persistence') {
+      items.push({
+        icon: '🔒',
+        text: 'Checking for new persistence mechanisms — services, tasks, registry',
+        action: null
+      });
+      if (changes.length > 0) {
+        items.push({
+          icon: '📋',
+          text: `${changes.length} persistence-related changes found — examine each for legitimacy`,
+          action: null
+        });
+        items.push({
+          icon: '→',
+          text: 'Cross-reference with known software installations in Explore tab',
+          action: `switchRunTab('explore')`
+        });
+      }
+    } else if (goal === 'credential') {
+      items.push({
+        icon: '🔑',
+        text: 'Monitoring authentication events — logons, credential access, token manipulation',
+        action: null
+      });
+      if (changes.length > 0) {
+        items.push({
+          icon: '⚠️',
+          text: `${changes.length} auth changes — look for unusual logon patterns or credential theft`,
+          action: null
+        });
+      }
+    } else if (goal === 'network') {
+      items.push({
+        icon: '🌐',
+        text: 'Analyzing network changes — new connections, DNS queries, potential C2/exfil',
+        action: null
+      });
+      if (changes.length > 0) {
+        items.push({
+          icon: '📡',
+          text: `${changes.length} network changes — check for unusual destinations or protocols`,
+          action: null
+        });
+      }
+    } else if (goal === 'software') {
+      items.push({
+        icon: '📦',
+        text: 'Tracking new process executions and software activity',
+        action: null
+      });
+      if (changes.length > 0) {
+        items.push({
+          icon: '⚙️',
+          text: `${changes.length} new processes — verify each is expected`,
+          action: null
+        });
+      }
+    }
+    
+    // Add default actions if list is short
+    if (items.length < 2) {
+      items.push({
+        icon: '📊',
+        text: 'Expand Observed Structure Map below to see facts overview',
+        action: `toggleObservedStructure()`
+      });
+    }
+    
+    // Always add pivot to Investigate if there are signals
+    if (state.signals && state.signals.length > 0) {
+      items.push({
+        icon: '🔎',
+        text: `${state.signals.length} findings available — review in Investigate tab`,
+        action: `switchRunTab('investigate')`
+      });
+    }
+    
+    // Render items
+    content.innerHTML = items.slice(0, 4).map(item => `
+      <div style="display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; background: var(--panel); border-radius: 4px;${item.action ? ' cursor: pointer;' : ''}"
+           ${item.action ? `onclick="${item.action}"` : ''}>
+        <span style="font-size: 12px;">${item.icon}</span>
+        <span style="font-size: 12px; color: var(--text); flex: 1;">${item.text}</span>
+        ${item.action ? '<span style="font-size: 10px; color: var(--accent);">→</span>' : ''}
+      </div>
+    `).join('');
+  }
+  
+  /**
    * Initialize Diff v2 UI controls
    */
   function initDiffV2Controls() {
@@ -10825,6 +23464,203 @@ cargo build --release -p edr-locald --bin edr-locald`;
     if (els.diffDirectionFilter) {
       els.diffDirectionFilter.addEventListener('change', () => renderChangesTab());
     }
+    
+    // Diff Goal preset buttons
+    if (els.diffGoalPresets) {
+      els.diffGoalPresets.querySelectorAll('.diff-goal-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const goal = btn.dataset.goal;
+          applyDiffGoalPreset(goal);
+        });
+      });
+    }
+    
+    // Clear filters button
+    if (els.btnClearFilters) {
+      els.btnClearFilters.addEventListener('click', () => {
+        applyDiffGoalPreset('all');
+      });
+    }
+    
+    // Desired Outcome selector
+    if (els.desiredOutcomeSelect) {
+      els.desiredOutcomeSelect.addEventListener('change', () => {
+        renderDesiredOutcomeGuidance();
+      });
+    }
+    
+    // Why button toggle
+    if (els.btnShowOutcomeWhy) {
+      els.btnShowOutcomeWhy.addEventListener('click', () => {
+        window.toggleOutcomeWhy();
+      });
+    }
+  }
+  
+  /**
+   * Apply a Diff Goal preset — sets filters and updates UI
+   */
+  function applyDiffGoalPreset(goal) {
+    const presets = {
+      all: {
+        category: '',
+        direction: '',
+        description: 'Showing all system changes — no filtering applied.'
+      },
+      suspicious: {
+        category: 'Evasion',
+        direction: '',
+        description: 'Filtering for evasion and suspicious activity patterns.'
+      },
+      persistence: {
+        category: 'Persistence',
+        direction: 'added',
+        description: 'Focusing on new persistence mechanisms — scheduled tasks, services, registry run keys.'
+      },
+      credential: {
+        category: 'Auth',
+        direction: '',
+        description: 'Showing authentication and credential-related changes.'
+      },
+      network: {
+        category: 'Network',
+        direction: '',
+        description: 'Filtering for network activity — connections, DNS, potential exfiltration.'
+      },
+      software: {
+        category: 'Process',
+        direction: 'added',
+        description: 'Focusing on newly spawned processes and software execution.'
+      }
+    };
+    
+    const preset = presets[goal] || presets.all;
+    
+    // Update filters
+    if (els.diffCategoryFilter) els.diffCategoryFilter.value = preset.category;
+    if (els.diffDirectionFilter) els.diffDirectionFilter.value = preset.direction;
+    
+    // Update description
+    if (els.diffGoalDescription) els.diffGoalDescription.textContent = preset.description;
+    
+    // Update active button styling
+    if (els.diffGoalPresets) {
+      els.diffGoalPresets.querySelectorAll('.diff-goal-btn').forEach(btn => {
+        if (btn.dataset.goal === goal) {
+          btn.style.background = 'var(--accent)';
+          btn.style.color = 'var(--bg)';
+          btn.style.borderColor = 'var(--accent)';
+          btn.classList.add('active');
+        } else {
+          btn.style.background = 'var(--panel2)';
+          btn.style.color = 'var(--text)';
+          btn.style.borderColor = 'var(--border)';
+          btn.classList.remove('active');
+        }
+      });
+    }
+    
+    // Track current goal in state for "What to do next" panel
+    state.currentDiffGoal = goal;
+    
+    // Re-render changes tab with new filters
+    renderChangesTab();
+  }
+  
+  /**
+   * Toggle Observed Structure Map visibility
+   */
+  window.toggleObservedStructure = function() {
+    const content = document.getElementById('observedStructureContent');
+    const toggle = document.getElementById('observedStructureToggle');
+    if (content && toggle) {
+      const isHidden = content.classList.contains('hidden');
+      content.classList.toggle('hidden');
+      toggle.textContent = isHidden ? '▼' : '▶';
+      
+      // Render structure map if opening and not yet populated
+      if (isHidden && content.innerHTML.trim() === '' || content.querySelector('#observedStructureTiles').innerHTML === '') {
+        renderObservedStructureMap();
+      }
+    }
+  };
+  
+  /**
+   * Render Observed Structure Map tiles from facts data
+   */
+  async function renderObservedStructureMap() {
+    const tiles = document.getElementById('observedStructureTiles');
+    const empty = document.getElementById('observedStructureEmpty');
+    if (!tiles) return;
+    
+    // Use cached coverage data if available
+    const coverage = state.runCoverage;
+    if (!coverage || !coverage.facts_by_type) {
+      // Fetch coverage if not available
+      if (state.selectedRunId) {
+        try {
+          const data = await api(`/api/runs/${state.selectedRunId}/coverage`);
+          if (data && data.facts_by_type) {
+            renderStructureTiles(data.facts_by_type, tiles, empty);
+            return;
+          }
+        } catch (err) {
+          console.error('[Structure Map] Error:', err);
+        }
+      }
+      tiles.innerHTML = '';
+      if (empty) empty.classList.remove('hidden');
+      return;
+    }
+    
+    renderStructureTiles(coverage.facts_by_type, tiles, empty);
+  }
+  
+  /**
+   * Render the structure map tiles from facts_by_type
+   */
+  function renderStructureTiles(factsByType, tilesEl, emptyEl) {
+    if (!factsByType || Object.keys(factsByType).length === 0) {
+      tilesEl.innerHTML = '';
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      return;
+    }
+    
+    if (emptyEl) emptyEl.classList.add('hidden');
+    
+    // Group fact types into categories
+    const categories = {
+      'Processes': { icon: '⚙️', types: ['process_exec', 'process_spawn', 'cmd_line'], color: 'var(--accent)' },
+      'Network': { icon: '🌐', types: ['network_conn', 'dns_query', 'http_request'], color: 'var(--info)' },
+      'Persistence': { icon: '🔒', types: ['svc_install', 'schtask_create', 'reg_persist', 'autorun'], color: 'var(--bad)' },
+      'Files': { icon: '📁', types: ['file_create', 'file_modify', 'file_delete', 'reg_write'], color: 'var(--warn)' }
+    };
+    
+    const tiles = Object.entries(categories).map(([name, cat]) => {
+      const count = cat.types.reduce((sum, t) => sum + (factsByType[t] || 0), 0);
+      const typeBreakdown = cat.types
+        .filter(t => factsByType[t] > 0)
+        .map(t => `${t}: ${factsByType[t]}`)
+        .join(', ');
+      
+      return `
+        <div class="structure-tile" 
+             style="padding: 12px; background: var(--panel); border: 1px solid var(--border); border-left: 3px solid ${cat.color}; border-radius: var(--radius-sm); cursor: pointer;"
+             onclick="switchRunTab('facts'); filterFactsByType('${cat.types[0]}');">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+            <span style="font-size: 16px;">${cat.icon}</span>
+            <span style="font-size: 13px; font-weight: 600;">${name}</span>
+          </div>
+          <div style="font-size: 20px; font-weight: bold; color: ${count > 0 ? cat.color : 'var(--muted)'};">${count}</div>
+          <div style="font-size: 10px; color: var(--muted); margin-top: 4px;" title="${typeBreakdown}">
+            ${count > 0 ? typeBreakdown.substring(0, 40) + (typeBreakdown.length > 40 ? '...' : '') : 'No activity'}
+          </div>
+          ${count > 0 ? `<div style="font-size: 10px; color: var(--accent); margin-top: 6px;">→ View in Facts</div>` : ''}
+        </div>
+      `;
+    });
+    
+    tilesEl.innerHTML = tiles.join('');
   }
   
   /**
@@ -11239,6 +24075,7 @@ cargo build --release -p edr-locald --bin edr-locald`;
 
   /**
    * Select a signal/finding and load explanation
+   * Used by legacy code paths - delegates to Investigate tab for new UI
    */
   async function selectSignal(signalId) {
     // Stop any existing explain refresh loop (user selected different signal)
@@ -11249,7 +24086,13 @@ cargo build --release -p edr-locald --bin edr-locald`;
     state.signalExplanation = null;
     state.signalNarrative = null;
     
-    // Re-render findings to show selection
+    // If on Investigate tab, use the new function
+    if (state.currentRunTab === 'investigate') {
+      selectSignalForInvestigate(signalId);
+      return;
+    }
+    
+    // Re-render findings to show selection (legacy compat)
     if (state.currentRunTab === 'findings') {
       renderFindingsTab();
     }
@@ -11295,6 +24138,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
    * CONTRACT: Uses canonical ExplainResponse schema from API_CONTRACT_CORE.md
    */
   function renderExplainTab() {
+    // Part A: Hide partial note by default (will show later if needed)
+    if (els.explainPartialNote) els.explainPartialNote.classList.add('hidden');
+    
     // No signal selected - show run-level summary instead
     if (!state.selectedSignalId || !state.selectedSignal) {
       if (els.explainContent) els.explainContent.classList.add('hidden');
@@ -11309,6 +24155,20 @@ cargo build --release -p edr-locald --bin edr-locald`;
     }
     
     if (els.explainSelectPrompt) els.explainSelectPrompt.classList.add('hidden');
+    
+    // Part A: Show subtle inline partial note if run is interrupted
+    // This replaces any large duplicate banners with a minimal 1-line note
+    const coverage = state.runCoverage || {};
+    const metadataUnavailable = coverage.metadata_unavailable;
+    const isInterrupted = !metadataUnavailable && (coverage.compile_status === 'interrupted' || coverage.facts_partial);
+    
+    if (isInterrupted && els.explainPartialNote) {
+      els.explainPartialNote.classList.remove('hidden');
+      if (els.explainPartialReason) {
+        const reason = coverage.abandoned_reason || 'run was interrupted';
+        els.explainPartialReason.textContent = `Incomplete run — ${reason}. Trace data may be partial.`;
+      }
+    }
     
     // Check if explain endpoint available
     if (state.capabilities.signalExplain === false) {
@@ -11437,6 +24297,47 @@ cargo build --release -p edr-locald --bin edr-locald`;
         els.explainNarrative.textContent = explanation.why_fired;
       } else {
         els.explainNarrative.textContent = sig.metadata?.description || 'No narrative available.';
+      }
+    }
+    
+    // === WHY THIS FIRED section (derived from playbook + matched slots) ===
+    if (els.explainWhyFiredSection && els.explainWhyFired) {
+      // Derive "why this fired" from:
+      // 1. explanation.why_fired (if present from backend)
+      // 2. playbook title + matched slot names
+      // 3. signal_type if nothing else
+      
+      let whyText = '';
+      const playbookTitle = explanation?.playbook_title || explanation?.playbook || '';
+      const slots = matchedSlots || explanation?.slots;
+      
+      // Get slot names
+      const slotArray = Array.isArray(slots) ? slots : 
+        (slots && typeof slots === 'object' ? Object.entries(slots).map(([name, data]) => ({
+          name,
+          ...(typeof data === 'object' ? data : { value: data })
+        })) : []);
+      
+      const matchedSlotNames = slotArray
+        .filter(s => s.matched || s.value || s.fact_id)
+        .map(s => s.name || s.slot_id)
+        .filter(Boolean);
+      
+      if (explanation?.why_fired) {
+        whyText = explanation.why_fired;
+      } else if (playbookTitle && matchedSlotNames.length > 0) {
+        whyText = `Playbook "${playbookTitle}" triggered because slots matched: ${matchedSlotNames.join(', ')}`;
+      } else if (playbookTitle) {
+        whyText = `Playbook "${playbookTitle}" triggered based on observed telemetry patterns`;
+      } else if (sig.signal_type) {
+        whyText = `Detection "${sig.signal_type}" triggered based on behavior pattern match`;
+      }
+      
+      if (whyText) {
+        els.explainWhyFired.textContent = whyText;
+        els.explainWhyFiredSection.classList.remove('hidden');
+      } else {
+        els.explainWhyFiredSection.classList.add('hidden');
       }
     }
     
@@ -11677,61 +24578,178 @@ cargo build --release -p edr-locald --bin edr-locald`;
       }
     }
     
-    // === Matched slots and facts (always show something) ===
+    // === PLAYBOOK TRACE VIEW - Step/Slot detailed visualization ===
     if (els.explainSlots) {
       const slots = matchedSlots || explanation?.slots;
-      // Get matched_facts from response top-level or from explanation object
       const matchedFacts = explainResp.matched_facts || explanation?.matched_facts || [];
+      const playbookId = explanation?.playbook_id || source.id;
+      const playbookTitle = explanation?.playbook_title || explanation?.playbook || playbookId;
+      const playbookDescription = explanation?.description || explanation?.summary || null;
       
       let html = '';
       
-      // Slot matches section
-      if (matchedSlots) {
-        html += '<div style="margin-bottom: 12px;">';
-        html += '<div style="font-weight: 500; margin-bottom: 8px;">📋 Slot Matches:</div>';
-        html += `<div style="padding: 8px; background: var(--panel2); border-radius: var(--radius-sm);">`;
-        html += `<div style="margin-bottom: 4px;"><span style="color: var(--muted);">Filled:</span> <strong>${matchedSlots.filled || 0} / ${matchedSlots.total || 0}</strong></div>`;
-        if (matchedSlots.names?.length > 0) {
-          html += `<div style="margin-top: 4px;"><span style="color: var(--muted);">Slots:</span> ${matchedSlots.names.map(n => `<span class="badge badge-stopped" style="font-size: 10px;">${escapeHtml(n)}</span>`).join(' ')}</div>`;
-        }
-        html += '</div></div>';
-      } else if (slots && (Array.isArray(slots) ? slots.length > 0 : Object.keys(slots).length > 0)) {
-        html += '<div style="margin-bottom: 12px;">';
-        html += '<div style="font-weight: 500; margin-bottom: 8px;">📋 Slot Values:</div>';
-        html += '<div style="padding: 8px; background: var(--panel2); border-radius: var(--radius-sm);">';
-        const entries = Array.isArray(slots) ? slots.map((s, i) => [s.name || `slot_${i}`, s]) : Object.entries(slots);
-        entries.forEach(([key, val]) => {
-          const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
-          html += `<div style="margin-bottom: 4px; font-size: 12px;"><span style="color: var(--muted);">${escapeHtml(key)}:</span> <span style="font-family: monospace;">${escapeHtml(displayVal)}</span></div>`;
-        });
-        html += '</div></div>';
+      // === Playbook Summary Header ===
+      if (playbookTitle) {
+        html += `
+          <div style="margin-bottom: 16px; padding: 12px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.05)); border-radius: var(--radius-sm); border-left: 3px solid var(--accent);">
+            <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">📜 ${escapeHtml(playbookTitle)}</div>
+            ${playbookDescription ? `<div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">${escapeHtml(playbookDescription)}</div>` : ''}
+            ${playbookId ? `<div style="font-size: 11px; font-family: monospace; color: var(--muted);">ID: ${escapeHtml(playbookId)}</div>` : ''}
+          </div>
+        `;
       }
       
-      // Matched facts section
+      // === Step/Slot Trace List ===
+      // Transform slot data into step trace format
+      const slotArray = Array.isArray(slots) ? slots : 
+        (slots && typeof slots === 'object' ? Object.entries(slots).map(([name, data]) => ({
+          name,
+          ...(typeof data === 'object' ? data : { value: data })
+        })) : []);
+      
+      // Determine total and matched for progress bar
+      const totalSlots = slotArray.length || (matchedSlots?.total ?? 0);
+      const filledSlots = slotArray.filter(s => s.matched || s.value || s.fact_id).length || (matchedSlots?.filled ?? 0);
+      
+      if (totalSlots > 0) {
+        const pct = totalSlots > 0 ? Math.round((filledSlots / totalSlots) * 100) : 0;
+        html += `
+          <div style="margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="font-weight: 500; font-size: 13px;">🔍 Step Trace (${filledSlots}/${totalSlots} slots matched)</div>
+              <div style="font-size: 11px; color: var(--muted);">${pct}% complete</div>
+            </div>
+            <div style="width: 100%; height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden;">
+              <div style="width: ${pct}%; height: 100%; background: ${pct === 100 ? 'var(--good)' : 'var(--accent)'}; transition: width 0.3s;"></div>
+            </div>
+          </div>
+        `;
+        
+        // Render each slot as a step
+        html += `<div style="display: flex; flex-direction: column; gap: 8px;">`;
+        
+        slotArray.forEach((slot, idx) => {
+          const slotName = slot.name || slot.slot_id || `Step ${idx + 1}`;
+          const isRequired = slot.required !== false; // Default to required
+          const isMatched = slot.matched || slot.value || slot.fact_id;
+          const matchedFactId = slot.fact_id || slot.matched_fact_id;
+          const matchedFactType = slot.fact_type || slot.predicate?.fact_type;
+          const evidencePtrsList = slot.evidence_ptrs || [];
+          const missingReason = slot.missing_reason || slot.why_missing;
+          
+          html += `
+            <div style="padding: 10px 12px; background: var(--panel2); border-radius: var(--radius-sm); border-left: 3px solid ${isMatched ? 'var(--good)' : (isRequired ? 'var(--error)' : 'var(--warn)')};">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 16px;">${isMatched ? '✅' : '❌'}</span>
+                  <span style="font-weight: 500; font-size: 12px;">${escapeHtml(slotName)}</span>
+                  <span class="badge ${isRequired ? 'badge-error' : 'badge-stopped'}" style="font-size: 9px; padding: 2px 6px;">${isRequired ? 'REQUIRED' : 'OPTIONAL'}</span>
+                </div>
+                <span style="font-size: 11px; color: ${isMatched ? 'var(--good)' : 'var(--error)'};">${isMatched ? 'MATCHED' : 'NOT MATCHED'}</span>
+              </div>
+              
+              ${matchedFactType ? `<div style="font-size: 11px; color: var(--muted); margin-bottom: 6px;">Fact Type: <span style="font-family: monospace;">${escapeHtml(matchedFactType)}</span></div>` : ''}
+              
+              ${isMatched ? `
+                <!-- Matched fact details -->
+                ${matchedFactId ? `
+                  <div style="margin-top: 8px; padding: 8px; background: var(--panel); border-radius: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                      <span style="font-size: 11px; font-family: monospace; color: var(--accent);">Fact: ${escapeHtml(matchedFactId.length > 30 ? matchedFactId.slice(0, 30) + '...' : matchedFactId)}</span>
+                      <button class="view-fact-btn" data-fact-id="${escapeHtml(matchedFactId)}" style="font-size: 10px; padding: 2px 8px; background: var(--accent); color: white; border: none; border-radius: 3px; cursor: pointer;">View Fact →</button>
+                    </div>
+                    ${slot.entity_key ? `<div style="font-size: 10px; color: var(--muted); margin-top: 4px;">Entity: ${escapeHtml(slot.entity_key.length > 50 ? slot.entity_key.slice(0, 50) + '...' : slot.entity_key)}</div>` : ''}
+                  </div>
+                ` : ''}
+                
+                ${evidencePtrsList.length > 0 ? `
+                  <div style="margin-top: 8px;">
+                    <div style="font-size: 10px; color: var(--muted); margin-bottom: 4px;">Evidence Pointers (${evidencePtrsList.length}):</div>
+                    ${evidencePtrsList.slice(0, 3).map((ptr, pi) => {
+                      const ptrSummary = ptr.summary || `${ptr.stream_id || '?'}:${ptr.segment_id ?? '?'}:${ptr.record_index ?? '?'}`;
+                      return `<div style="font-size: 10px; font-family: monospace; color: var(--muted); margin-left: 8px;">📋 ${escapeHtml(ptrSummary)}</div>`;
+                    }).join('')}
+                    ${evidencePtrsList.length > 3 ? `<div style="font-size: 10px; color: var(--muted); margin-left: 8px;">... and ${evidencePtrsList.length - 3} more</div>` : ''}
+                  </div>
+                ` : ''}
+              ` : `
+                <!-- Missing telemetry reason - distinguish blocked vs not observed -->
+                <div style="margin-top: 8px; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;">
+                  <div style="font-size: 11px; color: var(--error);">
+                    ${slot.telemetry_blocked || slot.sensor_blocked ? 
+                      `🚫 Telemetry blocked - required sensor not accessible` :
+                      `⚠️ ${missingReason ? escapeHtml(missingReason) : 'Required facts not observed during this run'}`
+                    }
+                  </div>
+                  ${slot.predicate?.fact_type ? `<div style="font-size: 10px; color: var(--muted); margin-top: 4px;">Needs: ${escapeHtml(slot.predicate.fact_type)} facts</div>` : ''}
+                  ${slot.required_sensor ? `<div style="font-size: 10px; color: var(--error); margin-top: 4px;">Requires: ${escapeHtml(slot.required_sensor)}</div>` : ''}
+                </div>
+              `}
+            </div>
+          `;
+        });
+        
+        html += `</div>`;
+      } else if (matchedSlots) {
+        // Simpler slot display when we only have summary
+        html += `
+          <div style="margin-bottom: 12px;">
+            <div style="font-weight: 500; margin-bottom: 8px;">📋 Slot Summary:</div>
+            <div style="padding: 10px; background: var(--panel2); border-radius: var(--radius-sm);">
+              <div style="margin-bottom: 4px;"><span style="color: var(--muted);">Filled:</span> <strong>${matchedSlots.filled || 0} / ${matchedSlots.total || 0}</strong></div>
+              ${matchedSlots.names?.length > 0 ? `
+                <div style="margin-top: 8px;">
+                  <span style="color: var(--muted);">Matched Slots:</span>
+                  <div style="margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px;">
+                    ${matchedSlots.names.map(n => `<span class="badge" style="background: rgba(34, 197, 94, 0.2); color: var(--good); font-size: 10px;">✓ ${escapeHtml(n)}</span>`).join('')}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }
+      
+      // === Matched Facts Grid ===
       if (matchedFacts.length > 0) {
-        html += '<div style="margin-bottom: 12px;">';
-        html += '<div style="font-weight: 500; margin-bottom: 8px;">📊 Matched Facts:</div>';
-        html += '<div style="max-height: 200px; overflow-y: auto; padding: 8px; background: var(--panel2); border-radius: var(--radius-sm);">';
+        html += `
+          <div style="margin-top: 16px;">
+            <div style="font-weight: 500; margin-bottom: 8px;">📊 All Matched Facts (${matchedFacts.length})</div>
+            <div style="max-height: 250px; overflow-y: auto; padding: 8px; background: var(--panel2); border-radius: var(--radius-sm);">
+        `;
         matchedFacts.forEach(fact => {
           const factType = fact.fact_type || 'Unknown';
+          const factId = fact.fact_id || fact.id || '';
           const entityKeys = fact.entity_keys || {};
-          const procKey = entityKeys.proc_key || entityKeys.process || '';
+          const procKey = entityKeys.proc_key || entityKeys.process || fact.proc_key || '';
           const ts = fact.ts ? new Date(fact.ts).toLocaleTimeString() : '';
-          html += `<div style="margin-bottom: 6px; padding: 4px 6px; background: var(--panel); border-radius: 2px; font-size: 11px;">
-            <span class="badge badge-stopped" style="font-size: 9px;">${escapeHtml(factType)}</span>
-            ${procKey ? `<span style="margin-left: 6px; font-family: monospace; color: var(--muted);">${escapeHtml(procKey.length > 40 ? procKey.slice(0, 40) + '...' : procKey)}</span>` : ''}
-            ${ts ? `<span style="float: right; color: var(--muted);">${ts}</span>` : ''}
-          </div>`;
+          const evidenceCount = fact.evidence_ptrs?.length || 0;
+          
+          html += `
+            <div class="matched-fact-row" data-fact-id="${escapeHtml(factId)}" style="margin-bottom: 6px; padding: 8px 10px; background: var(--panel); border-radius: 4px; cursor: pointer; border: 1px solid transparent; transition: border-color 0.15s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='transparent'">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="badge badge-stopped" style="font-size: 10px;">${escapeHtml(factType)}</span>
+                  ${procKey ? `<span style="font-family: monospace; font-size: 11px; color: var(--muted); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(procKey)}</span>` : ''}
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  ${evidenceCount > 0 ? `<span style="font-size: 10px; color: var(--muted);">📋 ${evidenceCount}</span>` : ''}
+                  ${ts ? `<span style="font-size: 10px; color: var(--muted);">${ts}</span>` : ''}
+                </div>
+              </div>
+              ${factId ? `<div style="font-size: 10px; font-family: monospace; color: var(--muted); margin-top: 4px;">ID: ${escapeHtml(factId.slice(0, 40))}${factId.length > 40 ? '...' : ''}</div>` : ''}
+            </div>
+          `;
         });
-        html += '</div></div>';
+        html += `</div></div>`;
       }
       
-      // If nothing to show, display explicit message
+      // === No slot/fact data message ===
       if (!html) {
         html = `
           <div style="padding: 12px; background: rgba(251, 191, 36, 0.1); border: 1px solid var(--warn); border-radius: var(--radius-sm);">
-            <div style="font-size: 12px; color: var(--warn); font-weight: 500; margin-bottom: 4px;">⚠️ Explainability Linkage Missing</div>
-            <div style="font-size: 11px; color: var(--muted);">This finding lacks linked slots and facts. This indicates the analysis pipeline did not record the reasoning chain.</div>
+            <div style="font-size: 12px; color: var(--warn); font-weight: 500; margin-bottom: 4px;">⚠️ Playbook Trace Unavailable</div>
+            <div style="font-size: 11px; color: var(--muted);">This finding lacks detailed slot and fact linkage. The analysis pipeline did not record the step-by-step reasoning chain.</div>
             <div style="font-size: 11px; color: var(--muted); margin-top: 6px;">
               <strong>Signal ID:</strong> ${escapeHtml(sig.signal_id || '—')}<br>
               <strong>Run ID:</strong> ${escapeHtml(state.selectedRunId || '—')}
@@ -11744,6 +24762,26 @@ cargo build --release -p edr-locald --bin edr-locald`;
       }
       
       els.explainSlots.innerHTML = html;
+      
+      // Bind click handlers for View Fact buttons and fact rows
+      els.explainSlots.querySelectorAll('.view-fact-btn, .matched-fact-row').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const factId = el.dataset.factId;
+          if (factId) {
+            // Switch to Facts tab and apply filter for this specific fact
+            switchRunTab('facts');
+            // Apply fact_id filter in search box
+            if (els.factsSearchInput) {
+              els.factsSearchInput.value = factId;
+              // Trigger filtering
+              const evt = new Event('input', { bubbles: true });
+              els.factsSearchInput.dispatchEvent(evt);
+            }
+            console.log('[Explain] View fact:', factId);
+          }
+        });
+      });
     }
   }
   
@@ -11767,8 +24805,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
   /**
    * Render run-level explanation when no finding is selected
    * Shows: run summary, coverage checklist, capability gaps, "why no/few findings"
+   * Enhanced for zero-findings case: shows runnable/blocked playbooks, top observed facts, pivots
    */
-  function renderRunLevelExplain(container) {
+  async function renderRunLevelExplain(container) {
     if (!container) return;
     
     const run = state.selectedRun;
@@ -11778,20 +24817,61 @@ cargo build --release -p edr-locald --bin edr-locald`;
     
     let html = `<div style="padding: 16px; text-align: left;">`;
     
-    // Header
+    // === Check for interrupted/partial runs and old runs without metadata ===
+    const metadataUnavailable = coverage?.metadata_unavailable;
+    const isInterrupted = !metadataUnavailable && (coverage?.compile_status === 'interrupted' || coverage?.facts_partial);
+    const isCompiling = coverage?.compile_status === 'compiling' || coverage?.facts_ready === false;
+    
+    // === Header ===
     html += `<div style="font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
       <span style="font-size: 20px;">📊</span>
       Run-Level Analysis
     </div>`;
     
-    // Run summary metrics
+    // === E4: Interrupted run - show subtle inline note only (main banner is in header) ===
+    if (isInterrupted) {
+      html += `
+        <div style="margin-bottom: 12px; font-size: 11px; color: var(--warn); padding: 6px 10px; background: rgba(243, 156, 18, 0.08); border-radius: var(--radius-sm);">
+          ⚠️ Run incomplete — analysis may be partial. See banner above.
+        </div>
+      `;
+    }
+    
+    // === E5: Old run without metadata banner ===
+    if (metadataUnavailable) {
+      html += `
+        <div style="margin-bottom: 16px; padding: 12px; background: var(--panel2); border-radius: var(--radius-sm); border-left: 3px solid var(--muted);">
+          <div style="font-size: 12px; color: var(--muted);">📜 <strong>Legacy Run</strong> - Limited metadata available. Detailed trace unavailable.</div>
+        </div>
+      `;
+    }
+    
+    // === Zero findings banner (only if NOT interrupted and NOT old run without metadata) ===
+    if (signals.length === 0 && !isInterrupted && !metadataUnavailable) {
+      html += `
+        <div style="margin-bottom: 16px; padding: 16px; background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05)); border-radius: var(--radius-sm); border-left: 4px solid var(--good); text-align: center;">
+          <div style="font-size: 24px; margin-bottom: 8px;">✅</div>
+          <div style="font-size: 14px; font-weight: 600; color: var(--good);">Nothing Fired</div>
+          <div style="font-size: 12px; color: var(--muted); margin-top: 4px;">No detection playbooks triggered during this analysis window</div>
+        </div>
+      `;
+    } else if (signals.length === 0 && (isInterrupted || metadataUnavailable)) {
+      // Partial/unknown case - don't claim definitive "nothing fired"
+      html += `
+        <div style="margin-bottom: 16px; padding: 12px; background: var(--panel2); border-radius: var(--radius-sm);">
+          <div style="font-size: 12px; color: var(--muted);">No findings recorded${isInterrupted ? ' (run incomplete)' : ' (limited data)'}.</div>
+        </div>
+      `;
+    }
+    
+    // === Run summary metrics ===
     if (run) {
       const signalCount = run.signal_count ?? signals.length;
       const factsCount = coverage?.facts_total ?? run.facts_extracted ?? 0;
       html += `
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; padding: 12px; background: var(--panel2); border-radius: var(--radius-sm);">
           <div style="text-align: center;">
-            <div style="font-size: 20px; font-weight: 700; color: ${signalCount > 0 ? 'var(--warn)' : 'var(--muted)'}">${signalCount}</div>
+            <div style="font-size: 20px; font-weight: 700; color: ${signalCount > 0 ? 'var(--warn)' : 'var(--good)'}">${signalCount}</div>
             <div style="font-size: 11px; color: var(--muted);">Findings</div>
           </div>
           <div style="text-align: center;">
@@ -11806,53 +24886,215 @@ cargo build --release -p edr-locald --bin edr-locald`;
       `;
     }
     
-    // Coverage checklist
-    if (coverage?.fact_types?.length > 0) {
-      html += `<div style="margin-bottom: 16px;">
-        <div style="font-weight: 500; margin-bottom: 8px;">📋 Fact Types Observed:</div>
-        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-          ${coverage.fact_types.slice(0, 10).map(ft => 
-            `<span class="badge badge-stopped" style="font-size: 11px;">${escapeHtml(ft.fact_type)} (${ft.count})</span>`
-          ).join('')}
+    // === For zero findings: fetch playbook breakdown and show analysis ===
+    // Skip for interrupted runs (incomplete data) or old runs without metadata
+    if (signals.length === 0 && state.selectedRunId && !isInterrupted && !metadataUnavailable) {
+      // Show loading placeholder
+      html += `<div id="runLevelPlaybookAnalysis" style="margin-bottom: 16px;">
+        <div style="padding: 12px; background: var(--panel2); border-radius: var(--radius-sm); text-align: center;">
+          <span style="font-size: 12px; color: var(--muted);">Loading playbook analysis...</span>
         </div>
       </div>`;
+      
+      container.innerHTML = html + '</div>';
+      
+      // Async fetch playbook data
+      try {
+        const playbookData = await api(`/api/runs/${state.selectedRunId}/playbooks`);
+        const evals = playbookData?.playbook_evals || [];
+        
+        // Categorize playbooks
+        const fired = evals.filter(e => e.status === 'fired');
+        const runnable = evals.filter(e => e.status === 'no_match' && !e.telemetry_blocked);
+        const partialMatch = evals.filter(e => e.status === 'partial');
+        const blocked = evals.filter(e => e.telemetry_blocked || e.status === 'telemetry_missing');
+        const notSelected = evals.filter(e => e.status === 'not_selected');
+        
+        let analysisHtml = `
+          <div style="font-weight: 500; margin-bottom: 10px;">🎯 Playbook Breakdown</div>
+          
+          <!-- Playbook status summary -->
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;">
+            <div style="padding: 10px 8px; background: var(--panel); border-radius: var(--radius-sm); text-align: center; border-left: 3px solid var(--good);">
+              <div style="font-size: 18px; font-weight: 700; color: var(--good);">${runnable.length}</div>
+              <div style="font-size: 10px; color: var(--muted);">Runnable</div>
+              <div style="font-size: 9px; color: var(--muted);">(no match)</div>
+            </div>
+            <div style="padding: 10px 8px; background: var(--panel); border-radius: var(--radius-sm); text-align: center; border-left: 3px solid var(--accent);">
+              <div style="font-size: 18px; font-weight: 700; color: var(--accent);">${partialMatch.length}</div>
+              <div style="font-size: 10px; color: var(--muted);">Partial</div>
+              <div style="font-size: 9px; color: var(--muted);">(near miss)</div>
+            </div>
+            <div style="padding: 10px 8px; background: var(--panel); border-radius: var(--radius-sm); text-align: center; border-left: 3px solid var(--error);">
+              <div style="font-size: 18px; font-weight: 700; color: var(--error);">${blocked.length}</div>
+              <div style="font-size: 10px; color: var(--muted);">Blocked</div>
+              <div style="font-size: 9px; color: var(--muted);">(missing data)</div>
+            </div>
+            <div style="padding: 10px 8px; background: var(--panel); border-radius: var(--radius-sm); text-align: center; border-left: 3px solid var(--muted);">
+              <div style="font-size: 18px; font-weight: 700; color: var(--muted);">${notSelected.length}</div>
+              <div style="font-size: 10px; color: var(--muted);">Skipped</div>
+              <div style="font-size: 9px; color: var(--muted);">(not selected)</div>
+            </div>
+          </div>
+        `;
+        
+        // === Partial matches (near misses) - show why they didn't fire ===
+        if (partialMatch.length > 0) {
+          analysisHtml += `
+            <div style="margin-bottom: 12px;">
+              <div style="font-weight: 500; margin-bottom: 6px; font-size: 12px;">⚡ Near Misses (almost triggered)</div>
+              <div style="max-height: 150px; overflow-y: auto;">
+          `;
+          partialMatch.slice(0, 5).forEach(pb => {
+            const pct = pb.total_slots > 0 ? Math.round((pb.matched_slots / pb.total_slots) * 100) : 0;
+            const missingSlots = pb.missing_slot_names || [];
+            analysisHtml += `
+              <div style="padding: 8px 10px; margin-bottom: 6px; background: var(--panel); border-radius: 4px; border-left: 2px solid var(--accent);">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-size: 11px; font-weight: 500;">${escapeHtml(pb.playbook_id)}</span>
+                  <span style="font-size: 10px; color: var(--accent);">${pb.matched_slots}/${pb.total_slots} slots (${pct}%)</span>
+                </div>
+                ${pb.why_not_fired ? `<div style="font-size: 10px; color: var(--muted); margin-top: 4px;">❓ ${escapeHtml(pb.why_not_fired)}</div>` : ''}
+                ${missingSlots.length > 0 ? `<div style="font-size: 10px; color: var(--error); margin-top: 4px;">Missing: ${missingSlots.slice(0, 3).map(s => escapeHtml(s)).join(', ')}${missingSlots.length > 3 ? '...' : ''}</div>` : ''}
+              </div>
+            `;
+          });
+          analysisHtml += `</div></div>`;
+        }
+        
+        // === Blocked playbooks - show what telemetry is missing ===
+        if (blocked.length > 0) {
+          analysisHtml += `
+            <div style="margin-bottom: 12px;">
+              <div style="font-weight: 500; margin-bottom: 6px; font-size: 12px; color: var(--error);">🚫 Blocked by Missing Telemetry</div>
+              <div style="max-height: 120px; overflow-y: auto;">
+          `;
+          blocked.slice(0, 5).forEach(pb => {
+            const reqs = [];
+            if (pb.requires_sysmon) reqs.push('Sysmon');
+            if (pb.requires_security_log) reqs.push('Security Log');
+            analysisHtml += `
+              <div style="padding: 6px 10px; margin-bottom: 4px; background: rgba(239, 68, 68, 0.1); border-radius: 4px; font-size: 11px;">
+                <span style="font-weight: 500;">${escapeHtml(pb.playbook_id)}</span>
+                ${reqs.length > 0 ? `<span style="margin-left: 8px; color: var(--error);">Needs: ${reqs.join(', ')}</span>` : ''}
+              </div>
+            `;
+          });
+          if (blocked.length > 5) {
+            analysisHtml += `<div style="font-size: 10px; color: var(--muted); padding: 4px;">...and ${blocked.length - 5} more blocked</div>`;
+          }
+          analysisHtml += `</div></div>`;
+        }
+        
+        // Update the placeholder with actual data
+        const placeholder = document.getElementById('runLevelPlaybookAnalysis');
+        if (placeholder) {
+          placeholder.innerHTML = analysisHtml;
+        }
+      } catch (err) {
+        console.warn('[Explain] Failed to fetch playbook data:', err);
+        const placeholder = document.getElementById('runLevelPlaybookAnalysis');
+        if (placeholder) {
+          placeholder.innerHTML = `<div style="padding: 8px; font-size: 11px; color: var(--muted);">Playbook analysis unavailable</div>`;
+        }
+      }
+    } else {
+      // Not zero findings - continue with rest of render
+      container.innerHTML = html;
     }
     
-    // Capability gaps from selfcheck
-    if (selfcheck?.channels) {
-      const blocked = selfcheck.channels.filter(c => !c.accessible);
-      if (blocked.length > 0) {
-        html += `<div style="margin-bottom: 16px;">
-          <div style="font-weight: 500; margin-bottom: 8px; color: var(--warn);">⚠️ Capability Gaps:</div>
-          <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: var(--muted);">
-            ${blocked.slice(0, 5).map(c => `<li>${escapeHtml(c.name)}: ${c.reason || 'Not accessible'}</li>`).join('')}
-          </ul>
-        </div>`;
+    // === Top observed fact types ===
+    if (coverage?.fact_types?.length > 0) {
+      const factTypesHtml = `<div style="margin-bottom: 16px;">
+        <div style="font-weight: 500; margin-bottom: 8px;">📋 Top Observed Fact Types</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; background: var(--panel2); border-radius: var(--radius-sm);">
+          ${coverage.fact_types.slice(0, 8).map(ft => 
+            `<span class="badge badge-stopped" style="font-size: 10px; padding: 4px 8px;">${escapeHtml(ft.fact_type)} <span style="color: var(--muted);">(${ft.count})</span></span>`
+          ).join('')}
+          ${coverage.fact_types.length > 8 ? `<span style="font-size: 10px; color: var(--muted); align-self: center;">+${coverage.fact_types.length - 8} more</span>` : ''}
+        </div>
+      </div>`;
+      
+      // Append to container
+      const currentContent = container.innerHTML;
+      if (currentContent.includes('</div>')) {
+        container.innerHTML = currentContent.replace(/<\/div>$/, factTypesHtml + '</div>');
       }
     }
     
-    // "Why nothing found" guidance
-    if (signals.length === 0) {
-      html += `<div style="padding: 12px; background: rgba(251, 191, 36, 0.1); border-radius: var(--radius-sm); border: 1px solid var(--warn);">
-        <div style="font-weight: 500; margin-bottom: 8px;">💡 Why No Findings?</div>
-        <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: var(--muted);">
-          <li>No suspicious patterns matched during the analysis window</li>
-          <li>Telemetry may be limited - check Facts tab for data availability</li>
-          <li>Consider running with elevated privileges for full coverage</li>
-        </ul>
-      </div>`;
-    } else {
-      html += `<div style="padding: 12px; background: var(--panel2); border-radius: var(--radius-sm);">
-        <div style="font-weight: 500; margin-bottom: 8px;">💡 Select a Finding</div>
-        <div style="font-size: 12px; color: var(--muted);">
-          Click on a finding in the Findings tab to view its detailed explanation,
-          including evidence pointers, matched facts, and playbook logic.
-        </div>
-      </div>`;
+    // === Capability gaps from selfcheck ===
+    if (selfcheck?.channels) {
+      const blocked = selfcheck.channels.filter(c => !c.accessible);
+      if (blocked.length > 0) {
+        const gapsHtml = `<div style="margin-bottom: 16px;">
+          <div style="font-weight: 500; margin-bottom: 8px; color: var(--warn);">⚠️ Telemetry Gaps Detected</div>
+          <div style="padding: 10px; background: rgba(251, 191, 36, 0.1); border-radius: var(--radius-sm); border: 1px solid var(--warn);">
+            <ul style="margin: 0; padding-left: 20px; font-size: 12px; color: var(--text);">
+              ${blocked.slice(0, 5).map(c => `<li style="margin-bottom: 4px;"><strong>${escapeHtml(c.name)}</strong>: <span style="color: var(--muted);">${c.reason || 'Not accessible'}</span></li>`).join('')}
+            </ul>
+            ${blocked.length > 5 ? `<div style="font-size: 11px; color: var(--muted); margin-top: 8px;">...and ${blocked.length - 5} more gaps</div>` : ''}
+          </div>
+        </div>`;
+        
+        const currentContent = container.innerHTML;
+        if (currentContent.includes('</div>')) {
+          container.innerHTML = currentContent.replace(/<\/div>$/, gapsHtml + '</div>');
+        }
+      }
     }
     
-    html += `</div>`;
-    container.innerHTML = html;
+    // === Recommended pivots for zero findings ===
+    if (signals.length === 0) {
+      const pivotsHtml = `
+        <div style="margin-top: 12px; padding: 14px; background: var(--panel2); border-radius: var(--radius-sm);">
+          <div style="font-weight: 500; margin-bottom: 10px;">🔄 Recommended Next Steps</div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <button onclick="switchRunTab('facts')" style="width: 100%; padding: 8px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; text-align: left; color: var(--text);">
+              <span style="margin-right: 8px;">📊</span>
+              <span style="font-size: 12px;">Review Facts Tab</span>
+              <span style="float: right; font-size: 11px; color: var(--muted);">See what was observed →</span>
+            </button>
+            <button onclick="switchRunTab('playbooks')" style="width: 100%; padding: 8px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; text-align: left; color: var(--text);">
+              <span style="margin-right: 8px;">📓</span>
+              <span style="font-size: 12px;">Browse Playbooks Tab</span>
+              <span style="float: right; font-size: 11px; color: var(--muted);">Check detection status →</span>
+            </button>
+            <button onclick="switchRunTab('explore')" style="width: 100%; padding: 8px 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; text-align: left; color: var(--text);">
+              <span style="margin-right: 8px;">🔍</span>
+              <span style="font-size: 12px;">Explore Entities</span>
+              <span style="float: right; font-size: 11px; color: var(--muted);">Pivot by process/file/network →</span>
+            </button>
+          </div>
+        </div>
+      `;
+      
+      const currentContent = container.innerHTML;
+      if (currentContent.includes('</div>')) {
+        container.innerHTML = currentContent.replace(/<\/div>$/, pivotsHtml + '</div>');
+      }
+    } else {
+      // Has signals - show "select a finding" message
+      const selectHtml = `
+        <div style="padding: 14px; background: var(--panel2); border-radius: var(--radius-sm);">
+          <div style="font-weight: 500; margin-bottom: 8px;">💡 Select a Finding</div>
+          <div style="font-size: 12px; color: var(--muted);">
+            Click on a finding in the Findings tab to view its detailed explanation,
+            including the <strong>Playbook Trace</strong> with:
+          </div>
+          <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 12px; color: var(--muted);">
+            <li>Step-by-step slot matching</li>
+            <li>Linked facts with "View Fact" buttons</li>
+            <li>Evidence pointers to raw events</li>
+            <li>Missing telemetry explanations</li>
+          </ul>
+        </div>
+      `;
+      
+      const currentContent = container.innerHTML;
+      if (currentContent.includes('</div>')) {
+        container.innerHTML = currentContent.replace(/<\/div>$/, selectHtml + '</div>');
+      }
+    }
   }
 
   /**
@@ -12377,6 +25619,116 @@ cargo build --release -p edr-locald --bin edr-locald`;
     }
   }
 
+  // ============ MISSION REALITY DEBUG ============
+  // Single authoritative function to verify Mission DOM structure and layout
+  // Usage: window.debugMissionSnapshot() in DevTools console
+  window.debugMissionSnapshot = function() {
+    console.log('%c=== MISSION PAGE REALITY REPORT ===' , 'color: #f59e0b; font-weight: bold; font-size: 14px;');
+    console.log(`%c[BUILD] ${BUILD_VERSION}`, 'color: #8b5cf6; font-weight: bold;');
+    
+    const pick = (sel) => document.querySelector(sel);
+    const els = {
+      main: pick('main.app-container'),
+      tab: pick('#tabMission'),
+      inner: pick('#tabMission .mission-inner'),
+      grid: pick('#tabMission .mission-grid'),
+      leftCol: pick('#missionMainCol') || pick('#tabMission .mission-main'),
+      dock: pick('#missionDock'),
+      runPlan: pick('#runPlanSummary'),
+      startBtn: pick('#btnStartRun'),
+      outcome: pick('#outcomeChecklistCard'),
+      outcomeContainer: pick('#outcomeChecklistContainer'),
+      contractReceipt: pick('#contractReceipt'),
+      readiness: pick('#dockReadinessCard'),
+      livePanels: pick('#dockLivePanels'),
+    };
+    
+    const info = {};
+    for (const [k, el] of Object.entries(els)) {
+      if (!el) { info[k] = { EXISTS: false }; continue; }
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      info[k] = {
+        selector: el.id ? `#${el.id}` : (el.className ? `.${String(el.className).split(' ')[0]}` : el.tagName),
+        display: cs.display,
+        position: cs.position,
+        width: cs.width,
+        maxWidth: cs.maxWidth,
+        gridColumn: cs.gridColumn || 'N/A',
+        flex: cs.flex,
+        rect: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+        parent: el.parentElement?.id ? `#${el.parentElement.id}` : (el.parentElement?.className ? `.${String(el.parentElement.className).split(' ')[0]}` : 'unknown'),
+      };
+    }
+    
+    console.table(info);
+    
+    // ======== ASSERTIONS ========
+    const assertions = [];
+    
+    // 1. Outcome Preview must be descendant of #missionDock
+    const outcomeInDock = els.dock && els.outcome && els.dock.contains(els.outcome);
+    assertions.push({
+      test: 'Outcome Preview is descendant of #missionDock',
+      passed: outcomeInDock,
+      detail: outcomeInDock ? 'PASS' : `FAIL: outcome parent = ${info.outcome?.parent || 'N/A'}`,
+    });
+    
+    // 2. Dock must be visually RIGHT of left column (dock.x > left.x)
+    const dockRightOfLeft = els.dock && els.leftCol && 
+      info.dock.rect.x > info.leftCol.rect.x;
+    assertions.push({
+      test: 'Dock is visually to the right of left column',
+      passed: dockRightOfLeft,
+      detail: dockRightOfLeft 
+        ? `PASS: dock.x=${info.dock?.rect?.x}, left.x=${info.leftCol?.rect?.x}`
+        : `FAIL: dock.x=${info.dock?.rect?.x}, left.x=${info.leftCol?.rect?.x} — grid not working or stacked`,
+    });
+    
+    // 3. Grid must have display: grid
+    const gridIsGrid = els.grid && info.grid.display === 'grid';
+    assertions.push({
+      test: 'mission-grid has display: grid',
+      passed: gridIsGrid,
+      detail: gridIsGrid ? 'PASS' : `FAIL: display=${info.grid?.display || 'N/A'}`,
+    });
+    
+    // 4. main must have mission-wide class
+    const hasMissionWide = els.main && els.main.classList.contains('mission-wide');
+    assertions.push({
+      test: 'main.app-container has .mission-wide class',
+      passed: hasMissionWide,
+      detail: hasMissionWide ? 'PASS' : 'FAIL: class not present — max-width constraint may apply',
+    });
+    
+    // 5. Dock width > 0
+    const dockHasWidth = els.dock && info.dock.rect.w > 0;
+    assertions.push({
+      test: 'Dock has non-zero width',
+      passed: dockHasWidth,
+      detail: dockHasWidth ? `PASS: width=${info.dock?.rect?.w}px` : 'FAIL: dock is zero-width or hidden',
+    });
+    
+    console.log('%c=== ASSERTIONS ===' , 'color: #f59e0b; font-weight: bold;');
+    assertions.forEach(a => {
+      const color = a.passed ? 'color: #22c55e' : 'color: #ef4444; font-weight: bold';
+      console.log(`%c${a.passed ? '✅' : '❌'} ${a.test}: ${a.detail}`, color);
+    });
+    
+    const allPassed = assertions.every(a => a.passed);
+    console.log('%c' + (allPassed ? '🎉 ALL ASSERTIONS PASSED' : '⚠️ SOME ASSERTIONS FAILED'), 
+      allPassed ? 'color: #22c55e; font-weight: bold; font-size: 14px' : 'color: #ef4444; font-weight: bold; font-size: 14px');
+    
+    // Return data for programmatic use
+    return { build: BUILD_VERSION, elements: info, assertions, allPassed };
+  };
+  
+  // Legacy wrapper for backward compatibility
+  function debugMissionLayout(tag) {
+    console.log('[MISSION_LAYOUT]', tag);
+    window.debugMissionSnapshot();
+  }
+
   function switchTab(tabName) {
     // Debug: Log scope transition when leaving run view
     if (DEBUG_MODE) {
@@ -12384,6 +25736,11 @@ cargo build --release -p edr-locald --bin edr-locald`;
       if (wasInRunScope && tabName !== 'runs') {
         console.log(`🟢 [SCOPE] Leaving RUN scope, entering LIVE scope (${tabName} tab)`);
       }
+    }
+    
+    // Cleanup Mission panels when leaving Mission tab
+    if (state.currentTab === 'mission' && tabName !== 'mission') {
+      cleanupMissionPanels();
     }
     
     state.currentTab = tabName;
@@ -12399,9 +25756,25 @@ cargo build --release -p edr-locald --bin edr-locald`;
       content.classList.toggle('hidden', contentTab !== tabName);
     });
     
+    // Toggle mission-wide class on container for Mission tab layout
+    const mainContainer = document.querySelector('main.app-container');
+    if (mainContainer) {
+      mainContainer.classList.toggle('mission-wide', tabName === 'mission');
+    }
+    
+    // Debug Mission layout after tab switch
+    if (tabName === 'mission') {
+      setTimeout(() => debugMissionLayout('after-tab-switch'), 50);
+    }
+    
     // Refresh data when switching to certain tabs
     if (tabName === 'runs' && !state.importedMode) {
       fetchRuns();
+    }
+    
+    // Auto-load catalog when switching to Mission tab
+    if (tabName === 'mission') {
+      initMissionCatalog();
     }
     
     // Refresh Team data when switching to Team tab
@@ -12413,12 +25786,39 @@ cargo build --release -p edr-locald --bin edr-locald`;
       }
     }
   }
+  
+  /**
+   * Cleanup Mission panels when leaving Mission tab
+   * Ensures no modals/overlays leak into other tabs
+   */
+  function cleanupMissionPanels() {
+    // DESTROY playbook selection modal (remove from DOM entirely)
+    destroyPlaybookSelectModal();
+    
+    // Hide inline playbook list
+    if (els.playbookListSection) {
+      els.playbookListSection.classList.add('hidden');
+    }
+    state.playbookSelection.listVisible = false;
+    
+    // Reset toggle button text
+    if (els.btnTogglePlaybookList) {
+      els.btnTogglePlaybookList.textContent = '▼ Show List';
+    }
+    
+    console.log('[cleanupMissionPanels] Mission panels cleaned up');
+  }
 
   // ============ EVENT HANDLERS ============
   function bindEvents() {
     // Tab navigation
-    els.tabs.forEach(tab => {
-      tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+    console.log('[DEBUG] Binding tab events, tabs count:', els.tabs?.length);
+    els.tabs.forEach((tab, i) => {
+      console.log('[DEBUG] Binding tab', i, tab.dataset.tab);
+      tab.addEventListener('click', (e) => {
+        console.log('[DEBUG] Tab clicked:', tab.dataset.tab, e);
+        switchTab(tab.dataset.tab);
+      });
     });
     
     // Settings gear -> settings tab
@@ -12438,15 +25838,79 @@ cargo build --release -p edr-locald --bin edr-locald`;
     
     // Mission controls
     if (els.btnStartRun) {
-      els.btnStartRun.addEventListener('click', startRun);
+      console.log('[DEBUG] Binding click handler to btnStartRun');
+      els.btnStartRun.addEventListener('click', (e) => {
+        console.log('[DEBUG] btnStartRun CLICKED!', e);
+        startRun();
+      });
+    } else {
+      console.error('[DEBUG] els.btnStartRun is NULL - not found in DOM!');
     }
     if (els.btnStopRun) {
       els.btnStopRun.addEventListener('click', stopRun);
     }
     
+    // Go to Investigate button (from Outcome Result card in dock)
+    const btnGoToInvestigate = document.getElementById('btnGoToInvestigate');
+    if (btnGoToInvestigate) {
+      btnGoToInvestigate.addEventListener('click', () => {
+        switchTab('investigate');
+      });
+    }
+    
+    // Outcome Preview: families toggle button
+    const outcomeFamiliesToggle = document.getElementById('outcomeFamiliesToggle');
+    if (outcomeFamiliesToggle) {
+      outcomeFamiliesToggle.addEventListener('click', () => {
+        state.outcomeFamiliesExpanded = !state.outcomeFamiliesExpanded;
+        renderOutcomePreview();
+      });
+    }
+    
     // Playbook preset selection dropdown
     if (els.playbookPresetSelect) {
       els.playbookPresetSelect.addEventListener('change', handlePlaybookPresetChange);
+    }
+    
+    // Mission - Path of Work chips (Step 1)
+    initPathOfWorkChips();
+    
+    // Mission - Playbook List controls (Step 2)
+    if (els.btnTogglePlaybookList) {
+      els.btnTogglePlaybookList.addEventListener('click', togglePlaybookList);
+    }
+    if (els.btnSelectAllRunnable) {
+      els.btnSelectAllRunnable.addEventListener('click', selectAllRunnablePlaybooks);
+    }
+    if (els.btnClearPlaybooks) {
+      els.btnClearPlaybooks.addEventListener('click', clearPlaybookSelection);
+    }
+    if (els.btnShowBlockedReasons) {
+      els.btnShowBlockedReasons.addEventListener('click', showBlockedReasons);
+    }
+    if (els.playbookListSearch) {
+      els.playbookListSearch.addEventListener('input', () => {
+        renderInlinePlaybookList();
+      });
+    }
+    
+    // Playbook filter chips
+    document.querySelectorAll('.playbook-filter-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        setPlaybookListFilter(chip.dataset.filter);
+      });
+    });
+    
+    // Mission - Coverage & Requirements toggle (Step 3)
+    if (els.btnToggleCoverageSection) {
+      els.btnToggleCoverageSection.addEventListener('click', toggleCoverageRequirementsPanel);
+    }
+    if (els.btnFixCoverageGaps) {
+      els.btnFixCoverageGaps.addEventListener('click', () => {
+        toggleCoverageRequirementsPanel();
+        // Scroll to make sure it's visible
+        els.coverageRequirementsPanel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
     }
     
     // Error action buttons
@@ -12474,9 +25938,115 @@ cargo build --release -p edr-locald --bin edr-locald`;
       els.btnLoadDetectionPlan.addEventListener('click', loadDetectionPlan);
     }
     
-    // Mission - Detection Plan button (same handler)
-    if (els.btnMissionLoadPlan) {
-      els.btnMissionLoadPlan.addEventListener('click', loadDetectionPlan);
+    // Mission - Choose Playbooks button (opens modal - single canonical selection surface)
+    if (els.btnChoosePlaybooks) {
+      els.btnChoosePlaybooks.addEventListener('click', () => {
+        openPlaybookSelectionModal();
+      });
+    }
+    
+    // Mission - Scroll to Checklist button
+    const btnScrollToChecklist = document.getElementById('btnScrollToChecklist');
+    if (btnScrollToChecklist) {
+      btnScrollToChecklist.addEventListener('click', () => {
+        const checklistCard = document.getElementById('outcomeChecklistCard');
+        if (checklistCard) {
+          checklistCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          checklistCard.classList.add('checklist-pulse');
+          setTimeout(() => checklistCard.classList.remove('checklist-pulse'), 1500);
+        }
+      });
+    }
+    
+    // ── Step 2 Mode Entry Buttons (not toggles) ──────────────────────────
+    const presetDropdownRow = document.getElementById('presetDropdownRow');
+    
+    // Preset bundle button - focuses/expands preset dropdown
+    const btnModePreset = document.getElementById('btnModePreset');
+    if (btnModePreset) {
+      btnModePreset.addEventListener('click', () => {
+        // Clear any chain baseline when switching to preset mode - use explicit baseline
+        clearBaseline();
+        state.outcome.chainSteps = [];
+        state.outcome.useChainSteps = false;
+        
+        // Show dropdown and focus it
+        if (presetDropdownRow) presetDropdownRow.style.display = '';
+        const presetSelect = document.getElementById('playbookPresetSelect');
+        if (presetSelect) {
+          presetSelect.focus();
+          // Flash highlight
+          presetSelect.style.outline = '2px solid var(--accent)';
+          setTimeout(() => presetSelect.style.outline = '', 500);
+        }
+        
+        updatePlaybookSelectionSummary();
+      });
+    }
+    
+    // Micro chain button - opens chain library modal
+    const btnModeMicroChain = document.getElementById('btnModeMicroChain');
+    if (btnModeMicroChain) {
+      btnModeMicroChain.addEventListener('click', () => {
+        openMicroChainsModal();
+      });
+    }
+    
+    // Edit selection button - opens playbook modal (preserves chain context)
+    const btnModeEditSelection = document.getElementById('btnModeEditSelection');
+    if (btnModeEditSelection) {
+      btnModeEditSelection.addEventListener('click', () => {
+        // Baseline is already set explicitly - just open the modal
+        // (User can edit without losing baseline context)
+        openPlaybookSelectionModal();
+      });
+    }
+    
+    // Mission - Reset to Preset button (from custom selection)
+    if (els.btnResetToPreset) {
+      els.btnResetToPreset.addEventListener('click', () => {
+        resetToPresetSelection();
+        updatePlaybookSelectionSummary();
+      });
+    }
+    
+    // Reset to baseline button (unified for chain or preset)
+    const btnResetToBaseline = document.getElementById('btnResetToBaseline');
+    if (btnResetToBaseline) {
+      btnResetToBaseline.addEventListener('click', () => {
+        resetToBaseline();
+      });
+    }
+    
+    // Chain provenance - Edit Chain Playbooks button
+    const btnEditChainPlaybooks = document.getElementById('btnEditChainPlaybooks');
+    if (btnEditChainPlaybooks) {
+      btnEditChainPlaybooks.addEventListener('click', () => {
+        // Open playbook modal to allow editing the chain's selection
+        openPlaybookSelectionModal();
+      });
+    }
+    
+    // Chain provenance - Reset to Chain button
+    const btnResetToChain = document.getElementById('btnResetToChain');
+    if (btnResetToChain) {
+      btnResetToChain.addEventListener('click', () => {
+        resetToBaseline();
+      });
+    }
+    
+    // Mission - Refresh Readiness button (traffic light)
+    if (els.btnRefreshReadiness) {
+      els.btnRefreshReadiness.addEventListener('click', async () => {
+        els.btnRefreshReadiness.disabled = true;
+        els.btnRefreshReadiness.textContent = '⏳';
+        try {
+          await checkReadiness(true);
+        } finally {
+          els.btnRefreshReadiness.disabled = false;
+          els.btnRefreshReadiness.textContent = '↻';
+        }
+      });
     }
     
     // Mission - System Readiness View button
@@ -12491,9 +26061,10 @@ cargo build --release -p edr-locald --bin edr-locald`;
         els.btnMissionRerunReadiness.textContent = '⏳';
         try {
           await checkReadiness(true);
+          updateCoverageSummaryBadge();
         } finally {
           els.btnMissionRerunReadiness.disabled = false;
-          els.btnMissionRerunReadiness.textContent = 'Re-run';
+          els.btnMissionRerunReadiness.textContent = 'Re-check';
         }
       });
     }
@@ -12544,18 +26115,145 @@ cargo build --release -p edr-locald --bin edr-locald`;
     if (els.btnGoToMission) {
       els.btnGoToMission.addEventListener('click', () => switchTab('mission'));
     }
-    if (els.btnViewFindings) {
-      els.btnViewFindings.addEventListener('click', () => {
-        if (state.selectedRunId) {
-          switchRunTab('findings');
-        }
-      });
-    }
+    // NOTE: btnViewFindings, btnPrimaryInvestigate, btnPrimaryEvidence, btnPrimaryExport removed
+    // Tabs are now the primary navigation for run detail views
+    
     if (els.btnExportRun) {
       els.btnExportRun.addEventListener('click', () => {
         if (state.selectedRunId) {
           exportBundle(state.selectedRunId);
         }
+      });
+    }
+    
+    // Header Export button (duplicate handler for relocated button)
+    if (els.btnExportRunHeader) {
+      els.btnExportRunHeader.addEventListener('click', () => {
+        if (state.selectedRunId) {
+          exportBundle(state.selectedRunId);
+        }
+      });
+    }
+    
+    // Pro: Mark as Baseline button (header location)
+    if (els.btnMarkBaselineHeader) {
+      els.btnMarkBaselineHeader.addEventListener('click', async () => {
+        if (!state.selectedRunId) return;
+        const runId = state.selectedRunId;
+        const btn = els.btnMarkBaselineHeader;
+        btn.disabled = true;
+        btn.textContent = '⏳...';
+        try {
+          const resp = await fetch(`/api/runs/${runId}/baseline`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope: 'host', is_default: true })
+          });
+          const json = await resp.json();
+          if (json.success) {
+            btn.textContent = '✅ Set';
+            showToast(`Run marked as baseline`, 'success');
+            setTimeout(() => { btn.textContent = '📌 Baseline'; }, 2000);
+          } else if (json.code === 'FEATURE_LOCKED') {
+            showUpgradePrompt('Baselines', json.upgrade_url || 'https://locint.io/upgrade');
+            btn.textContent = '📌 Baseline';
+          } else if (json.code === 'RUN_META_MISMATCH') {
+            handleRunMetaMismatchError({ code: json.code, body: json, message: json.error });
+            btn.textContent = '📌 Baseline';
+          } else {
+            showToast(json.error || 'Failed to set baseline', 'error');
+            btn.textContent = '📌 Baseline';
+          }
+        } catch (err) {
+          console.error('[markBaselineHeader] Error:', err);
+          handleRunMetaMismatchError(err);
+          btn.textContent = '📌 Baseline';
+        }
+        btn.disabled = false;
+      });
+    }
+    
+    // Pro: Mark as Baseline button (bottom location - legacy)
+    if (els.btnMarkBaseline) {
+      els.btnMarkBaseline.addEventListener('click', async () => {
+        if (!state.selectedRunId) return;
+        const runId = state.selectedRunId;
+        els.btnMarkBaseline.disabled = true;
+        els.btnMarkBaseline.textContent = '⏳ Setting...';
+        try {
+          const resp = await fetch(`/api/runs/${runId}/baseline`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ scope: 'host', is_default: true })
+          });
+          const json = await resp.json();
+          if (json.success) {
+            els.btnMarkBaseline.textContent = '✅ Baseline Set';
+            showToast(`Run marked as baseline`, 'success');
+          } else if (json.code === 'FEATURE_LOCKED') {
+            showUpgradePrompt('Baselines', json.upgrade_url || 'https://locint.io/upgrade');
+            els.btnMarkBaseline.textContent = '🔒 Set Baseline';
+          } else if (json.code === 'RUN_META_MISMATCH') {
+            handleRunMetaMismatchError({ code: json.code, body: json, message: json.error });
+            els.btnMarkBaseline.textContent = 'Set Baseline';
+          } else {
+            showToast(json.error || 'Failed to set baseline', 'error');
+            els.btnMarkBaseline.textContent = 'Set Baseline';
+          }
+        } catch (err) {
+          console.error('[markBaseline] Error:', err);
+          if (handleRunMetaMismatchError(err)) {
+            els.btnMarkBaseline.textContent = 'Set Baseline';
+          } else {
+            showToast('Failed to set baseline', 'error');
+            els.btnMarkBaseline.textContent = 'Set Baseline';
+          }
+        }
+        els.btnMarkBaseline.disabled = false;
+      });
+    }
+    
+    // Pro: Export Case Summary button
+    if (els.btnExportCaseSummary) {
+      els.btnExportCaseSummary.addEventListener('click', async () => {
+        if (!state.selectedRunId) return;
+        const runId = state.selectedRunId;
+        els.btnExportCaseSummary.disabled = true;
+        els.btnExportCaseSummary.textContent = '⏳ Exporting...';
+        try {
+          const resp = await fetch(`/api/runs/${runId}/case_summary`);
+          const json = await resp.json();
+          if (json.success && json.data) {
+            // Download as JSON file
+            const blob = new Blob([JSON.stringify(json.data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `case_summary_${runId}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+            els.btnExportCaseSummary.textContent = '✅ Exported';
+            showToast('Case summary exported', 'success');
+          } else if (json.code === 'FEATURE_LOCKED') {
+            showUpgradePrompt('Case Summary Export', json.upgrade_url || 'https://locint.io/upgrade');
+            els.btnExportCaseSummary.textContent = '🔒 Case Summary';
+          } else if (json.code === 'RUN_META_MISMATCH') {
+            handleRunMetaMismatchError({ code: json.code, body: json, message: json.error });
+            els.btnExportCaseSummary.textContent = 'Case Summary';
+          } else {
+            showToast(json.error || 'Failed to export case summary', 'error');
+            els.btnExportCaseSummary.textContent = 'Case Summary';
+          }
+        } catch (err) {
+          console.error('[exportCaseSummary] Error:', err);
+          if (handleRunMetaMismatchError(err)) {
+            els.btnExportCaseSummary.textContent = 'Case Summary';
+          } else {
+            showToast('Failed to export case summary', 'error');
+            els.btnExportCaseSummary.textContent = 'Case Summary';
+          }
+        }
+        els.btnExportCaseSummary.disabled = false;
       });
     }
     
@@ -12566,9 +26264,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
       });
     }
     
-    // Findings severity filter
+    // Findings severity filter (now status filter)
     if (els.findingsSeverityFilter) {
-      els.findingsSeverityFilter.addEventListener('change', () => renderFindingsTab());
+      els.findingsSeverityFilter.addEventListener('change', () => renderInvestigateTab());
     }
     
     // Copy raw JSON button
@@ -12663,6 +26361,189 @@ cargo build --release -p edr-locald --bin edr-locald`;
         renderDebugPanel();
       });
     }
+    
+    // === SETTINGS ROW CLICK HANDLERS ===
+    // These rows look clickable (hover states, arrows) but need explicit handlers
+    const settingsIntegrations = document.getElementById('settingsIntegrations');
+    if (settingsIntegrations) {
+      settingsIntegrations.style.cursor = 'pointer';
+      settingsIntegrations.setAttribute('role', 'button');
+      settingsIntegrations.setAttribute('tabindex', '0');
+      settingsIntegrations.addEventListener('click', () => {
+        showUpgradePrompt('Adapters & Integrations', state.upgradeUrl);
+      });
+      settingsIntegrations.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          showUpgradePrompt('Adapters & Integrations', state.upgradeUrl);
+        }
+      });
+    }
+    
+    const settingsCompare = document.getElementById('settingsCompare');
+    if (settingsCompare) {
+      settingsCompare.style.cursor = 'pointer';
+      settingsCompare.setAttribute('role', 'button');
+      settingsCompare.setAttribute('tabindex', '0');
+      settingsCompare.addEventListener('click', () => {
+        showUpgradePrompt('Baseline Compare', state.upgradeUrl);
+      });
+      settingsCompare.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          showUpgradePrompt('Baseline Compare', state.upgradeUrl);
+        }
+      });
+    }
+    
+    const settingsLicense = document.getElementById('settingsLicense');
+    if (settingsLicense) {
+      settingsLicense.style.cursor = 'pointer';
+      settingsLicense.setAttribute('role', 'button');
+      settingsLicense.setAttribute('tabindex', '0');
+      settingsLicense.addEventListener('click', () => {
+        showLicenseModal();
+      });
+      settingsLicense.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          showLicenseModal();
+        }
+      });
+    }
+    
+    // === KEYBOARD ACCESSIBILITY FOR BUTTONS ===
+    // Ensure all interactive elements support Enter/Space
+    document.querySelectorAll('[data-action], .btn-primary, .btn-secondary, .btn-danger, .tab, .run-tab, .path-chip, .playbook-filter-chip').forEach(el => {
+      if (el.tagName !== 'BUTTON' && el.tagName !== 'A' && el.tagName !== 'INPUT') {
+        // Add keyboard accessibility if not native
+        if (!el.hasAttribute('tabindex')) {
+          el.setAttribute('tabindex', '0');
+        }
+        if (!el.hasAttribute('role')) {
+          el.setAttribute('role', 'button');
+        }
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            el.click();
+          }
+        });
+      }
+    });
+    
+    // === INVESTIGATE TAB: Sticky Action Bar ===
+    if (els.btnInvestigateViewEvidence) {
+      els.btnInvestigateViewEvidence.addEventListener('click', () => {
+        if (!state.selectedRunId) return;
+        const sig = state.selectedSignal;
+        // Open Evidence scoped to this finding's host + time window
+        openEvidenceWithFilters({
+          host: sig?.host,
+          timeRange: sig?.ts ? { center: sig.ts, window: 600000 } : null, // ±10 min
+          mode: 'grouped'
+        });
+      });
+    }
+    if (els.btnInvestigateRawJson) {
+      els.btnInvestigateRawJson.addEventListener('click', () => {
+        showInvestigateRawJsonDrawer();
+      });
+    }
+    
+    // === INVESTIGATE TAB: Evidence Drawer Controls (INVESTIGATE_DRAWER-1) ===
+    // Close drawer button (header X)
+    if (els.btnCloseEvidenceDrawer) {
+      els.btnCloseEvidenceDrawer.addEventListener('click', closeEvidenceDrawer);
+    }
+    // Close drawer button (footer)
+    if (els.btnCloseEvidenceDrawerFooter) {
+      els.btnCloseEvidenceDrawerFooter.addEventListener('click', closeEvidenceDrawer);
+    }
+    // Open in Evidence tab button
+    if (els.btnOpenInEvidenceTab) {
+      els.btnOpenInEvidenceTab.addEventListener('click', () => {
+        const step = state.evidenceDrawerStep;
+        if (step) {
+          openEvidenceWithFilters(step.searchHints || {
+            fact_types: step.expectedFactTypes || [],
+            query: step.stepName || ''
+          });
+        }
+        closeEvidenceDrawer();
+      });
+    }
+    
+    // === INVESTIGATE TAB: Search Input (INVESTIGATE_DRAWER-1) ===
+    if (els.investigateSearchInput) {
+      let searchDebounce = null;
+      els.investigateSearchInput.addEventListener('input', (e) => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(() => {
+          state.investigateSearchTerm = e.target.value.toLowerCase().trim();
+          renderInvestigateTab();
+        }, 200);
+      });
+    }
+    
+    // === INVESTIGATE TAB: Actionable Only Toggle (INVESTIGATE_DRAWER-1) ===
+    if (els.btnShowActionableOnly) {
+      els.btnShowActionableOnly.addEventListener('click', () => {
+        state.investigateShowActionableOnly = !state.investigateShowActionableOnly;
+        // Update button visual state
+        els.btnShowActionableOnly.classList.toggle('active', state.investigateShowActionableOnly);
+        els.btnShowActionableOnly.textContent = state.investigateShowActionableOnly ? '✅ Actionable' : '⚡ Actionable';
+        renderInvestigateTab();
+      });
+    }
+    
+    // === INVESTIGATE TAB: Why Blocked Expander (INVESTIGATE_DRAWER-1) ===
+    if (els.btnWhyBlocked) {
+      els.btnWhyBlocked.addEventListener('click', () => {
+        state.investigateBlockersExpanded = !state.investigateBlockersExpanded;
+        // Toggle visibility of blockers detail
+        if (els.investigateBlockerDetail) {
+          els.investigateBlockerDetail.classList.toggle('hidden', !state.investigateBlockersExpanded);
+        }
+        // Update button text
+        els.btnWhyBlocked.textContent = state.investigateBlockersExpanded ? '▼ Hide blockers' : '▶ Why blocked?';
+      });
+    }
+    
+    // === INVESTIGATE TAB: Chain Stack Controls (INVESTIGATE_CHAINS-1) ===
+    if (els.btnExpandChainStack) {
+      els.btnExpandChainStack.addEventListener('click', () => {
+        state.chainStackExpanded = !state.chainStackExpanded;
+        // Update button icon
+        els.btnExpandChainStack.textContent = state.chainStackExpanded ? '▼' : '▶';
+        // Re-render chain cards to show/hide steps
+        if (state.chainStackData) {
+          renderChainStackCards(state.chainStackData);
+        }
+      });
+    }
+    
+    if (els.btnFilterByChain) {
+      els.btnFilterByChain.addEventListener('click', () => {
+        // Toggle off the filter
+        state.chainStackFilterActive = false;
+        state.chainStackSelectedChain = null;
+        els.btnFilterByChain.classList.add('hidden');
+        // Re-render
+        if (state.chainStackData) {
+          renderChainStackCards(state.chainStackData);
+        }
+        renderInvestigateTab();
+      });
+    }
+  }
+
+  // ============ LICENSE MODAL HELPER ============
+  function showLicenseModal() {
+    const tier = state.tier || 'Community';
+    const msg = `Current License: ${tier}\n\nTo upgrade to Pro or Team tier, visit:\n${state.upgradeUrl}`;
+    alert(msg);
+    // In production, this would show a proper modal
   }
 
   // ============ POLLING ============
@@ -12765,8 +26646,34 @@ cargo build --release -p edr-locald --bin edr-locald`;
   async function init() {
     console.log('[Init] Incident Compiler UI starting...', BUILD_STAMP);
     
-    bindEvents();
-    bindTeamEvents();
+    // DEBUG: Check if key elements exist
+    console.log('[DEBUG] els.btnStartRun:', els.btnStartRun);
+    console.log('[DEBUG] els.tabs count:', els.tabs?.length);
+    console.log('[DEBUG] Document ready state:', document.readyState);
+    
+    try {
+      bindEvents();
+      console.log('[DEBUG] bindEvents() completed successfully');
+    } catch (err) {
+      console.error('[DEBUG] bindEvents() FAILED:', err);
+    }
+    
+    try {
+      bindTeamEvents();
+      console.log('[DEBUG] bindTeamEvents() completed successfully');
+    } catch (err) {
+      console.error('[DEBUG] bindTeamEvents() FAILED:', err);
+    }
+    
+    // Initialize Evidence tab handlers (Grouped/Raw toggle)
+    initEvidenceHandlers();
+    
+    // Initialize Investigate Evidence mode handlers (INVESTIGATE_EVIDENCE_WORKBENCH-1)
+    initInvestigateEvidenceModeHandlers();
+    
+    // Initialize Chain Lens handlers (INVESTIGATE_CHAIN_LENS-1)
+    initChainLensHandlers();
+    
     setupVisibilityHandling();
     initDiffV2Controls();
     initInfoBubbles(); // Initialize glossary-driven info bubbles
@@ -12798,6 +26705,9 @@ cargo build --release -p edr-locald --bin edr-locald`;
       // Load playbook presets (depends on readiness for capability data)
       await loadPlaybookPresets();
       
+      // Load detection plan catalog for Mission tab
+      await loadDetectionPlan();
+      
       // If running, fetch initial metrics
       if (state.isRunning) {
         await fetchMetrics();
@@ -12811,7 +26721,227 @@ cargo build --release -p edr-locald --bin edr-locald`;
     
     console.log('[Init] Incident Compiler UI ready');
     console.log('[Init] Capabilities:', state.capabilities);
+    
+    // Note: Click probe is now gated by DEBUG_MODE at top of file (Phase 1 audit)
+    
+    // ============ REGRESSION GUARD: Clickability Check ============
+    // Runs automatically after init to detect blocking overlays
+    setTimeout(() => {
+      // Guard 1: body must allow pointer events
+      const bodyPointerEvents = getComputedStyle(document.body).pointerEvents;
+      console.assert(bodyPointerEvents !== 'none', '[CLICK GUARD] body has pointer-events: none!');
+      if (bodyPointerEvents === 'none') {
+        console.error('[CLICK GUARD] CRITICAL: document.body has pointer-events: none');
+      }
+      
+      // Guard 2: main must allow pointer events
+      const main = document.querySelector('main');
+      if (main) {
+        const mainPointerEvents = getComputedStyle(main).pointerEvents;
+        console.assert(mainPointerEvents !== 'none', '[CLICK GUARD] main has pointer-events: none!');
+        if (mainPointerEvents === 'none') {
+          console.error('[CLICK GUARD] CRITICAL: main element has pointer-events: none');
+        }
+      }
+      
+      // Guard 3: Check for orphaned overlays blocking clicks
+      const blockingOverlays = [];
+      document.querySelectorAll('*').forEach(el => {
+        const style = getComputedStyle(el);
+        if (style.position === 'fixed' && 
+            style.display !== 'none' && 
+            style.visibility !== 'hidden' &&
+            style.pointerEvents !== 'none' &&
+            !el.classList.contains('hidden')) {
+          const rect = el.getBoundingClientRect();
+          const zIndex = parseInt(style.zIndex) || 0;
+          // Check if it covers most of the viewport
+          if (rect.width > window.innerWidth * 0.8 && 
+              rect.height > window.innerHeight * 0.8 && 
+              zIndex > 100) {
+            blockingOverlays.push({ el, selector: stringifyEl(el), zIndex });
+          }
+        }
+      });
+      
+      if (blockingOverlays.length > 0) {
+        console.error('[CLICK GUARD] CRITICAL: Found blocking overlays:');
+        blockingOverlays.forEach(o => {
+          console.error(`  - ${o.selector} (z-index: ${o.zIndex})`);
+          console.error('    Removing to restore clickability...');
+          o.el.style.pointerEvents = 'none';
+        });
+      }
+      
+      // Guard 4: Hit-test the start button
+      const btn = document.getElementById('btnStartRun');
+      if (btn) {
+        const rect = btn.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const topEl = document.elementFromPoint(centerX, centerY);
+        if (topEl !== btn && topEl !== document.body && topEl !== document.documentElement) {
+          console.error('[CLICK GUARD] btnStartRun is blocked by:', stringifyEl(topEl));
+          const topStyle = getComputedStyle(topEl);
+          console.error(`  z-index: ${topStyle.zIndex}, pointer-events: ${topStyle.pointerEvents}`);
+          // Auto-fix: disable pointer events on blocker
+          if (topStyle.pointerEvents !== 'none') {
+            console.error('  Auto-fixing: setting pointer-events: none on blocker');
+            topEl.style.pointerEvents = 'none';
+          }
+        } else {
+          console.log('[CLICK GUARD] ✅ btnStartRun is accessible');
+        }
+      }
+      
+      // If DEBUG_UI is enabled, run full diagnostics
+      if (DEBUG_UI) {
+        console.log('[DEBUG_UI] Running full click diagnostics...');
+        window.diagnoseClicks();
+      }
+    }, 500);
   }
+
+  // ============ UI SELF-TEST (Phase 4: Wiring Audit) ============
+  // Dev-only function callable from console: window.uiSelfTest()
+  // Verifies all interactive elements have click handlers bound
+  window.uiSelfTest = function() {
+    console.log('=== UI SELF-TEST: Clickability + Wiring Audit ===');
+    
+    // Registry of expected interactive elements by section
+    const expectedControls = {
+      'Mission': [
+        { selector: '#btnStartRun', label: 'Start Run', required: true },
+        { selector: '#btnStopRun', label: 'Stop Run', required: true },
+        { selector: '.path-chip', label: 'Path of Work Chips', required: true },
+        { selector: '#playbookPresetSelect', label: 'Playbook Preset Dropdown', required: true },
+        { selector: '#btnTogglePlaybookList', label: 'Show/Hide Playbook List', required: true },
+        { selector: '#btnSelectAllRunnable', label: 'Select Runnable', required: false },
+        { selector: '#btnClearPlaybooks', label: 'Clear Selection', required: false },
+        { selector: '.playbook-filter-chip', label: 'Playbook Filter Chips', required: false },
+        { selector: '#durationSelect', label: 'Duration Dropdown', required: true },
+        { selector: '#btnToggleCoverageSection', label: 'Coverage Toggle', required: false },
+        { selector: '#btnMissionRerunReadiness', label: 'Re-check Readiness', required: false },
+        { selector: '#btnRestartAdmin', label: 'Restart as Admin', required: false },
+        { selector: '#btnCopyValidationCmd', label: 'Copy Validation Cmd', required: false },
+        { selector: '#btnCopyBuildCmd', label: 'Copy Build Cmd', required: false },
+        { selector: '#btnRetryStart', label: 'Retry Start', required: false },
+      ],
+      'Runs': [
+        { selector: '.run-item', label: 'Run List Items', required: true },
+        { selector: '.run-tab', label: 'Run Detail Tabs', required: true },
+        { selector: '#btnGoToMission', label: 'Go to Mission', required: true },
+        { selector: '#findingsSeverityFilter', label: 'Severity Filter', required: true },
+        { selector: '#btnPrevFinding', label: 'Prev Finding', required: false },
+        { selector: '#btnNextFinding', label: 'Next Finding', required: false },
+        { selector: '#btnExpandAllFindings', label: 'Expand All', required: false },
+        { selector: '#btnCollapseAllFindings', label: 'Collapse All', required: false },
+        { selector: '#btnCopyRawJson', label: 'Copy Raw JSON', required: false },
+      ],
+      'Import/Export': [
+        { selector: '#importDropZone', label: 'Import Drop Zone', required: true },
+        { selector: '#importFileInput', label: 'Browse Files', required: true },
+        { selector: '#btnExportBundle', label: 'Export Bundle', required: true },
+        { selector: '#exportSegments', label: 'Export Segments Checkbox', required: false },
+        { selector: '#exportSignals', label: 'Export Signals Checkbox', required: false },
+        { selector: '#exportFacts', label: 'Export Facts Checkbox', required: false },
+      ],
+      'Settings': [
+        { selector: '#btnWiringCheck', label: 'Wiring Check', required: false },
+        { selector: '#settingsDiagnostics', label: 'Diagnostics Row', required: true },
+        { selector: '#settingsIntegrations', label: 'Integrations Row', required: false },
+        { selector: '#settingsCompare', label: 'Compare Row', required: false },
+        { selector: '#settingsLicense', label: 'License Row', required: false },
+      ],
+      'Team': [
+        { selector: '#btnConfigureStore', label: 'Configure Store', required: false },
+        { selector: '#btnRefreshStore', label: 'Refresh Store', required: false },
+        { selector: '#btnCreateCase', label: 'Create Case', required: false },
+        { selector: '.team-case-tab', label: 'Case Tabs', required: false },
+        { selector: '#btnAddCaseNote', label: 'Add Note', required: false },
+        { selector: '#btnPublishRunToCase', label: 'Publish Run', required: false },
+      ],
+      'Navigation': [
+        { selector: '.tab[data-tab]', label: 'Main Tab Buttons', required: true },
+        { selector: '#settingsGear', label: 'Settings Gear', required: true },
+        { selector: '#errorBannerDismiss', label: 'Error Dismiss', required: false },
+      ]
+    };
+    
+    const results = { passed: 0, failed: 0, warnings: 0, details: [] };
+    
+    for (const [section, controls] of Object.entries(expectedControls)) {
+      console.log(`\n--- ${section} ---`);
+      
+      for (const ctrl of controls) {
+        const elements = document.querySelectorAll(ctrl.selector);
+        const count = elements.length;
+        
+        if (count === 0) {
+          if (ctrl.required) {
+            results.failed++;
+            results.details.push({ section, label: ctrl.label, selector: ctrl.selector, status: 'FAIL', reason: 'Element not found' });
+            console.error(`❌ FAIL: ${ctrl.label} (${ctrl.selector}) - Element not found in DOM`);
+          } else {
+            results.warnings++;
+            results.details.push({ section, label: ctrl.label, selector: ctrl.selector, status: 'WARN', reason: 'Optional element not found' });
+            console.warn(`⚠️ WARN: ${ctrl.label} (${ctrl.selector}) - Optional element not found`);
+          }
+          continue;
+        }
+        
+        // Check if element is interactive
+        let hasIssue = false;
+        elements.forEach((el, idx) => {
+          const styles = getComputedStyle(el);
+          const pointerEvents = styles.pointerEvents;
+          const visibility = styles.visibility;
+          const display = styles.display;
+          const disabled = el.disabled || el.hasAttribute('disabled');
+          
+          // Check for blocking issues
+          if (pointerEvents === 'none') {
+            hasIssue = true;
+            console.warn(`  [${idx}] pointer-events: none`);
+          }
+          if (visibility === 'hidden') {
+            hasIssue = true;
+            console.warn(`  [${idx}] visibility: hidden`);
+          }
+          if (display === 'none' && !el.classList.contains('hidden')) {
+            hasIssue = true;
+            console.warn(`  [${idx}] display: none (not .hidden class)`);
+          }
+          
+          // Check for click handler (best effort)
+          const hasOnclick = el.onclick !== null;
+          const hasDataAction = el.hasAttribute('data-action');
+          const isButton = el.tagName === 'BUTTON' || el.tagName === 'A' || el.getAttribute('role') === 'button';
+          const isInput = el.tagName === 'INPUT' || el.tagName === 'SELECT';
+          
+          // Note: We can't easily detect addEventListener bindings
+        });
+        
+        if (hasIssue) {
+          results.warnings++;
+          results.details.push({ section, label: ctrl.label, selector: ctrl.selector, status: 'WARN', reason: 'Potential styling issue', count });
+          console.warn(`⚠️ WARN: ${ctrl.label} (${ctrl.selector}) - Found ${count} elements with potential issues`);
+        } else {
+          results.passed++;
+          results.details.push({ section, label: ctrl.label, selector: ctrl.selector, status: 'PASS', count });
+          console.log(`✅ PASS: ${ctrl.label} (${ctrl.selector}) - ${count} element(s) found`);
+        }
+      }
+    }
+    
+    console.log('\n=== SUMMARY ===');
+    console.log(`Passed: ${results.passed}`);
+    console.log(`Warnings: ${results.warnings}`);
+    console.log(`Failed: ${results.failed}`);
+    
+    // Return results object for programmatic use
+    return results;
+  };
 
   // Run on DOM ready
   if (document.readyState === 'loading') {

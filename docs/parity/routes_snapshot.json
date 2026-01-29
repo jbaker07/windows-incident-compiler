@@ -1,350 +1,362 @@
 [
-  {
-    "method": "GET",
-    "path": "/health",
-    "description": "Health check (root)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/health",
-    "description": "Health check",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/run/start",
-    "description": "Start capture run",
-    "mutates": true
-  },
-  {
-    "method": "POST",
-    "path": "/api/run/stop",
-    "description": "Stop capture run",
-    "mutates": true
-  },
-  {
-    "method": "GET",
-    "path": "/api/run/status",
-    "description": "Get current run status",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/run/metrics",
-    "description": "Get run metrics",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs",
-    "description": "List past runs",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id",
-    "description": "Get single run details",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/runs/:run_id/rename",
-    "description": "Rename a run",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/runs/:run_id/delete",
-    "description": "Delete a run",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/runs/:run_id/baseline",
-    "description": "Set run as baseline",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/coverage",
-    "description": "Get run coverage/facts",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/changes",
-    "description": "Get run changes (diff)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/diff",
-    "description": "Diff v2: baseline|phase|marker mode comparison",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/playbooks",
-    "description": "Get playbook status for run",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/state",
-    "description": "Get system state summary",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/next_steps",
-    "description": "Deterministic workflow guidance",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/case_summary",
-    "description": "Case summary JSON for export/report",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/entities",
-    "description": "List entities in run (Pro)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/runs/:run_id/pivot",
-    "description": "Pivot query for entity (Pro)",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/runs/:run_id/export/case_pack",
-    "description": "Export case pack (Pro)",
-    "mutates": true
-  },
-  {
-    "method": "GET",
-    "path": "/api/baselines",
-    "description": "List baseline runs",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/signals",
-    "description": "List signals (findings)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/signals/stats",
-    "description": "Get signal statistics",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/signals/explainability_stats",
-    "description": "Explainability stats (run_id required)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/signals/:id",
-    "description": "Get single signal",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/signals/:id/explain",
-    "description": "Get signal explanation",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/app/state",
-    "description": "Get full app state",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/app/restart_admin",
-    "description": "Restart as Administrator (UAC)",
-    "mutates": true
-  },
-  {
-    "method": "GET",
-    "path": "/api/selfcheck",
-    "description": "System readiness check",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/capability/status",
-    "description": "Sensor inventory and capability status",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/capability/detection_plan",
-    "description": "Detection plan with dependencies",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/capability/gaps",
-    "description": "Coverage gaps analysis (dev-only)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/playbooks/catalog",
-    "description": "Get all playbook metadata (Detection Plan)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/features",
-    "description": "Get feature flags (legacy)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/capture/profiles",
-    "description": "Get capture profiles",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/export/bundle",
-    "description": "Export bundle (requires run_id)",
-    "mutates": true
-  },
-  {
-    "method": "POST",
-    "path": "/api/import/bundle",
-    "description": "Import bundle ZIP",
-    "mutates": true
-  },
-  {
-    "method": "POST",
-    "path": "/api/import/validate",
-    "description": "Validate import bundle before import",
-    "mutates": true
-  },
-  {
-    "method": "GET",
-    "path": "/api/packs",
-    "description": "List available content packs",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/packs/:pack_name",
-    "description": "Get content pack details",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/packs/rescan",
-    "description": "Rescan packs directory",
-    "mutates": true
-  },
-  {
-    "method": "GET",
-    "path": "/api/evidence/deref",
-    "description": "Dereference evidence pointer to source record",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/meta/routes",
-    "description": "List all routes (this endpoint)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/meta/contract",
-    "description": "API contract/wrapper spec",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/meta/features",
-    "description": "Tier-aware feature flags for UI gating",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/meta/dataflow_snapshot",
-    "description": "Dataflow debug snapshot (?debug=1)",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/team/store/status",
-    "description": "Team store status",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/team/store/configure",
-    "description": "Configure team store",
-    "mutates": true
-  },
-  {
-    "method": "GET",
-    "path": "/api/team/cases",
-    "description": "List team cases",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/team/cases",
-    "description": "Create team case",
-    "mutates": true
-  },
-  {
-    "method": "GET",
-    "path": "/api/team/cases/:case_id",
-    "description": "Get team case",
-    "mutates": false
-  },
-  {
-    "method": "GET",
-    "path": "/api/team/cases/:case_id/aggregate",
-    "description": "Case aggregate view",
-    "mutates": false
-  },
-  {
-    "method": "POST",
-    "path": "/api/team/cases/:case_id/tags",
-    "description": "Update case tags",
-    "mutates": true
-  },
-  {
-    "method": "POST",
-    "path": "/api/team/cases/:case_id/notes",
-    "description": "Add case note",
-    "mutates": true
-  },
-  {
-    "method": "POST",
-    "path": "/api/team/cases/:case_id/publish_run",
-    "description": "Publish run to case",
-    "mutates": true
-  },
-  {
-    "method": "POST",
-    "path": "/api/team/cases/:case_id/import_run",
-    "description": "Import run from case",
-    "mutates": true
-  },
-  {
-    "method": "GET",
-    "path": "/api/run/debug_counts",
-    "description": "Debug: live signal/fact counts",
-    "mutates": false
-  }
+    {
+        "description":  "Health check (root)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/health"
+    },
+    {
+        "description":  "Health check",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/health"
+    },
+    {
+        "description":  "Start capture run",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/run/start"
+    },
+    {
+        "description":  "Stop capture run",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/run/stop"
+    },
+    {
+        "description":  "Get current run status",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/run/status"
+    },
+    {
+        "description":  "Get run metrics",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/run/metrics"
+    },
+    {
+        "description":  "List past runs",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs"
+    },
+    {
+        "description":  "Get single run details",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id"
+    },
+    {
+        "description":  "Rename a run",
+        "method":  "POST",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/rename"
+    },
+    {
+        "description":  "Delete a run",
+        "method":  "POST",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/delete"
+    },
+    {
+        "description":  "Set run as baseline",
+        "method":  "POST",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/baseline"
+    },
+    {
+        "description":  "Get run coverage/facts",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/coverage"
+    },
+    {
+        "description":  "Get run changes (diff)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/changes"
+    },
+    {
+        "description":  "Diff v2: baseline|phase|marker mode comparison",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/diff"
+    },
+    {
+        "description":  "Get playbook status for run",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/playbooks"
+    },
+    {
+        "description":  "Get system state summary",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/state"
+    },
+    {
+        "description":  "Deterministic workflow guidance",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/next_steps"
+    },
+    {
+        "description":  "Case summary JSON for export/report",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/case_summary"
+    },
+    {
+        "description":  "List entities in run (Pro)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/entities"
+    },
+    {
+        "description":  "Pivot query for entity (Pro)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/runs/:run_id/pivot"
+    },
+    {
+        "description":  "Export case pack (Pro)",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/runs/:run_id/export/case_pack"
+    },
+    {
+        "description":  "List baseline runs",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/baselines"
+    },
+    {
+        "description":  "List all micro chain definitions",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/chains"
+    },
+    {
+        "description":  "Compile chain stack to playbook selections",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/chains/compile"
+    },
+    {
+        "description":  "List signals (findings)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/signals"
+    },
+    {
+        "description":  "Get signal statistics",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/signals/stats"
+    },
+    {
+        "description":  "Explainability stats (run_id required)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/signals/explainability_stats"
+    },
+    {
+        "description":  "Get single signal",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/signals/:id"
+    },
+    {
+        "description":  "Get signal explanation",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/signals/:id/explain"
+    },
+    {
+        "description":  "Get full app state",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/app/state"
+    },
+    {
+        "description":  "Restart as Administrator (UAC)",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/app/restart_admin"
+    },
+    {
+        "description":  "System readiness check",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/selfcheck"
+    },
+    {
+        "description":  "Sensor inventory and capability status",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/capability/status"
+    },
+    {
+        "description":  "Detection plan with dependencies",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/capability/detection_plan"
+    },
+    {
+        "description":  "Coverage gaps analysis (dev-only)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/capability/gaps"
+    },
+    {
+        "description":  "Get all playbook metadata (Detection Plan)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/playbooks/catalog"
+    },
+    {
+        "description":  "Get feature flags (legacy)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/features"
+    },
+    {
+        "description":  "Get capture profiles",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/capture/profiles"
+    },
+    {
+        "description":  "Export bundle (requires run_id)",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/export/bundle"
+    },
+    {
+        "description":  "Import bundle ZIP",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/import/bundle"
+    },
+    {
+        "description":  "Validate import bundle before import",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/import/validate"
+    },
+    {
+        "description":  "List available content packs",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/packs"
+    },
+    {
+        "description":  "Get content pack details",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/packs/:pack_name"
+    },
+    {
+        "description":  "Rescan packs directory",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/packs/rescan"
+    },
+    {
+        "description":  "Dereference evidence pointer to source record",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/evidence/deref"
+    },
+    {
+        "description":  "List all routes (this endpoint)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/meta/routes"
+    },
+    {
+        "description":  "API contract/wrapper spec",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/meta/contract"
+    },
+    {
+        "description":  "Tier-aware feature flags for UI gating",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/meta/features"
+    },
+    {
+        "description":  "Dataflow debug snapshot (?debug=1)",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/meta/dataflow_snapshot"
+    },
+    {
+        "description":  "Team store status",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/team/store/status"
+    },
+    {
+        "description":  "Configure team store",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/team/store/configure"
+    },
+    {
+        "description":  "List team cases",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/team/cases"
+    },
+    {
+        "description":  "Create team case",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/team/cases"
+    },
+    {
+        "description":  "Get team case",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/team/cases/:case_id"
+    },
+    {
+        "description":  "Case aggregate view",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/team/cases/:case_id/aggregate"
+    },
+    {
+        "description":  "Update case tags",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/team/cases/:case_id/tags"
+    },
+    {
+        "description":  "Add case note",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/team/cases/:case_id/notes"
+    },
+    {
+        "description":  "Publish run to case",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/team/cases/:case_id/publish_run"
+    },
+    {
+        "description":  "Import run from case",
+        "method":  "POST",
+        "mutates":  true,
+        "path":  "/api/team/cases/:case_id/import_run"
+    },
+    {
+        "description":  "Debug: live signal/fact counts",
+        "method":  "GET",
+        "mutates":  false,
+        "path":  "/api/run/debug_counts"
+    }
 ]

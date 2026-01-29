@@ -2382,12 +2382,15 @@ async fn run_start(
     Json(req): Json<run_control::StartRunRequest>,
 ) -> impl IntoResponse {
     let profile = req.profile.clone();
+    let chain_ids = req.chain_ids.clone(); // INVESTIGATE_CHAINS-1: Persist chain stack
+    let run_label = req.run_label.clone();
     
     match state.run_controller.start(req).await {
         Ok(response) => {
             // Persist run record to database
             let run_record = db::RunRecord {
                 run_id: response.run_id.clone(),
+                name: run_label, // User-provided run label
                 profile,
                 started_at: response.started_at.to_rfc3339(),
                 stopped_at: None,
@@ -2398,6 +2401,10 @@ async fn run_start(
                 signals_fired: 0,
                 bytes_written: 0,
                 status: "running".to_string(),
+                baseline_scope: None,
+                baseline_enabled: false,
+                baseline_set_at: None,
+                chain_ids, // INVESTIGATE_CHAINS-1: Chain IDs for Investigate tab
             };
             
             if let Err(e) = state.db.insert_run(&run_record) {

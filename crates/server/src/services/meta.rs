@@ -25,12 +25,12 @@ use crate::services::types::{ProductTier, RouteInfo};
 /// - MAJOR: Breaking changes to existing endpoints
 /// - MINOR: New endpoints added
 /// - PATCH: Documentation/description changes only
-pub const CONTRACT_VERSION: &str = "1.0.0";
+pub const CONTRACT_VERSION: &str = "1.1.0";
 
 /// Contract hash - unique identifier for this contract revision.
 /// Format: v{major}-{scope}-{YYYYMM}
 /// Update this whenever CONTRACT_VERSION changes.
-pub const CONTRACT_HASH: &str = "v1-core-202601";
+pub const CONTRACT_HASH: &str = "v1-core-202601b";
 
 // ============================================================================
 // Route Registry
@@ -71,6 +71,10 @@ pub fn get_registered_routes() -> Vec<RouteInfo> {
         
         // Baselines
         RouteInfo::new("GET", "/api/baselines", "List baseline runs", false),
+        
+        // Micro Chains (canonical backend registry)
+        RouteInfo::new("GET", "/api/chains", "List all micro chain definitions", false),
+        RouteInfo::new("POST", "/api/chains/compile", "Compile chain stack to playbook selections", true),
         
         // Signals
         RouteInfo::new("GET", "/api/signals", "List signals (findings)", false),

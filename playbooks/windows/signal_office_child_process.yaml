@@ -58,6 +58,16 @@ rules:
           - "macro_execution"
           - "shell_spawn"
           - "phishing"
+    expected:
+      facts:
+        - "Office application (Word/Excel/PowerPoint) spawned cmd.exe or PowerShell"
+        - "Classic macro-based attack indicator - document executing shell commands"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["winword", "excel", "powerpnt", "cmd", "powershell"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -75,6 +85,16 @@ rules:
         tags:
           - "macro_script"
           - "dropper"
+    expected:
+      facts:
+        - "Office application spawned script engine (wscript/cscript/mshta)"
+        - "Macro executing external script - likely dropper stage"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["winword", "excel", "outlook", "wscript", "cscript", "mshta"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Office Spawns LOLBin"
     window: 60
@@ -89,6 +109,16 @@ rules:
         tags:
           - "lolbin"
           - "macro_dropper"
+    expected:
+      facts:
+        - "Office application spawned LOLBin (certutil/bitsadmin/rundll32/regsvr32)"
+        - "Living-off-the-land binary execution from Office macro"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["winword", "excel", "certutil", "bitsadmin", "rundll32", "regsvr32"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Outlook Spawns Process"
     window: 60
@@ -103,6 +133,16 @@ rules:
         tags:
           - "email_phishing"
           - "attachment_execution"
+    expected:
+      facts:
+        - "Outlook spawned cmd/PowerShell/mshta/wscript process"
+        - "Email attachment or link triggered process execution"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["outlook", "cmd", "powershell", "mshta", "wscript"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

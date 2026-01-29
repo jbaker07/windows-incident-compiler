@@ -1,4 +1,8 @@
 //! Support Bundle Integration Tests
+//!
+//! These tests require the `support_bundle` feature to compile.
+
+#![cfg(feature = "support_bundle")]
 
 use edr_server::support_bundle::{
     compute_sha256, LogCollector, RedactionMap, SupportBundleBuilder, SupportBundleRequest,

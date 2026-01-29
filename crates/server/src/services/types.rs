@@ -15,6 +15,8 @@ use std::sync::Arc;
 /// Application state shared across all handlers
 pub struct LocintState {
     pub data_dir: PathBuf,
+    pub ui_dir: PathBuf,
+    pub exe_dir: PathBuf,
     pub port: u16,
     pub supervisor: crate::supervisor::Supervisor,
     pub db: crate::db::Database,
@@ -544,20 +546,19 @@ pub struct NextStepAction {
 // ============================================================================
 
 /// Helper to return 403 with FEATURE_LOCKED body
+/// Contract: error must be string, code is separate field
 pub fn feature_locked_403(feature: &str, required_tier: ProductTier) -> (axum::http::StatusCode, axum::Json<serde_json::Value>) {
     let current = resolve_current_tier();
     (
         axum::http::StatusCode::FORBIDDEN,
         axum::Json(serde_json::json!({
             "success": false,
-            "error": {
-                "code": "FEATURE_LOCKED",
-                "message": format!("{} requires {} tier", feature, required_tier.display_name()),
-                "feature": feature,
-                "required_tier": required_tier,
-                "current_tier": current,
-                "upgrade_url": "https://locint.io/upgrade"
-            }
+            "error": format!("{} requires {} tier", feature, required_tier.display_name()),
+            "code": "FEATURE_LOCKED",
+            "feature": feature,
+            "required_tier": required_tier,
+            "current_tier": current,
+            "upgrade_url": "https://locint.io/upgrade"
         }))
     )
 }

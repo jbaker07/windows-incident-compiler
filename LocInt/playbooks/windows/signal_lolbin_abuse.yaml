@@ -5,6 +5,7 @@
 name: "LOLBin Abuse Detection"
 description: "Detect suspicious use of Windows Living-off-the-land binaries"
 version: "1.0"
+requires: ["security_log"]
 
 detection:
   signal:

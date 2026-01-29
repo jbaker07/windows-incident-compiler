@@ -4,6 +4,7 @@
 # Monitors Security/System logs for clearing, modification attempts
 
 name: "Windows Log Tampering Detection"
+family: "defense_evasion"
 id: "windows_log_tamper_001"
 version: "1.0"
 description: |
@@ -37,6 +38,16 @@ rules:
           - "evasion"
           - "anti_forensics"
           - "confirmed_malicious"
+    expected:
+      facts:
+        - "Windows event log cleared - Security or System log"
+        - "Anti-forensics activity detected - attacker covering tracks"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["log cleared", "audit log", "1102", "104"]
+        event_ids: [1102, 104]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "log_tampering"
         event_id: [1102, 104]  # Security/System logs cleared
@@ -56,6 +67,16 @@ rules:
         tags:
           - "defense_evasion"
           - "anti_forensics"
+    expected:
+      facts:
+        - "wevtutil.exe executed for log clearing operation"
+        - "Native Windows tool abused to clear event logs"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wevtutil", "clear-log", "cl"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_execution"
         event_id: 4688
@@ -80,6 +101,16 @@ rules:
         tags:
           - "execution"
           - "defense_evasion"
+    expected:
+      facts:
+        - "PowerShell Clear-EventLog or Remove-EventLog command executed"
+        - "PowerShell used to clear Windows event logs"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["Clear-EventLog", "Remove-EventLog", "wevtutil", "powershell"]
+        event_ids: [4688, 4104, 1]
+      visibility_requires: ["security_log", "powershell_logging"]
 
   - name: "EventLog Service Stop"
     window: 60
@@ -94,6 +125,16 @@ rules:
         tags:
           - "service_disruption"
           - "defense_evasion"
+    expected:
+      facts:
+        - "EventLog service stop command via sc.exe or net.exe"
+        - "Attempt to disable Windows event logging service"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["sc", "net", "stop", "eventlog"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 # Playbook response
 response:

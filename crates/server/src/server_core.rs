@@ -18,6 +18,9 @@ pub struct ServerConfig {
     /// Directory containing UI files (index.html, app.js)
     pub ui_dir: PathBuf,
     
+    /// Directory containing the executable (for diagnostics)
+    pub exe_dir: PathBuf,
+    
     /// HTTP port to listen on
     pub port: u16,
     
@@ -28,12 +31,15 @@ pub struct ServerConfig {
 impl ServerConfig {
     /// Create config for development (paths relative to CARGO_MANIFEST_DIR)
     pub fn for_development(port: u16, open_browser: bool) -> Self {
-        let ui_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let project_root = manifest_dir
             .parent()
             .unwrap()
             .parent()
-            .unwrap()
-            .join("ui");
+            .unwrap();
+        
+        let ui_dir = project_root.join("ui");
+        let exe_dir = project_root.join("target").join("debug"); // approximate for dev
         
         let data_dir = dirs::data_local_dir()
             .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -42,16 +48,18 @@ impl ServerConfig {
         Self {
             data_dir,
             ui_dir,
+            exe_dir,
             port,
             open_browser,
         }
     }
     
     /// Create config with explicit paths (for locint exe-relative mode)
-    pub fn with_paths(data_dir: PathBuf, ui_dir: PathBuf, port: u16, open_browser: bool) -> Self {
+    pub fn with_paths(data_dir: PathBuf, ui_dir: PathBuf, exe_dir: PathBuf, port: u16, open_browser: bool) -> Self {
         Self {
             data_dir,
             ui_dir,
+            exe_dir,
             port,
             open_browser,
         }
@@ -139,6 +147,7 @@ impl ShippedResources {
         ServerConfig {
             data_dir,
             ui_dir: self.ui_dir.clone(),
+            exe_dir: self.exe_dir.clone(),
             port,
             open_browser: true, // locint always opens browser
         }

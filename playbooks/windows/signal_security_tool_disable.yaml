@@ -46,6 +46,16 @@ rules:
         tags:
           - "defender_disable"
           - "evasion"
+    expected:
+      facts:
+        - "Windows Defender disabled via Set-MpPreference, sc stop, or net stop"
+        - "Security tool disabling - defense evasion prior to malicious activity"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["set-mppreference", "disablerealtimemonitoring", "windefend", "stop"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -61,6 +71,16 @@ rules:
         tags:
           - "firewall_disable"
           - "evasion"
+    expected:
+      facts:
+        - "Windows Firewall disabled via netsh firewall or advfirewall command"
+        - "Network security control disabled - enables unrestricted network access"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["netsh", "firewall", "advfirewall", "disable", "off"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Stop Event Log Service"
     window: 10
@@ -73,6 +93,16 @@ rules:
         tags:
           - "logging_disable"
           - "anti_forensics"
+    expected:
+      facts:
+        - "Event Log service stopped via sc or net command"
+        - "Anti-forensics activity - disabling audit logging"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["sc", "net", "stop", "eventlog"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Disable AMSI"
     window: 10
@@ -85,6 +115,16 @@ rules:
         tags:
           - "amsi_bypass"
           - "evasion"
+    expected:
+      facts:
+        - "AMSI bypass technique detected (amsiInitFailed, amsi.dll manipulation, AmsiScanBuffer)"
+        - "Antimalware Scan Interface bypass - enables execution of malicious scripts"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["amsiInitFailed", "amsi.dll", "AmsiScanBuffer", "bypass"]
+        event_ids: [4688, 4104, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Kill Security Process"
     window: 10
@@ -97,6 +137,16 @@ rules:
         tags:
           - "security_kill"
           - "evasion"
+    expected:
+      facts:
+        - "taskkill /f targeting security process (Defender/Sense/Sophos/Kaspersky/Malwarebytes)"
+        - "Forceful termination of security/AV processes"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["taskkill", "msmpeng", "mssense", "savservice", "avp", "mbam"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

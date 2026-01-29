@@ -18,22 +18,26 @@ use std::path::Path;
 pub use crate::capability::is_elevated;
 
 /// Check if Sysmon is installed (simple boolean for API responses)
+/// Checks multiple service name variants: Sysmon, Sysmon64, Sysmon64a (ARM64)
 #[cfg(target_os = "windows")]
 pub fn check_sysmon_installed() -> bool {
     use std::process::Command;
     use std::os::windows::process::CommandExt;
 
-    let mut cmd = Command::new("sc");
-    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    cmd.args(["query", "Sysmon"]);
+    // Try all known Sysmon service name variants
+    for service_name in &["Sysmon", "Sysmon64", "Sysmon64a"] {
+        let mut cmd = Command::new("sc");
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.args(["query", service_name]);
 
-    match cmd.output() {
-        Ok(output) => {
+        if let Ok(output) = cmd.output() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.contains("RUNNING") || stdout.contains("STATE")
+            if stdout.contains("RUNNING") || stdout.contains("STATE") {
+                return true;
+            }
         }
-        Err(_) => false,
     }
+    false
 }
 
 #[cfg(not(target_os = "windows"))]

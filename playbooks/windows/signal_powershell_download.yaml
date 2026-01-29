@@ -63,6 +63,16 @@ rules:
           - "download"
           - "powershell"
           - "dropper"
+    expected:
+      facts:
+        - "PowerShell WebClient.DownloadString() method with HTTP/HTTPS URL"
+        - "Downloading and potentially executing remote content"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["downloadstring", "webclient", "http", "https"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -80,6 +90,16 @@ rules:
         tags:
           - "file_download"
           - "staging"
+    expected:
+      facts:
+        - "PowerShell WebClient.DownloadFile() method with HTTP/HTTPS URL"
+        - "File staging from remote location to disk"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["downloadfile", "webclient", "http", "https"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
 
   - name: "PowerShell Invoke-WebRequest"
     window: 10
@@ -94,6 +114,16 @@ rules:
         tags:
           - "web_request"
           - "download"
+    expected:
+      facts:
+        - "PowerShell Invoke-WebRequest (or aliases iwr/curl/wget) with URL"
+        - "Web request to external resource - potential payload download"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["invoke-webrequest", "iwr", "curl", "wget", "http"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
 
   - name: "PowerShell IEX Download Cradle"
     window: 10
@@ -109,6 +139,16 @@ rules:
           - "download_cradle"
           - "fileless"
           - "immediate_exec"
+    expected:
+      facts:
+        - "PowerShell IEX (Invoke-Expression) with download cradle pattern"
+        - "Fileless malware execution - downloading and immediately executing code"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["iex", "invoke-expression", "downloadstring", "webclient"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
 
   - name: "PowerShell Start-BitsTransfer"
     window: 10
@@ -123,6 +163,16 @@ rules:
         tags:
           - "bits_download"
           - "evasion"
+    expected:
+      facts:
+        - "PowerShell Start-BitsTransfer command with URL"
+        - "Using BITS for file download - common evasion technique"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["start-bitstransfer", "bits", "http", "https"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

@@ -5,6 +5,10 @@
 //! 2. Capabilities endpoint shows merged matrix (collectors + integrations)
 //! 3. Sample events endpoint returns raw + mapped examples
 //! 4. Health status computation works correctly
+//!
+//! These tests require the `integrations` feature to compile.
+
+#![cfg(feature = "integrations")]
 
 use axum::{
     body::Body,

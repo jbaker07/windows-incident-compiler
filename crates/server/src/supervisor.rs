@@ -36,6 +36,7 @@ use crate::flight_recorder::{
     Component, EventKind, EventLevel, FlightRecorder, SharedFlightRecorder,
 };
 use crate::capability;
+use crate::playbook_scope::PlaybookScope;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -556,6 +557,14 @@ impl Supervisor {
         // Small delay for capture to initialize
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         
+        // Compute canonical playbook scope BEFORE spawning locald
+        // This determines exactly which playbooks will be evaluated
+        let playbook_scope = PlaybookScope::compute(
+            config.selected_playbooks.clone(),
+            config.selection_preset.clone(),
+            config.selection_mode.clone(),
+        );
+        
         // Start locald process
         let locald_log = File::create(logs_dir.join("locald.log"))
             .map_err(|e| SupervisorError::IoError(format!("Failed to create locald.log: {}", e)))?;
@@ -583,19 +592,20 @@ impl Supervisor {
             false
         };
         
-        // Configure playbook selection (pass as comma-separated list)
-        let selected_count = if let Some(ref selected) = config.selected_playbooks {
-            if !selected.is_empty() {
-                locald_cmd.env("EDR_SELECTED_PLAYBOOKS", selected.join(","));
-                Some(selected.len())
-            } else {
-                None
-            }
+        // Pass EFFECTIVE playbook IDs (from computed scope, not raw selection)
+        // This is the SSoT for what locald will evaluate
+        let selected_count = if !playbook_scope.effective_playbook_ids.is_empty() {
+            let effective_ids = &playbook_scope.effective_playbook_ids;
+            locald_cmd.env("EDR_SELECTED_PLAYBOOKS", effective_ids.join(","));
+            Some(effective_ids.len())
         } else {
             None
         };
         
-        // Pass selection mode for logging
+        // Pass scope mode so locald can log accurately
+        locald_cmd.env("EDR_SCOPE_MODE", format!("{:?}", playbook_scope.mode));
+        
+        // Pass selection mode for backward compatibility logging
         if let Some(ref mode) = config.selection_mode {
             locald_cmd.env("EDR_SELECTION_MODE", mode);
         }
@@ -699,7 +709,8 @@ impl Supervisor {
             // Don't fail - just log the timeout
         }
         
-        // Write initial run_meta.json with readiness snapshot
+        // Write initial run_meta.json with readiness snapshot and playbook scope
+        // NOTE: playbook_scope was computed before spawning locald (line ~560)
         let readiness_snapshot = capture_readiness_snapshot();
         let run_meta = serde_json::json!({
             "run_id": run_id,
@@ -711,7 +722,9 @@ impl Supervisor {
             "playbooks_enabled": playbooks_enabled,
             "playbooks_dir": config.playbooks_dir.as_ref().map(|p| p.display().to_string()),
             "profile": config.profile,
-            // Playbook selection snapshot for this run
+            // CANONICAL playbook scope for this run (SSoT for evaluation)
+            "playbook_scope": playbook_scope,
+            // Legacy playbook_selection for backward compatibility
             "playbook_selection": {
                 "mode": config.selection_mode.as_deref().unwrap_or("preset"),
                 "preset": config.selection_preset,

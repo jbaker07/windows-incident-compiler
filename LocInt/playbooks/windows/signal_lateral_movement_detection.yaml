@@ -6,6 +6,7 @@
 name: "Windows Lateral Movement Detection"
 id: "windows_lateral_movement_001"
 version: "1.0"
+requires: ["security_log"]
 description: |
   Detects lateral movement indicators within Windows environments.
   Focus areas:

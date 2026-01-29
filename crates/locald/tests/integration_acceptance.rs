@@ -6,6 +6,8 @@
 //! 3. End-to-end: ingest event + existing outbound connect → gets enriched (soft join)
 //! 4. Determinism: running export twice yields identical output order + hashes
 
+#![cfg(feature = "integrations")]
+
 use chrono::Utc;
 use edr_locald::integrations::{
     config::{ExportSinkConfig, ExportSinkType},

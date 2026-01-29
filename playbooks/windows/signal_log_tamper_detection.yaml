@@ -4,6 +4,7 @@
 # Monitors Security event log (1102, 104) and process creation (4688)
 
 name: "Windows Log Tampering Detection"
+family: "defense_evasion"
 id: "windows_log_tampering_001"
 version: "1.0"
 description: |
@@ -40,6 +41,16 @@ rules:
           - "log_tampering"
           - "incident_response_evasion"
           - "post_exploitation"
+    expected:
+      facts:
+        - "Security or System event log cleared (Event ID 1102 or 104)"
+        - "Direct evidence of anti-forensics activity"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["log cleared", "1102", "104", "audit"]
+        event_ids: [1102, 104]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "log_cleared"
         event_id: [1102, 104]
@@ -63,6 +74,16 @@ rules:
         tags:
           - "log_tampering"
           - "evasion"
+    expected:
+      facts:
+        - "wevtutil clear, Clear-EventLog, or Remove-EventLog command execution"
+        - "Log clearing utility invoked to erase evidence"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["wevtutil", "clear", "Clear-EventLog", "Remove-EventLog"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: 4688
@@ -84,8 +105,18 @@ rules:
         tags:
           - "post_exploitation"
           - "lateral_movement"
+    expected:
+      facts:
+        - "Log clearing operation executed with SYSTEM privileges"
+        - "High-privilege log tampering indicates post-exploitation activity"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["SYSTEM", "log", "clear", "wevtutil"]
+        event_ids: [4688, 1102, 104]
+      visibility_requires: ["security_log"]
 
-  - name: "Chain: Privilege Escalation → Log Clear"
+  - name: "Chain: Privilege Escalation to Log Clear"
     window: 300  # 5 minutes
     aggregation: sequence
     threshold: 2
@@ -98,8 +129,16 @@ rules:
       - severity: CRITICAL
         tags:
           - "post_exploitation"
-          - "log_tampering"
-          - "multi_stage_attack"
+    expected:
+      facts:
+        - "Shell/script execution followed by log clearing within 5 minutes"
+        - "Multi-stage attack pattern: execution then evidence destruction"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["powershell", "cmd", "cscript", "log cleared"]
+        event_ids: [4688, 1102, 104]
+      visibility_requires: ["security_log"]
 
 # Playbook response (IMMEDIATE)
 response:

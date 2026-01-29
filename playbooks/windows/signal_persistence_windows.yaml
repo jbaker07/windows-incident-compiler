@@ -3,8 +3,31 @@
 # Detect Windows persistence mechanisms
 
 name: "Persistence Detection (Windows)"
+family: "persistence"
 description: "Detect service, task, and registry persistence attempts"
 version: "1.0"
+
+enabled: true
+confidence_threshold: 0.75
+
+requires:
+  - security_log
+
+mitre:
+  tactics:
+    - persistence
+    - privilege_escalation
+  techniques:
+    - T1543.003  # Windows Service
+    - T1053.005  # Scheduled Task
+    - T1547.001  # Registry Run Keys
+
+input_facts:
+  required:
+    - Exec
+  optional:
+    - PersistArtifact
+    - RegistryEvent
 
 detection:
   signals:
@@ -35,6 +58,91 @@ detection:
         - ".bat"
         - ".vbs"
         - ":\\Windows\\Temp"
+
+rules:
+  - name: "Service Persistence from Suspicious Path"
+    window: 60
+    conditions:
+      - tag: "service_install"
+      - or:
+          - field: binary_path
+            matches: "(?i)\\\\temp\\\\"
+          - field: binary_path
+            matches: "(?i)\\\\appdata\\\\"
+          - field: binary_path
+            matches: "(?i)\\\\downloads\\\\"
+          - field: binary_path
+            matches: "(?i)users\\\\public"
+    actions:
+      - severity: CRITICAL
+        tags:
+          - "persistence"
+          - "service"
+          - "suspicious_location"
+    expected:
+      facts:
+        - "Windows service installed with binary from suspicious path (Temp/AppData/Downloads/Public)"
+        - "Service-based persistence using executable in writeable location"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec", "PersistArtifact"]
+        query_terms: ["service", "temp", "appdata", "downloads", "public"]
+        event_ids: [7045, 4688]
+      visibility_requires: ["security_log"]
+
+  - name: "Scheduled Task Shell Persistence"
+    window: 60
+    conditions:
+      - tag: "task_create"
+      - or:
+          - field: action
+            matches: "(?i)cmd\\.exe"
+          - field: action
+            matches: "(?i)powershell\\.exe"
+          - field: action
+            matches: "(?i)python\\.exe"
+    actions:
+      - severity: HIGH
+        tags:
+          - "persistence"
+          - "scheduled_task"
+          - "shell_task"
+    expected:
+      facts:
+        - "Scheduled task created executing shell or interpreter (cmd/PowerShell/python)"
+        - "Task-based persistence using script execution"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec", "PersistArtifact"]
+        query_terms: ["schtasks", "task", "cmd", "powershell", "python"]
+        event_ids: [4698, 4688, 1]
+      visibility_requires: ["security_log"]
+
+  - name: "Registry Run Key Persistence"
+    window: 60
+    conditions:
+      - tag: "registry_value_set"
+      - or:
+          - field: registry_key
+            matches: "(?i)CurrentVersion\\\\Run"
+          - field: registry_key
+            matches: "(?i)CurrentVersion\\\\RunOnce"
+    actions:
+      - severity: HIGH
+        tags:
+          - "persistence"
+          - "registry"
+          - "autostart"
+    expected:
+      facts:
+        - "Registry Run/RunOnce key modified for autostart persistence"
+        - "Classic registry-based persistence mechanism"
+      evidence:
+        lens: "registry"
+        fact_types: ["RegistryEvent", "PersistArtifact"]
+        query_terms: ["Run", "RunOnce", "CurrentVersion", "registry"]
+        event_ids: [13, 4688]
+      visibility_requires: ["sysmon"]
 
 response:
   severity: "high"

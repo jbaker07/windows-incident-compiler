@@ -4,6 +4,7 @@
 # Monitors System event log (Event ID 7045) for new services
 
 name: "Windows Service Installation"
+family: "persistence"
 id: "windows_service_persistence_001"
 version: "1.0"
 description: |
@@ -38,6 +39,16 @@ rules:
           - "persistence"
           - "service"
           - "privilege_escalation"
+    expected:
+      facts:
+        - "New Windows service installed (Event ID 7045)"
+        - "Service-based persistence mechanism detected"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec", "PersistArtifact"]
+        query_terms: ["service", "install", "7045", "ImagePath"]
+        event_ids: [7045, 4688]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "service_creation"
         event_id: 7045
@@ -61,6 +72,16 @@ rules:
         tags:
           - "malware"
           - "persistence"
+    expected:
+      facts:
+        - "Service installed with binary path in Temp/AppData/ProgramData"
+        - "Malware persistence - service executable in suspicious writeable location"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec", "PersistArtifact"]
+        query_terms: ["service", "temp", "appdata", "programdata", "ImagePath"]
+        event_ids: [7045, 4688]
+      visibility_requires: ["security_log"]
 
   - name: "Service Registry Modification"
     window: 300
@@ -73,6 +94,16 @@ rules:
       - severity: MEDIUM
         tags:
           - "post_exploitation"
+    expected:
+      facts:
+        - "Service registry modification detected (Event ID 4697)"
+        - "Existing service configuration modified - potential hijacking"
+      evidence:
+        lens: "registry"
+        fact_types: ["RegistryEvent", "PersistArtifact"]
+        query_terms: ["service", "registry", "4697", "modify"]
+        event_ids: [4697, 13]
+      visibility_requires: ["security_log"]
 
 # Playbook response
 response:

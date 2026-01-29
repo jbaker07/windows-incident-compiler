@@ -53,6 +53,16 @@ rules:
         tags:
           - "injection"
           - "remote_thread"
+    expected:
+      facts:
+        - "Remote thread created in another process (Sysmon Event ID 8)"
+        - "Process injection technique - code executing in foreign process context"
+      evidence:
+        lens: "process"
+        fact_types: ["MemAlloc", "Exec"]
+        query_terms: ["CreateRemoteThread", "remote thread", "injection"]
+        event_ids: [8]
+      visibility_requires: ["sysmon"]
     evidence:
       - event_type: "create_remote_thread"
         event_id: 8
@@ -68,6 +78,16 @@ rules:
         tags:
           - "system_injection"
           - "privilege_escalation"
+    expected:
+      facts:
+        - "Remote thread injected into critical system process (svchost/lsass/csrss/winlogon/services)"
+        - "High-impact injection targeting privileged system processes"
+      evidence:
+        lens: "process"
+        fact_types: ["MemAlloc", "Exec"]
+        query_terms: ["svchost", "lsass", "csrss", "winlogon", "injection"]
+        event_ids: [8]
+      visibility_requires: ["sysmon"]
 
   - name: "Injection from Temp Path"
     window: 10
@@ -80,6 +100,16 @@ rules:
         tags:
           - "suspicious_injector"
           - "malware"
+    expected:
+      facts:
+        - "Process injection from binary in TEMP or APPDATA directory"
+        - "Malware indicator - injector running from temporary location"
+      evidence:
+        lens: "process"
+        fact_types: ["MemAlloc", "Exec"]
+        query_terms: ["temp", "appdata", "injection", "remote thread"]
+        event_ids: [8]
+      visibility_requires: ["sysmon"]
 
 response:
   - type: "alert"

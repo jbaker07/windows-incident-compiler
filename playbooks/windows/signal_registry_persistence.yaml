@@ -4,6 +4,7 @@
 # Monitors Sysmon EventID 12-14 for suspicious registry modifications
 
 name: "Windows Registry Persistence"
+family: "persistence"
 id: "windows_registry_persistence_001"
 version: "1.0"
 requires: ["sysmon"]
@@ -42,6 +43,16 @@ rules:
           - "persistence"
           - "registry"
           - "initial_access"
+    expected:
+      facts:
+        - "Registry Run or RunOnce key modified for persistence"
+        - "Classic autostart persistence technique via registry"
+      evidence:
+        lens: "registry"
+        fact_types: ["RegistryEvent"]
+        query_terms: ["Run", "RunOnce", "CurrentVersion", "registry"]
+        event_ids: [13]
+      visibility_requires: ["sysmon"]
     evidence:
       - event_type: "registry_modification"
         event_id: 13
@@ -64,6 +75,16 @@ rules:
           - "persistence"
           - "privilege_escalation"
           - "fileless_malware"
+    expected:
+      facts:
+        - "Image File Execution Options (IFEO) Debugger key set"
+        - "Persistence via IFEO debugger hijacking - executes attacker code when target runs"
+      evidence:
+        lens: "registry"
+        fact_types: ["RegistryEvent"]
+        query_terms: ["Image File Execution Options", "Debugger", "IFEO"]
+        event_ids: [13]
+      visibility_requires: ["sysmon"]
 
   - name: "Winlogon Shell Override"
     window: 60
@@ -77,6 +98,16 @@ rules:
         tags:
           - "persistence"
           - "logon_hook"
+    expected:
+      facts:
+        - "Winlogon Shell registry value modified"
+        - "Logon persistence - malicious shell replacement at user logon"
+      evidence:
+        lens: "registry"
+        fact_types: ["RegistryEvent"]
+        query_terms: ["Winlogon", "Shell", "explorer", "registry"]
+        event_ids: [13]
+      visibility_requires: ["sysmon"]
 
   - name: "Services Registry Modification"
     window: 300
@@ -91,6 +122,16 @@ rules:
         tags:
           - "persistence"
           - "lateral_movement"
+    expected:
+      facts:
+        - "Services registry key modified by process other than services.exe"
+        - "Potential service hijacking or malicious service registration"
+      evidence:
+        lens: "registry"
+        fact_types: ["RegistryEvent"]
+        query_terms: ["Services", "ImagePath", "registry", "service"]
+        event_ids: [13, 12]
+      visibility_requires: ["sysmon"]
 
 # Playbook response
 response:

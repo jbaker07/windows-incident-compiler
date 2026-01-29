@@ -449,12 +449,40 @@ impl WindowsEventCapture {
             }
 
             // Extract channel for stream_id
+            // W1-FIX: Try multiple sources - windows.channel field, tags (wevt_reader adds channel as tag),
+            // or parse from windows.xml <Channel>...</Channel>
             let stream_id = event
                 .fields
                 .get("windows.channel")
                 .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
+                .map(String::from)
+                .or_else(|| {
+                    // wevt_reader adds channel name as a tag (lowercase)
+                    // Look for known channel patterns in tags
+                    event.tags.iter().find(|t| {
+                        let t_lower = t.to_lowercase();
+                        t_lower.contains("sysmon") ||
+                        t_lower.contains("security") ||
+                        t_lower.contains("powershell") ||
+                        t_lower.contains("application") ||
+                        t_lower.contains("system") ||
+                        t_lower.contains("windows defender")
+                    }).cloned()
+                })
+                .or_else(|| {
+                    // Fallback: parse from windows.xml
+                    let xml = event.fields.get("windows.xml")?.as_str()?;
+                    let xml_lower = xml.to_lowercase();
+                    if let Some(start) = xml_lower.find("<channel>") {
+                        let value_start = start + "<channel>".len();
+                        if let Some(end) = xml_lower[value_start..].find("</channel>") {
+                            let raw = &xml[value_start..value_start + end];
+                            return Some(raw.trim().to_string());
+                        }
+                    }
+                    None
+                })
+                .unwrap_or_else(|| "unknown".to_string());
 
             // Create EvidencePtr from capture writer state only
             event.evidence_ptr = Some(EvidencePtr {

@@ -67,6 +67,17 @@ pub struct CoverageUnavailable {
     pub run_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debug: Option<CoverageDebugInfo>,
+    // Run readiness fields for consistency with CoverageAvailable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compile_status: Option<String>,  // "compiling" | "interrupted" when unavailable
+    #[serde(default)]
+    pub facts_ready: bool,               // false when coverage unavailable
+    #[serde(default)]
+    pub facts_partial: bool,             // true if reason_code indicates partial data
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abandoned_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<String>,
 }
 
 /// Sensor status in a run
@@ -89,6 +100,21 @@ pub enum SensorStatus {
     Missing,      // Expected sensor not found
 }
 
+/// Compile status for run
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CompileStatus {
+    Compiling,    // Fact extraction in progress
+    Finalized,    // Fact extraction complete
+    Interrupted,  // Fact extraction was interrupted (crash/kill)
+}
+
+impl Default for CompileStatus {
+    fn default() -> Self {
+        CompileStatus::Finalized
+    }
+}
+
 /// Available coverage response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoverageAvailable {
@@ -102,6 +128,17 @@ pub struct CoverageAvailable {
     pub sensors: Option<Vec<SensorSummary>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pipeline_diagnostics: Option<PipelineDiagnostics>,
+    // Run readiness fields for crash/interrupt handling
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compile_status: Option<String>,  // "compiling" | "finalized" | "interrupted"
+    #[serde(default)]
+    pub facts_ready: bool,               // true if facts are fully extracted
+    #[serde(default)]
+    pub facts_partial: bool,             // true if only partial facts (interrupted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub abandoned_reason: Option<String>, // reason if run was abandoned
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_activity_at: Option<String>, // ISO timestamp of last activity
 }
 
 /// Aggregated fact type statistics
@@ -210,17 +247,44 @@ pub fn load_run_coverage(run_dir: &PathBuf, run_id: &str) -> Result<CoverageAvai
         return Err(CoverageLoadError::MissingTable("coverage_rollup".to_string()));
     }
     
-    // Query coverage_rollup for fact statistics
+    // TRUTH FIX: Query TRUE total facts count first (no LIMIT)
+    let true_facts_total: u64 = conn
+        .query_row(
+            "SELECT COALESCE(SUM(fact_count), 0) FROM coverage_rollup",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0) as u64;
+    
+    // TRUTH FIX: Query fact type counts from FULL table (grouped aggregation, no LIMIT)
     let mut fact_type_counts: HashMap<String, u64> = HashMap::new();
+    if let Ok(mut stmt) = conn.prepare(
+        r#"SELECT fact_type, SUM(fact_count) as total 
+           FROM coverage_rollup 
+           WHERE fact_type IS NOT NULL AND fact_type != ''
+           GROUP BY fact_type
+           ORDER BY total DESC"#
+    ) {
+        if let Ok(mut rows) = stmt.query([]) {
+            while let Ok(Some(row)) = rows.next() {
+                let fact_type: String = row.get(0).unwrap_or_default();
+                let count: u64 = row.get::<_, i64>(1).unwrap_or(0) as u64;
+                if !fact_type.is_empty() && count > 0 {
+                    fact_type_counts.insert(fact_type, count);
+                }
+            }
+        }
+    }
+    
+    // Query coverage_rollup for host/sensor statistics (sampled for performance)
     let mut host_counts: HashMap<String, u64> = HashMap::new();
     let mut sensor_modes: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut sensor_fact_counts: HashMap<String, u64> = HashMap::new();
     let mut sensor_capabilities: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
-    let mut total_facts = 0u64;
     let mut seen_minutes: std::collections::HashSet<i64> = std::collections::HashSet::new();
     
     let result = conn.prepare(
-        r#"SELECT ts_minute, host, sensor_mode, fact_type, fact_count, enabled_capabilities
+        r#"SELECT ts_minute, host, sensor_mode, fact_count, enabled_capabilities
            FROM coverage_rollup
            ORDER BY ts_minute DESC
            LIMIT 1000"#
@@ -232,24 +296,17 @@ pub fn load_run_coverage(run_dir: &PathBuf, run_id: &str) -> Result<CoverageAvai
                 let ts_minute: i64 = row.get(0).unwrap_or(0);
                 let host: String = row.get(1).unwrap_or_default();
                 let sensor_mode: Option<String> = row.get(2).ok();
-                let fact_type: Option<String> = row.get(3).ok();
-                let fact_count: u32 = row.get(4).unwrap_or(0);
-                let enabled_caps: Option<String> = row.get(5).ok();
+                let fact_count: u32 = row.get(3).unwrap_or(0);
+                let enabled_caps: Option<String> = row.get(4).ok();
                 
                 // Track unique minutes for coverage_minutes
                 if ts_minute > 0 {
                     seen_minutes.insert(ts_minute);
                 }
                 
-                // Aggregate fact type counts
-                if let Some(ref ft) = fact_type {
-                    if !ft.is_empty() && fact_count > 0 {
-                        *fact_type_counts.entry(ft.clone()).or_insert(0) += fact_count as u64;
-                        total_facts += fact_count as u64;
-                    }
-                }
+                // NOTE: fact_type aggregation is now done via separate full-table query above
                 
-                // Aggregate host counts
+                // Aggregate host counts (sampled)
                 if !host.is_empty() && fact_count > 0 {
                     *host_counts.entry(host.clone()).or_insert(0) += fact_count as u64;
                 }
@@ -313,18 +370,24 @@ pub fn load_run_coverage(run_dir: &PathBuf, run_id: &str) -> Result<CoverageAvai
     top_hosts.truncate(10);
     
     // Load playbook state for diagnostics
-    // TASK C: Pass run_id for filtering signals
-    let pipeline_diagnostics = load_pipeline_diagnostics(&conn, total_facts, coverage_minutes, run_id);
+    // TASK C: Pass run_id for filtering signals (use true_facts_total for accuracy)
+    let pipeline_diagnostics = load_pipeline_diagnostics(&conn, true_facts_total, coverage_minutes, run_id);
     
     Ok(CoverageAvailable {
         available: true,
         run_id: run_id.to_string(),
-        facts_total: total_facts,
+        facts_total: true_facts_total,  // TRUTH FIX: Use true total, not sampled
         fact_types,
         top_hosts,
         sensor_modes: sensor_modes.into_iter().collect(),
         sensors: if sensors.is_empty() { None } else { Some(sensors) },
         pipeline_diagnostics,
+        // Default to finalized for successfully loaded coverage
+        compile_status: Some("finalized".to_string()),
+        facts_ready: true,
+        facts_partial: false,
+        abandoned_reason: None,
+        last_activity_at: None,
     })
 }
 
@@ -549,6 +612,61 @@ fn load_playbook_skip_info(conn: &Connection) -> (
 }
 
 // =============================================================================
+// Run Meta Helpers
+// =============================================================================
+
+/// Read run readiness fields from run_meta.json
+/// Returns (compile_status, facts_ready, facts_partial, abandoned_reason, last_activity_at)
+fn read_run_meta_status(run_dir: &PathBuf) -> (Option<String>, bool, bool, Option<String>, Option<String>) {
+    let meta_path = run_dir.join("run_meta.json");
+    if !meta_path.exists() {
+        return (None, true, false, None, None); // Default to finalized if no meta
+    }
+    
+    let meta_str = match std::fs::read_to_string(&meta_path) {
+        Ok(s) => s,
+        Err(_) => return (None, true, false, None, None),
+    };
+    
+    let meta: serde_json::Value = match serde_json::from_str(&meta_str) {
+        Ok(v) => v,
+        Err(_) => return (None, true, false, None, None),
+    };
+    
+    let compile_status = meta.get("compile_status")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    
+    let status = meta.get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    
+    // Determine facts_ready: true if finalized, false if compiling/interrupted/abandoned
+    let facts_ready = match compile_status.as_deref() {
+        Some("finalized") => true,
+        Some("compiling") => false,
+        Some("interrupted") => false, // Partial data may exist
+        _ => status != "running" && status != "abandoned", // Default based on status
+    };
+    
+    // facts_partial: true only if interrupted (has some data but incomplete)
+    let facts_partial = compile_status.as_deref() == Some("interrupted") || status == "abandoned";
+    
+    let abandoned_reason = meta.get("abandoned_reason")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    
+    // Get last_activity_at from stopped_at or phase timestamp
+    let last_activity_at = meta.get("stopped_at")
+        .or_else(|| meta.get("last_activity"))
+        .or_else(|| meta.get("started_at"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    
+    (compile_status, facts_ready, facts_partial, abandoned_reason, last_activity_at)
+}
+
+// =============================================================================
 // HTTP Handler
 // =============================================================================
 
@@ -574,6 +692,11 @@ pub async fn get_run_coverage(
                     message: format!("Run '{}' not found in database", run_id),
                     run_id: run_id.clone(),
                     debug: None,
+                    compile_status: None,
+                    facts_ready: false,
+                    facts_partial: false,
+                    abandoned_reason: None,
+                    last_activity_at: None,
                 })),
             );
         }
@@ -586,6 +709,11 @@ pub async fn get_run_coverage(
                     message: format!("Database error looking up run: {}", e),
                     run_id: run_id.clone(),
                     debug: None,
+                    compile_status: None,
+                    facts_ready: false,
+                    facts_partial: false,
+                    abandoned_reason: None,
+                    last_activity_at: None,
                 })),
             );
         }
@@ -604,6 +732,11 @@ pub async fn get_run_coverage(
                     expected_path: run_record.run_dir.clone(),
                     run_status: Some(run_record.status.clone()),
                 }),
+                compile_status: Some("compiling".to_string()),
+                facts_ready: false,
+                facts_partial: true,
+                abandoned_reason: None,
+                last_activity_at: None,
             })),
         );
     }
@@ -623,6 +756,11 @@ pub async fn get_run_coverage(
                         expected_path: None,
                         run_status: Some(run_record.status.clone()),
                     }),
+                    compile_status: None,
+                    facts_ready: false,
+                    facts_partial: false,
+                    abandoned_reason: None,
+                    last_activity_at: None,
                 })),
             );
         }
@@ -641,29 +779,65 @@ pub async fn get_run_coverage(
                     expected_path: Some(run_dir.display().to_string()),
                     run_status: Some(run_record.status.clone()),
                 }),
+                compile_status: None,
+                facts_ready: false,
+                facts_partial: false,
+                abandoned_reason: None,
+                last_activity_at: None,
             })),
         );
     }
     
+    // Read run_meta.json for status fields
+    let (meta_compile_status, meta_facts_ready, meta_facts_partial, meta_abandoned_reason, meta_last_activity) = 
+        read_run_meta_status(&run_dir);
+    
     // Load coverage data
     match load_run_coverage(&run_dir, &run_id) {
-        Ok(coverage) => (
-            StatusCode::OK,
-            Json(serde_json::json!(coverage)),
-        ),
-        Err(CoverageLoadError::MissingDb(path)) => (
-            StatusCode::OK,
-            Json(serde_json::json!(CoverageUnavailable {
-                available: false,
-                reason_code: CoverageReasonCode::MissingDb,
-                message: "Analysis database not found. The pipeline may not have completed fact extraction.".to_string(),
-                run_id: run_id.clone(),
-                debug: Some(CoverageDebugInfo {
-                    expected_path: Some(path.display().to_string()),
-                    run_status: Some(run_record.status.clone()),
-                }),
-            })),
-        ),
+        Ok(mut coverage) => {
+            // Enrich coverage with run_meta status (run_meta is source of truth for interrupted runs)
+            if let Some(ref cs) = meta_compile_status {
+                coverage.compile_status = Some(cs.clone());
+            }
+            if meta_compile_status.as_deref() == Some("interrupted") {
+                coverage.facts_ready = false;
+                coverage.facts_partial = true;
+            }
+            coverage.abandoned_reason = meta_abandoned_reason.clone();
+            if let Some(ref ts) = meta_last_activity {
+                coverage.last_activity_at = Some(ts.clone());
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!(coverage)),
+            )
+        },
+        Err(CoverageLoadError::MissingDb(path)) => {
+            // Missing DB could indicate interrupted run - check run_meta
+            let (compile_status, facts_ready, facts_partial) = if meta_compile_status.as_deref() == Some("interrupted") {
+                (Some("interrupted".to_string()), false, true)
+            } else {
+                (meta_compile_status.clone(), meta_facts_ready, meta_facts_partial)
+            };
+            (
+                StatusCode::OK,
+                Json(serde_json::json!(CoverageUnavailable {
+                    available: false,
+                    reason_code: CoverageReasonCode::MissingDb,
+                    message: "Analysis database not found. The pipeline may not have completed fact extraction.".to_string(),
+                    run_id: run_id.clone(),
+                    debug: Some(CoverageDebugInfo {
+                        expected_path: Some(path.display().to_string()),
+                        run_status: Some(run_record.status.clone()),
+                    }),
+                    compile_status,
+                    facts_ready,
+                    facts_partial,
+                    abandoned_reason: meta_abandoned_reason,
+                    last_activity_at: meta_last_activity,
+                })),
+            )
+        },
         Err(CoverageLoadError::MissingTable(table)) => (
             StatusCode::OK,
             Json(serde_json::json!(CoverageUnavailable {
@@ -675,6 +849,11 @@ pub async fn get_run_coverage(
                     expected_path: Some(run_dir.join("analysis.db").display().to_string()),
                     run_status: Some(run_record.status.clone()),
                 }),
+                compile_status: meta_compile_status,
+                facts_ready: meta_facts_ready,
+                facts_partial: meta_facts_partial,
+                abandoned_reason: meta_abandoned_reason,
+                last_activity_at: meta_last_activity,
             })),
         ),
         Err(CoverageLoadError::DbError(err)) => (
@@ -688,6 +867,11 @@ pub async fn get_run_coverage(
                     expected_path: Some(run_dir.join("analysis.db").display().to_string()),
                     run_status: Some(run_record.status.clone()),
                 }),
+                compile_status: meta_compile_status,
+                facts_ready: meta_facts_ready,
+                facts_partial: meta_facts_partial,
+                abandoned_reason: meta_abandoned_reason,
+                last_activity_at: meta_last_activity,
             })),
         ),
     }
@@ -740,12 +924,19 @@ mod tests {
                 explanation: "100 facts extracted, 5 playbook rules active".to_string(),
                 coverage_minutes: 3,
             }),
+            compile_status: Some("finalized".to_string()),
+            facts_ready: true,
+            facts_partial: false,
+            abandoned_reason: None,
+            last_activity_at: None,
         };
         
         let json = serde_json::to_string(&coverage).unwrap();
         assert!(json.contains("\"available\":true"));
         assert!(json.contains("run_test123"));
         assert!(json.contains("ProcessCreate"));
+        assert!(json.contains("\"compile_status\":\"finalized\""));
+        assert!(json.contains("\"facts_ready\":true"));
     }
     
     #[test]
@@ -759,12 +950,19 @@ mod tests {
                 expected_path: Some("/path/to/analysis.db".to_string()),
                 run_status: Some("stopped".to_string()),
             }),
+            compile_status: Some("interrupted".to_string()),
+            facts_ready: false,
+            facts_partial: true,
+            abandoned_reason: Some("Server crashed".to_string()),
+            last_activity_at: Some("2026-01-15T10:30:00Z".to_string()),
         };
         
         let json = serde_json::to_string(&unavailable).unwrap();
         assert!(json.contains("\"available\":false"));
         assert!(json.contains("\"reason_code\":\"MISSING_DB\""));
         assert!(json.contains("run_test456"));
+        assert!(json.contains("\"compile_status\":\"interrupted\""));
+        assert!(json.contains("\"facts_partial\":true"));
     }
     
     #[test]

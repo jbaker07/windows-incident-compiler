@@ -103,6 +103,7 @@ open = "5"
 # Platform-specific
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell"] }
+winapi = { version = "0.3", features = ["processthreadsapi", "handleapi"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"  # Ship hardening: disk free space and uid checks

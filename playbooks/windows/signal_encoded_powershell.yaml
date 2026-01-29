@@ -86,6 +86,16 @@ rules:
           process: "NewProcessName"
           cmdline: "CommandLine"
           parent: "ParentProcessName"
+    expected:
+      facts:
+        - "PowerShell with -EncodedCommand (-enc) parameter"
+        - "Base64-encoded payload (50+ characters)"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["powershell", "-enc", "-EncodedCommand", "base64"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
 
   - name: "Download Cradle Pattern"
     window: 10
@@ -101,6 +111,26 @@ rules:
           - "download_cradle"
           - "initial_access"
           - "dropper"
+    expected:
+      facts:
+        - "PowerShell download cradle pattern (IEX + DownloadString)"
+        - "Remote payload download and immediate execution"
+      variants:
+        - label: "WebClient DownloadString"
+          facts:
+            - "IEX (New-Object Net.WebClient).DownloadString('url')"
+        - label: "Invoke-WebRequest"
+          facts:
+            - "IEX (Invoke-WebRequest 'url').Content"
+        - label: "BitsTransfer"
+          facts:
+            - "Start-BitsTransfer with IEX execution"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["IEX", "Invoke-Expression", "DownloadString", "WebClient"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
 
   - name: "Multi-Stage Evasion"
     window: 10
@@ -113,6 +143,16 @@ rules:
         tags:
           - "staged_payload"
           - "fileless"
+    expected:
+      facts:
+        - "PowerShell with multiple evasion flags combined"
+        - "-NoProfile + -WindowStyle Hidden + -EncodedCommand"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["powershell", "-nop", "-hidden", "-enc"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
 
   - name: "Reflection Load (Fileless)"
     window: 10
@@ -125,6 +165,16 @@ rules:
         tags:
           - "fileless_malware"
           - "memory_only"
+    expected:
+      facts:
+        - "[Reflection.Assembly]::Load() - in-memory assembly loading"
+        - "Fileless execution bypassing disk-based detection"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["Reflection.Assembly", "Load", "System.Reflection"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log", "powershell_logging"]
 
 # Response actions
 response:

@@ -53,6 +53,26 @@ rules:
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
+    expected:
+      facts:
+        - "Archive utility execution (7z, WinRAR, WinZip)"
+        - "Potential data collection for exfiltration"
+      variants:
+        - label: "7-Zip"
+          facts:
+            - "7z.exe or 7za.exe creating archive"
+        - label: "WinRAR"
+          facts:
+            - "rar.exe or winrar.exe archive operation"
+        - label: "WinZip"
+          facts:
+            - "winzip.exe compression activity"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["7z", "7za", "rar", "winrar", "winzip", "zip"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "PowerShell Compress-Archive"
     window: 60
@@ -67,6 +87,16 @@ rules:
         tags:
           - "powershell_archive"
           - "staging"
+    expected:
+      facts:
+        - "PowerShell Compress-Archive cmdlet execution"
+        - "Native PowerShell ZIP archive creation"
+      evidence:
+        lens: "script"
+        fact_types: ["Exec", "ScriptExec"]
+        query_terms: ["powershell", "Compress-Archive", "zip"]
+        event_ids: [4688, 1, 4104]
+      visibility_requires: ["security_log"]
 
   - name: "Archive Creation in Temp"
     window: 60
@@ -79,6 +109,16 @@ rules:
         tags:
           - "temp_staging"
           - "exfiltration_prep"
+    expected:
+      facts:
+        - "Archive creation targeting temp directory"
+        - "Suspicious staging location for exfiltration"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["7z", "rar", "zip", "temp"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Archive with Password"
     window: 60
@@ -91,6 +131,16 @@ rules:
         tags:
           - "encrypted_archive"
           - "data_protection"
+    expected:
+      facts:
+        - "Password-protected archive creation (-p flag)"
+        - "Encrypted data staging for exfiltration"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["7z", "rar", "-p", "password"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"

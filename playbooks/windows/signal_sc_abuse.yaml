@@ -66,6 +66,16 @@ rules:
         tags:
           - "service_creation"
           - "persistence"
+    expected:
+      facts:
+        - "sc.exe create command with binPath - new service installation"
+        - "Service-based persistence mechanism being established"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["sc", "create", "binpath", "service"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
     evidence:
       - event_type: "process_creation"
         event_id: [4688, 1]
@@ -83,6 +93,16 @@ rules:
         tags:
           - "defense_evasion"
           - "security_disable"
+    expected:
+      facts:
+        - "sc.exe stop command targeting security service (Defender/Firewall/EventLog)"
+        - "Attempt to disable security controls before malicious activity"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["sc", "stop", "windefend", "mpssvc", "eventlog", "sense"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Service Binary Path Change"
     window: 10
@@ -97,6 +117,16 @@ rules:
         tags:
           - "service_hijack"
           - "persistence"
+    expected:
+      facts:
+        - "sc.exe config command modifying service binPath"
+        - "Service binary path hijacking for persistence or privilege escalation"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["sc", "config", "binpath", "service"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Remote Service Creation"
     window: 10
@@ -111,6 +141,16 @@ rules:
         tags:
           - "lateral_movement"
           - "remote_service"
+    expected:
+      facts:
+        - "sc.exe create on remote host (\\\\hostname pattern)"
+        - "Lateral movement via remote service creation"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["sc", "create", "remote", "\\\\"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
   - name: "Service from Suspicious Path"
     window: 10
@@ -125,6 +165,16 @@ rules:
         tags:
           - "suspicious_location"
           - "malware"
+    expected:
+      facts:
+        - "sc.exe service creation with binPath in TEMP/APPDATA/Public folder"
+        - "Malware indicator - service binary in suspicious writeable location"
+      evidence:
+        lens: "process"
+        fact_types: ["Exec"]
+        query_terms: ["sc", "binpath", "temp", "appdata", "public"]
+        event_ids: [4688, 1]
+      visibility_requires: ["security_log"]
 
 response:
   - type: "alert"
