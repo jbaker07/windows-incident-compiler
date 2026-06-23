@@ -474,7 +474,7 @@ impl LinuxSignalEngine {
         self.ssh_events.push(snap);
     }
 
-    fn handle_network(&mut self, event: &Event, now: i64, _signals: &mut Vec<SignalResult>) {
+    fn handle_network(&mut self, event: &Event, now: i64, _signals: &mut [SignalResult]) {
         let pid = event
             .fields
             .get("pid")

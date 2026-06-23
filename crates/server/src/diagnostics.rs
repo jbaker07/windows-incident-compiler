@@ -454,7 +454,7 @@ impl DiagnosticEngine {
         stream_stats: &HashMap<String, StreamStats>,
         enabled_sensors: &[String],
     ) -> Vec<StreamDiagnostic> {
-        let all_streams = vec![
+        let all_streams = [
             "process_exec",
             "process_exit",
             "file_write",

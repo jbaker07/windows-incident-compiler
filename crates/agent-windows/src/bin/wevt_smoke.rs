@@ -1,11 +1,15 @@
 //! wevt_smoke - Minimal WEVTAPI test binary
 //! Reads events from System channel and prints details
 //! Used to isolate wevt_reader crashes from capture logic
+//!
+//! The real (WEVTAPI) body only compiles on Windows; on every other target this
+//! binary builds to a small stub `main` so that `cargo build --workspace` is
+//! green on non-Windows hosts.
 
-#![cfg(target_os = "windows")]
-
+#[cfg(target_os = "windows")]
 use std::io::Write;
 
+#[cfg(target_os = "windows")]
 fn main() {
     // Install panic hook
     std::panic::set_hook(Box::new(|panic_info| {

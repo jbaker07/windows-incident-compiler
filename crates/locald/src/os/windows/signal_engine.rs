@@ -178,12 +178,7 @@ impl WindowsSignalEngine {
         signals
     }
 
-    fn handle_process_creation(
-        &mut self,
-        event: &Event,
-        now: i64,
-        _signals: &mut Vec<SignalResult>,
-    ) {
+    fn handle_process_creation(&mut self, event: &Event, now: i64, _signals: &mut [SignalResult]) {
         if let Some(_proc_key) = &event.proc_key {
             // Extract pid from fields
             let pid = event
@@ -217,12 +212,7 @@ impl WindowsSignalEngine {
         }
     }
 
-    fn handle_network_connect(
-        &mut self,
-        event: &Event,
-        now: i64,
-        _signals: &mut Vec<SignalResult>,
-    ) {
+    fn handle_network_connect(&mut self, event: &Event, now: i64, _signals: &mut [SignalResult]) {
         if let Some(_sock_key) = &event.file_key {
             let pid = event
                 .fields

@@ -3,6 +3,8 @@
 
 use std::io::Write;
 use std::path::PathBuf;
+// Only referenced inside the Windows-gated capture loop below.
+#[cfg(target_os = "windows")]
 use std::time::Duration;
 
 fn main() {
