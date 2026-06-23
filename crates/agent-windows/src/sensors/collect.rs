@@ -22,6 +22,9 @@ pub fn collect_all(host: &HostCtx) -> Vec<Event> {
 
 /// Collect EVTX events using real WEVTAPI reader
 fn collect_evtx_events(_host: &HostCtx) -> Vec<Event> {
+    // `mut` is required on Windows (the WEVTAPI block below pushes/extends);
+    // on other targets the collection stays empty, so the binding looks immutable.
+    #[allow(unused_mut)]
     let mut events = Vec::new();
 
     #[cfg(target_os = "windows")]

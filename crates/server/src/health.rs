@@ -380,6 +380,10 @@ fn get_disk_free_bytes(path: &Path) -> Option<u64> {
     unsafe {
         let mut stat: libc::statvfs = std::mem::zeroed();
         if libc::statvfs(path_cstr.as_ptr(), &mut stat) == 0 {
+            // `f_bavail`/`f_frsize` are `c_ulong`, whose width is target-dependent;
+            // the explicit `as u64` keeps this correct on 32-bit Unix targets even
+            // though it is a no-op on the 64-bit hosts clippy lints against.
+            #[allow(clippy::unnecessary_cast)]
             Some(stat.f_bavail as u64 * stat.f_frsize as u64)
         } else {
             None

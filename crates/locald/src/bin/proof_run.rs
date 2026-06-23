@@ -466,7 +466,7 @@ fn check_endpoint_unix(url: &str, endpoint: &str) -> EndpointCheck {
                 Ok(code) => EndpointCheck {
                     endpoint: endpoint.to_string(),
                     status_code: Some(code),
-                    ok: code >= 200 && code < 400,
+                    ok: (200..400).contains(&code),
                     optional: false, // Will be set by caller
                     error: None,
                 },

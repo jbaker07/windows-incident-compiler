@@ -233,17 +233,17 @@ impl WriteIsolationContext {
         self.ensure_sandbox_dir()?;
 
         let mut files = Vec::new();
-        self.collect_files_recursive(&self.sandbox_root, &mut files)?;
+        Self::collect_files_recursive(&self.sandbox_root, &mut files)?;
         Ok(files)
     }
 
-    fn collect_files_recursive(&self, dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+    fn collect_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
         if dir.is_dir() {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
                 if path.is_dir() {
-                    self.collect_files_recursive(&path, files)?;
+                    Self::collect_files_recursive(&path, files)?;
                 } else {
                     files.push(path);
                 }

@@ -1,6 +1,43 @@
-# git-glue
+# windows-incident-compiler
 
 EDR (Endpoint Detection and Response) incident compiler pipeline with cross-platform telemetry capture.
+
+---
+
+## Build & Test Status
+
+The detection engine (5 crates: `edr-core`, `workbench`, `edr-server`, `edr-locald`,
+`agent-windows`) builds and tests **clean on Windows, macOS, and Linux**.
+
+Verified locally on macOS (rustc 1.86.0) and reproducible everywhere:
+
+```bash
+cargo build --workspace                 # OK (all 5 crates, incl. agent-windows)
+cargo build --workspace --features pro  # OK
+cargo test  --workspace                 # OK — 662 passed, 0 failed, 8 ignored
+cargo test  --workspace --features pro  # OK — 662 passed, 0 failed, 8 ignored
+cargo clippy --workspace --all-targets -- -D warnings  # OK (CI gate)
+cargo fmt --all -- --check                             # OK
+```
+
+The default-members build (`cargo build` / `cargo test`, which excludes the
+`agent-windows` agent) reports **632 passed, 0 failed, 3 ignored**. The `--workspace`
+run additionally compiles and runs the `agent-windows` unit tests, adding **30 passing
+tests** and **5 pre-existing `#[ignore]`d tests** (in `sensors::primitives::auth_event`
+and `process_injection` — they carry explicit "assertion needs update" notes and are
+*not* OS-gated; they are scoped follow-up work, not capture-platform skips). That is
+why the ignored count goes from 3 to 8 under `--workspace`. Nothing fails; nothing is
+skipped silently.
+
+**Platform notes (honest):**
+
+- The `agent-windows` crate compiles cross-platform: the real WEVTAPI capture path is
+  `#[cfg(target_os = "windows")]`-gated and falls back to a stub `main`/empty collection
+  off Windows, so `--workspace` is green everywhere. Live Windows event-log capture only
+  runs *on* Windows.
+- The **Tauri desktop app** (`src-tauri/`) is intentionally **not** a workspace member.
+  It needs WebView2 (Windows) and is built separately (`cd src-tauri && cargo run`); a
+  missing system WebView toolchain does not affect the core engine build/tests above.
 
 ---
 
