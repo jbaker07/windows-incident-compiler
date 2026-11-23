@@ -3,7 +3,7 @@
 This document is a pre-release security and quality audit checklist.
 All items must pass before tagging a release.
 
-## 🔐 Security Audit
+## Security Audit
 
 ### Private Key Material
 - [x] **PASS**: `SigningKey` only appears in `license_gen.rs` (vendor-only tool)
@@ -38,7 +38,7 @@ All items must pass before tagging a release.
 - [x] **PASS**: DPAPI protection for at-rest license storage (Windows)
 - [x] **PASS**: Clock tamper detection implemented
 
-## 📦 Packaging Audit
+## Packaging Audit
 
 ### Artifact Validation
 - [x] **PASS**: Single source of truth: `packaging/allowlist.json`
@@ -56,18 +56,18 @@ All items must pass before tagging a release.
 - [x] `README.md` documentation
 - [x] `MANIFEST.txt` with SHA256 checksums
 
-## 🎨 UX Audit
+## UX Audit
 
 ### License Panel
 - [x] **PASS**: Installation ID always visible with copy button
 - [x] **PASS**: Machine binding status displayed
 - [x] **PASS**: Clear status icons for all license states:
-  - ✅ Valid
-  - 🔒 Not Installed
-  - ⏰ Expired
-  - ❌ Invalid
-  - 🔄 Wrong Installation
-  - ⚙️ Not Configured (dev)
+  - Valid
+  - Not Installed
+  - Expired
+  - Invalid
+  - Wrong Installation
+  - Not Configured (dev)
 
 ### Error States
 - [x] **PASS**: 402 responses show clear "Pro License Required" banner
@@ -78,7 +78,7 @@ All items must pass before tagging a release.
 - [x] **PASS**: Diff reports include license watermark
 - [x] **PASS**: Bundle exports include watermark metadata
 
-## 🧪 Quality Gates
+## Quality Gates
 
 ### Pre-Release Verification
 ```powershell
@@ -94,15 +94,15 @@ cargo test --workspace --release
 cargo build --release --bin edr-server --bin edr-locald --bin capture_windows_rotating
 ```
 
-## ✅ Final Sign-Off
+## Final Sign-Off
 
 | Check | Status | Date | Notes |
 |-------|--------|------|-------|
-| Security Audit | ✅ PASS | $(date) | No private key material in shipping binaries |
-| Packaging Audit | ✅ PASS | $(date) | Allowlist validation in place |
-| UX Audit | ✅ PASS | $(date) | License panel complete |
-| Quality Gates | ⏳ PENDING | | Run before final tag |
-| Tag v0.3.5 | ⏳ PENDING | | After quality gates pass |
+| Security Audit | PASS | $(date) | No private key material in shipping binaries |
+| Packaging Audit | PASS | $(date) | Allowlist validation in place |
+| UX Audit | PASS | $(date) | License panel complete |
+| Quality Gates | PENDING | | Run before final tag |
+| Tag v0.3.5 | PENDING | | After quality gates pass |
 
 ---
 

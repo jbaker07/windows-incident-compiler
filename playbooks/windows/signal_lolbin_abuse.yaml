@@ -6,6 +6,17 @@ name: "LOLBin Abuse Detection"
 description: "Detect suspicious use of Windows Living-off-the-land binaries"
 version: "1.0"
 
+mitre:
+  tactics:
+    - defense_evasion
+    - execution
+  techniques:
+    - T1218      # System Binary Proxy Execution
+    - T1218.005  # Mshta
+    - T1218.010  # Regsvr32
+    - T1218.011  # Rundll32
+    - T1059.001  # PowerShell
+
 detection:
   signal:
     type: "windows_lolbin_abuse"

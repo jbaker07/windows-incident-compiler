@@ -47,9 +47,9 @@ cargo test --workspace --release --features pro             # PASS
 
 ## Security Audit
 
-- ✅ Private key (`SigningKey`) only in `license_gen.rs` (vendor tool, not shipped)
-- ✅ Public key in `crates/core/src/license.rs` (embedded in binary)
-- ✅ Runtime gating via 402 response with install_id
+- Private key (`SigningKey`) only in `license_gen.rs` (vendor tool, not shipped)
+- Public key in `crates/core/src/license.rs` (embedded in binary)
+- Runtime gating via 402 response with install_id
 
 ## Merge Strategy
 

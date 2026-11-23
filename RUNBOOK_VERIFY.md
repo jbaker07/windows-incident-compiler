@@ -16,7 +16,7 @@
 ## Step 1: Build
 
 ```powershell
-cd "c:\Users\Jermaine B\src\windows-incident-compiler"
+cd path\to\windows-incident-compiler
 cargo build --release
 ```
 
@@ -52,7 +52,7 @@ Copy-Item "playbooks\windows\*" "$env:EDR_TELEMETRY_ROOT\playbooks\windows" -Rec
 ### Terminal 1 - Capture Agent
 ```powershell
 $env:EDR_TELEMETRY_ROOT = "C:\ProgramData\edr"
-cd "c:\Users\Jermaine B\src\windows-incident-compiler"
+cd path\to\windows-incident-compiler
 .\target\release\capture_windows_rotating.exe
 ```
 **Expected output**: `Writing to segments...` messages every ~15s
@@ -60,7 +60,7 @@ cd "c:\Users\Jermaine B\src\windows-incident-compiler"
 ### Terminal 2 - Locald (Signal Detector)
 ```powershell
 $env:EDR_TELEMETRY_ROOT = "C:\ProgramData\edr"
-cd "c:\Users\Jermaine B\src\windows-incident-compiler"
+cd path\to\windows-incident-compiler
 .\target\release\edr-locald.exe
 ```
 **Expected output**:
@@ -74,7 +74,7 @@ Watching: C:\ProgramData\edr\index.json
 ### Terminal 3 - Server (API)
 ```powershell
 $env:EDR_TELEMETRY_ROOT = "C:\ProgramData\edr"
-cd "c:\Users\Jermaine B\src\windows-incident-compiler"
+cd path\to\windows-incident-compiler
 .\target\release\edr-server.exe
 ```
 **Expected output**: `Listening on http://0.0.0.0:3000`
@@ -258,10 +258,10 @@ Copy-Item "test_e2e\*" "$env:EDR_TELEMETRY_ROOT\" -Recurse -Force
 
 | Check | Expected |
 |-------|----------|
-| `cargo build --release` | ✅ Finishes with warnings only |
-| `/api/health` | ✅ `status: ok` |
-| `/api/signals` | ✅ `data.length >= 1` |
-| `/api/signals/:id/explain` | ✅ Has `slots`, `evidence`, `counters` |
-| Evidence excerpt | ✅ Contains `ts=`, `host=`, `tags=` |
+| `cargo build --release` | Finishes with warnings only |
+| `/api/health` | `status: ok` |
+| `/api/signals` | `data.length >= 1` |
+| `/api/signals/:id/explain` | Has `slots`, `evidence`, `counters` |
+| Evidence excerpt | Contains `ts=`, `host=`, `tags=` |
 
 **DONE** when all checks pass.

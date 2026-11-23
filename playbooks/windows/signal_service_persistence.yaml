@@ -17,6 +17,13 @@ description: |
 enabled: true
 confidence_threshold: 0.75
 
+mitre:
+  tactics:
+    - persistence
+    - privilege_escalation
+  techniques:
+    - T1543.003  # Windows Service
+
 # Input signals from service_monitor
 signals:
   - tag: "windows_service"

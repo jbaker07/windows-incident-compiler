@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "EDR Desktop Application - Local workbench with embedded server"
 authors = ["EDR Team"]
 license = "MIT"
-repository = "https://github.com/jbaker07/git-glue"
+repository = "https://github.com/jbaker07/windows-incident-compiler"
 edition = "2021"
 
 # Keep this package out of the parent workspace

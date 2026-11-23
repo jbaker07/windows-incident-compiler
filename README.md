@@ -1,6 +1,7 @@
 # windows-incident-compiler
 
-EDR (Endpoint Detection and Response) incident compiler pipeline with cross-platform telemetry capture.
+EDR (Endpoint Detection and Response) incident compiler pipeline for Windows telemetry. The engine
+builds and tests on Windows, macOS and Linux. Live capture runs only on Windows.
 
 ---
 
@@ -14,8 +15,8 @@ Verified locally on macOS (rustc 1.86.0) and reproducible everywhere:
 ```bash
 cargo build --workspace                 # OK (all 5 crates, incl. agent-windows)
 cargo build --workspace --features pro  # OK
-cargo test  --workspace                 # OK — 662 passed, 0 failed, 8 ignored
-cargo test  --workspace --features pro  # OK — 662 passed, 0 failed, 8 ignored
+cargo test  --workspace                 # OK, 662 passed, 0 failed, 8 ignored
+cargo test  --workspace --features pro  # OK, 662 passed, 0 failed, 8 ignored
 cargo clippy --workspace --all-targets -- -D warnings  # OK (CI gate)
 cargo fmt --all -- --check                             # OK
 ```
@@ -24,26 +25,26 @@ The default-members build (`cargo build` / `cargo test`, which excludes the
 `agent-windows` agent) reports **632 passed, 0 failed, 3 ignored**. The `--workspace`
 run additionally compiles and runs the `agent-windows` unit tests, adding **30 passing
 tests** and **5 pre-existing `#[ignore]`d tests** (in `sensors::primitives::auth_event`
-and `process_injection` — they carry explicit "assertion needs update" notes and are
-*not* OS-gated; they are scoped follow-up work, not capture-platform skips). That is
-why the ignored count goes from 3 to 8 under `--workspace`. Nothing fails; nothing is
+and `process_injection`). Those 5 carry explicit "assertion needs update" notes and are
+*not* OS-gated. They are scoped follow-up work, not capture-platform skips. That is
+why the ignored count goes from 3 to 8 under `--workspace`. Nothing fails and nothing is
 skipped silently.
 
-**Platform notes (honest):**
+**Platform notes:**
 
 - The `agent-windows` crate compiles cross-platform: the real WEVTAPI capture path is
   `#[cfg(target_os = "windows")]`-gated and falls back to a stub `main`/empty collection
   off Windows, so `--workspace` is green everywhere. Live Windows event-log capture only
   runs *on* Windows.
 - The **Tauri desktop app** (`src-tauri/`) is intentionally **not** a workspace member.
-  It needs WebView2 (Windows) and is built separately (`cd src-tauri && cargo run`); a
+  It needs WebView2 (Windows) and is built separately (`cd src-tauri && cargo run`). A
   missing system WebView toolchain does not affect the core engine build/tests above.
 
 ---
 
-## 🖥️ Desktop App (Recommended)
+## Desktop App (Recommended)
 
-The easiest way to use EDR is via the **Tauri Desktop App** — no scripts required.
+The easiest way to use EDR is the **Tauri Desktop App**. It needs no scripts.
 
 ### Prerequisites
 
@@ -65,18 +66,19 @@ cargo run
 
 ### One-Click Workflow
 
-1. **Launch the app** — It auto-initializes directories and copies playbooks
+1. **Launch the app**: it creates the telemetry directories and copies the YAML playbooks
 2. **Select capture duration** (default: 10 minutes)
-3. **Optionally select playbooks** (empty = run all available)
-4. **Click "Start Run"** — The app:
+3. **Optionally select playbooks**: the selection is recorded with the run. `edr-locald`
+   does not read it and runs all 21 compiled playbooks (see Playbook Coverage).
+4. **Click "Start Run"**: the app
    - Starts capture, locald, and server processes
    - Monitors telemetry ingestion
    - Auto-stops after the time window
    - Writes metrics artifact to `%LOCALAPPDATA%\windows-incident-compiler\telemetry\metrics\`
-5. **View Detections** — Signals appear in the UI with Explain/Narrative buttons
-6. **Generate Activity** — Click 🧪 to trigger safe test commands for playbook matches
-7. **E2E Check** — Click 🔍 to validate the full pipeline (health, signals, explain)
-8. **View Metrics** — 📊 shows run statistics and telemetry counts
+5. **View Detections**: signals appear in the UI with Explain/Narrative buttons
+6. **Generate Activity**: click **Scenarios** to run safe test commands that trigger playbook matches
+7. **E2E Check**: the E2E Self Check dialog validates the full pipeline (health, signals, explain)
+8. **View Metrics**: click **Metrics** for run statistics and telemetry counts
 
 ### Desktop App Features
 
@@ -84,7 +86,7 @@ cargo run
 |---------|-------------|
 | **Start/Stop Run** | One-click process lifecycle management |
 | **Time Window** | 2-60 minute capture durations |
-| **Playbook Selection** | Multi-select or run all |
+| **Playbook Selection** | Multi-select YAML playbooks (recorded with the run, not applied by `edr-locald`) |
 | **Live Status** | Segments, signals, remaining time |
 | **Admin Detection** | Shows banner in limited mode |
 | **Crash Detection** | Surfaces last error from crashed process |
@@ -109,9 +111,9 @@ cargo run
 
 ---
 
-## 📜 CLI / Scripts (Dev/CI Only)
+## CLI / Scripts (Dev/CI Only)
 
-The following scripts are for **development and CI** — normal users should use the desktop app.
+The following scripts are for **development and CI**. Normal users should use the desktop app.
 
 ### Quick Start (CLI)
 
@@ -277,30 +279,46 @@ View in UI: Open Run Metrics panel, click "Refresh" or "Load File"
 ### Verification Constraints
 
 All evaluations enforce:
-- ✅ **No fake detections** - All signals from real telemetry
-- ✅ **Explanations valid** - Every signal has evidence pointers
-- ✅ **Telemetry flowing** - Events captured from channels
-- ✅ **Detections fired** - Playbooks matched real events
+- **No fake detections**: all signals come from real telemetry
+- **Explanations valid**: every signal has evidence pointers
+- **Telemetry flowing**: events are captured from channels
+- **Detections fired**: playbooks matched real events
 
 ## Playbook Coverage
 
-21 detection playbooks covering:
+`playbooks/windows/` holds 30 YAML detection playbooks. Each one has a `mitre:` block that
+lists its ATT&CK tactics and technique IDs, 56 distinct technique IDs across the set. The IDs
+and tactic names follow ATT&CK v18. ATT&CK v19 split Defense Evasion into Stealth and Defense
+Impairment and moved some of these techniques to new IDs, for example T1070.001 is now T1685.005.
 
-| Category | Count | Examples |
-|----------|-------|----------|
-| Execution | 4 | PowerShell download, Office child process |
-| Credential Access | 2 | LSASS access, ProcDump |
-| Persistence | 5 | Service install, scheduled task, WMI |
-| Defense Evasion | 4 | Log clear, Defender disable |
-| Lateral Movement | 3 | RDP, admin share, WinRM |
-| Discovery | 2 | Network enum, domain enum |
-| Collection | 1 | Archive staging |
+The Primary column counts each playbook once, by the first tactic it lists, so it sums to 30.
+The Listed column counts every playbook that lists the tactic anywhere.
 
-See [docs/playbooks_windows_coverage.md](docs/playbooks_windows_coverage.md) for full details.
+| Tactic | Primary | Listed | Examples |
+|--------|---------|--------|----------|
+| Initial Access | 0 | 2 | Office child process, logon anomaly |
+| Execution | 4 | 13 | Encoded PowerShell, Office child process, WMIC abuse |
+| Persistence | 7 | 10 | Service, scheduled task and registry persistence |
+| Privilege Escalation | 0 | 8 | Process injection, group membership change |
+| Defense Evasion | 11 | 17 | Log clearing, security tool disable, rundll32 and regsvr32 proxy execution |
+| Credential Access | 2 | 2 | LSASS, SAM and NTDS access, brute force logons |
+| Discovery | 2 | 3 | Discovery command burst, net command abuse |
+| Lateral Movement | 1 | 3 | RDP, admin shares, PsExec and WMI remote execution |
+| Collection | 1 | 1 | File staging |
+| Command and Control | 2 | 3 | BITSAdmin, certutil and PowerShell downloads |
+| Exfiltration | 0 | 1 | File staging |
+
+The running engine uses a separate set. `edr-locald` registers 21 compiled playbooks from
+`crates/locald/src/os/windows/playbooks.rs` at startup and matches facts against those. The
+YAML files are copied into the telemetry root and listed in the desktop app, but no code in
+this repository parses them into the detection engine.
+
+See [docs/playbooks_windows_coverage.md](docs/playbooks_windows_coverage.md) for the
+per-playbook mapping of both sets.
 
 ---
 
-## 📦 Evidence Import
+## Evidence Import
 
 Import evidence bundles from external tools for correlation and analysis.
 
@@ -323,13 +341,13 @@ Import evidence bundles from external tools for correlation and analysis.
 | | PowerShell Transcript | `plaintext` | powershell_command |
 | | Gobuster Output | `plaintext` | directory_found |
 | | ffuf Output | `plaintext` | fuzz_result |
-| **Artifacts** | PCAP | (stored) | Not parsed—use Zeek logs for detection |
+| **Artifacts** | PCAP | (stored) | Not parsed. Use Zeek logs for detection |
 | | Generic JSONL | `jsonl` | Passthrough with entity extraction |
 
 ### How to Import
 
 1. **Desktop App**: Drag & drop folder or ZIP into Import tab
-2. **Dev CLI** (Windows): `cargo run --bin import_bundle -- --input <path>`
+2. **Dev CLI** (Windows): `cd src-tauri && cargo run --bin import_bundle -- --input <path>`
 
 ### Import Workflow
 
@@ -342,7 +360,7 @@ Evidence Folder/ZIP
        ↓
    Adapter Parsing → ImportEvents
        ↓
-   Import Playbooks → Signals
+   Import Playbooks → Signals   (defined, not evaluated, see below)
        ↓
    Timeline + Entities + Evidence Pointers
 ```
@@ -358,6 +376,9 @@ Evidence Folder/ZIP
 | `atomic_technique_coverage` | Atomic RT tests | Detection gap analysis |
 | `windows_security_events` | EVTX logons/processes | Windows security signals |
 | `endpoint_inventory` | osquery/Velociraptor | Asset inventory |
+
+These definitions are YAML files in `playbooks/import/`. No code in this repository evaluates
+them. The importer and `import_bundle` stop at ImportEvents and the bundle manifest.
 
 ### HTB/TryHackMe Session Import
 
@@ -376,21 +397,24 @@ The importer auto-detects file types and correlates findings.
 
 ### Safety Guarantees
 
-- ✅ **No execution**: Imported files are NEVER executed
-- ✅ **No fake signals**: All signals require real evidence
-- ✅ **Size limits**: 2GB total, 50K files, 16 depth max
-- ✅ **Extension block**: .exe, .dll, .ps1, etc. blocked from parsing
-- ✅ **Evidence grounded**: Every signal points to source artifacts
+- **No execution**: Imported files are NEVER executed
+- **No fake signals**: All signals require real evidence
+- **Size limits**: 2GB total, 50K files, 16 depth max
+- **Extension block**: .exe, .dll, .ps1, etc. blocked from parsing
+- **Evidence grounded**: Every signal points to source artifacts
 
 ---
 
-## Quick Start (Cross-Platform)
+## Quick Start (Build From Source)
 
 ### Prerequisites
 - Rust toolchain (`rustup`)
-- macOS: Xcode Command Line Tools
-- Linux: `build-essential`, `pkg-config`, `libssl-dev`, kernel headers (for eBPF)
 - Windows: Visual Studio Build Tools with C++ workload
+- macOS: Xcode Command Line Tools
+- Linux: `build-essential`, `pkg-config`, `libssl-dev`
+
+macOS and Linux can build and test the engine. This repository has no macOS or Linux
+capture agent, so the stack runs on Windows.
 
 ### Build
 
@@ -398,31 +422,21 @@ The importer auto-detects file types and correlates findings.
 cargo build --release --bins
 ```
 
-### Run Stack
+### Run Stack (Windows)
 
-**macOS** (requires sudo for capture):
-```bash
-./scripts/run_stack_macos.sh
-```
-
-**Linux** (requires sudo for eBPF):
-```bash
-./scripts/run_stack_linux.sh
-```
-
-**Windows** (PowerShell, may need admin for capture):
+PowerShell, may need admin for capture:
 ```powershell
 .\scripts\run_stack_windows.ps1
 ```
 
-### Verify
+### Verify (Windows)
 
-```bash
-# macOS/Linux
-./scripts/smoke_stack.sh
-
-# Windows (Admin PowerShell - recommended)
+```powershell
+# Full verification (Admin PowerShell recommended)
 .\scripts\run_stack_windows.ps1 -Verify
+
+# Endpoint smoke check against a running stack
+.\scripts\smoke_stack.ps1
 ```
 
 ### UI
@@ -448,20 +462,20 @@ capture_windows_rotating → segments/*.jsonl → edr-locald → signals → edr
 
 | Component | Description |
 |-----------|-------------|
-| `capture_windows_rotating` | Windows ETW telemetry capture |
+| `capture_windows_rotating` | Windows Event Log capture through WEVTAPI into rotating JSONL segments |
 | `edr-locald` | Incident compiler (fact extraction, playbook matching) |
 | `edr-server` | HTTP API + UI server (port 3000) |
 | `eval_windows.ps1` | E2E evaluation harness |
 
 ## Documentation
 
-- [docs/playbooks_windows_coverage.md](docs/playbooks_windows_coverage.md) - Playbook → MITRE mapping
-- [docs/facts_windows.md](docs/facts_windows.md) - Event ID → Fact type mapping
-- [docs/ui_workflow.md](docs/ui_workflow.md) - UI usage guide
-- [docs/VM_BRINGUP.md](docs/VM_BRINGUP.md) - VM deployment guide
-- [docs/PUSH_CHECKLIST.md](docs/PUSH_CHECKLIST.md) - Pre-push verification
-- [BASELINE_SYSTEM_DESIGN.md](BASELINE_SYSTEM_DESIGN.md) - System architecture
+- [docs/playbooks_windows_coverage.md](docs/playbooks_windows_coverage.md): playbook to ATT&CK mapping
+- [docs/facts_windows.md](docs/facts_windows.md): event ID to fact type mapping
+- [docs/ui_workflow.md](docs/ui_workflow.md): UI usage guide
+- [docs/DESKTOP_ARCHITECTURE.md](docs/DESKTOP_ARCHITECTURE.md): desktop app architecture
+- [docs/IMPORT_ARCHITECTURE.md](docs/IMPORT_ARCHITECTURE.md): evidence import architecture
+- [docs/LICENSING.md](docs/LICENSING.md): Pro licensing
 
 ## License
 
-MIT - see [LICENSE](LICENSE)
+MIT. See [LICENSE](LICENSE).

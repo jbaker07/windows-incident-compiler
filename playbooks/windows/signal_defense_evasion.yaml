@@ -6,6 +6,15 @@ name: "Defense Evasion Detection (Windows)"
 description: "Detect attempts to disable or evade security controls"
 version: "1.0"
 
+mitre:
+  tactics:
+    - defense_evasion
+  techniques:
+    - T1070.001  # Clear Windows Event Logs
+    - T1562      # Impair Defenses
+    - T1562.001  # Disable or Modify Tools
+    - T1112      # Modify Registry
+
 detection:
   signals:
     - type: "windows_log_clear"

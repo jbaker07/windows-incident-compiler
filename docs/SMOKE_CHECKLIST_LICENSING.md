@@ -89,13 +89,13 @@ Invoke-RestMethod http://localhost:3000/api/diff?left=run_1&right=run_2
 3. Try to compare two runs
 
 **Expected**: 
-- 🔒 Pro License Required banner
+- Pro License Required banner
 - Shows install_id
 - "Go to License Panel →" button
 
 ### 2.4 License Tab Shows Install ID
 
-1. Click **🔑 License** tab
+1. Click **License** tab
 
 **Expected**:
 - Status: "No License Installed"
@@ -119,7 +119,7 @@ Import in UI:
 2. Click Import
 
 **Expected**:
-- Status changes to "✅ License Valid"
+- Status changes to "License Valid"
 - Entitlements show "Diff Mode ✓"
 - Customer name displayed
 
@@ -149,7 +149,7 @@ Invoke-RestMethod http://localhost:3000/api/diff?left=run_1&right=run_2
 3. Save and reload: `POST /api/license/reload`
 
 **Expected**:
-- Status: "❌ Invalid License"
+- Status: "Invalid License"
 - `/api/diff` returns 402 again
 
 ### 2.8 Binary Does Not Include license_gen

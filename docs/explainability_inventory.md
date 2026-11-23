@@ -8,12 +8,12 @@
 
 | Component | Exists? | File/Type | What it Contains | Gaps |
 |-----------|---------|-----------|------------------|------|
-| **Evidence Pointers** | ✅ Partial | `crates/core/src/evidence_ptr.rs`, `locald/hypothesis/canonical_fact.rs` | `EvidencePtr { stream_id, segment_id, record_index }` + optional SHA256/timestamp | ❌ No deref API to fetch raw records; two incompatible struct versions (u64 vs String segment_id) |
-| **Slot Fill Traces** | ✅ Partial | `locald/hypothesis/hypothesis_state.rs`, `crates/locald/src/slot_matcher.rs` | `SlotFill { slot_id, satisfied, strength, evidence_ptrs, fact_refs, count }` | ❌ No predicate match trace (why a fact matched); ordering constraint violations not surfaced |
-| **Hypothesis Lifecycle** | ✅ Good | `locald/hypothesis/hypothesis_state.rs`, `locald/hypothesis/promotion.rs` | `HypothesisState`, `HypothesisStatus { Hypothesis, Promoted, Absorbed, Expired, Suppressed }`, TTL/cooldown | ❌ No audit trail of state transitions; absorption reason not captured |
-| **Signal/Incident Model** | ✅ Partial | `crates/core/src/signal_result.rs`, `locald/hypothesis/incident.rs` | `SignalResult`, `Incident` with `promoted_from_hypothesis_ids`, `evidence_ptrs_summary` | ❌ Two different SignalResult structs; `explanation_bundle_ref` exists but bundles not implemented |
-| **Explain Endpoint** | ✅ Exists | `locald/hypothesis/explanation.rs`, `crates/server/src/main.rs` | `GET /api/incidents/:id/explain` returns `ExplanationResponse` | ❌ Response mostly unpopulated; no signal-level explain endpoint |
-| **UI Explain View** | ✅ Basic | `ui/workbench.html` | Renders top3 hypotheses, claims, evidence list | ❌ No interactive slot exploration; evidence pointers not dereferenceable |
+| **Evidence Pointers** | Partial | `crates/core/src/evidence_ptr.rs`, `locald/hypothesis/canonical_fact.rs` | `EvidencePtr { stream_id, segment_id, record_index }` + optional SHA256/timestamp | No deref API to fetch raw records; two incompatible struct versions (u64 vs String segment_id) |
+| **Slot Fill Traces** | Partial | `locald/hypothesis/hypothesis_state.rs`, `crates/locald/src/slot_matcher.rs` | `SlotFill { slot_id, satisfied, strength, evidence_ptrs, fact_refs, count }` | No predicate match trace (why a fact matched); ordering constraint violations not surfaced |
+| **Hypothesis Lifecycle** | Good | `locald/hypothesis/hypothesis_state.rs`, `locald/hypothesis/promotion.rs` | `HypothesisState`, `HypothesisStatus { Hypothesis, Promoted, Absorbed, Expired, Suppressed }`, TTL/cooldown | No audit trail of state transitions; absorption reason not captured |
+| **Signal/Incident Model** | Partial | `crates/core/src/signal_result.rs`, `locald/hypothesis/incident.rs` | `SignalResult`, `Incident` with `promoted_from_hypothesis_ids`, `evidence_ptrs_summary` | Two different SignalResult structs; `explanation_bundle_ref` exists but bundles not implemented |
+| **Explain Endpoint** | Exists | `locald/hypothesis/explanation.rs`, `crates/server/src/main.rs` | `GET /api/incidents/:id/explain` returns `ExplanationResponse` | Response mostly unpopulated; no signal-level explain endpoint |
+| **UI Explain View** | Basic | `ui/workbench.html` | Renders top3 hypotheses, claims, evidence list | No interactive slot exploration; evidence pointers not dereferenceable |
 
 ---
 
@@ -48,10 +48,10 @@ pub struct EvidencePtr {
 ```
 
 ### Gaps
-- ❌ **Critical**: Two incompatible `EvidencePtr` types with different field types
-- ❌ No deref endpoint to fetch raw record from segment file
-- ❌ SHA256 integrity field rarely populated
-- ❌ `dropped_evidence_count` tracked but dropped pointers not recoverable
+- **Critical**: Two incompatible `EvidencePtr` types with different field types
+- No deref endpoint to fetch raw record from segment file
+- SHA256 integrity field rarely populated
+- `dropped_evidence_count` tracked but dropped pointers not recoverable
 
 ---
 
@@ -90,10 +90,10 @@ pub struct SlotPredicate {
 ```
 
 ### Gaps
-- ❌ No predicate evaluation trace (why a fact matched/didn't match)
-- ❌ Regex match groups not captured
-- ❌ No "near miss" tracking for almost-matched slots
-- ❌ Ordering constraint violations not surfaced in SlotFill
+- No predicate evaluation trace (why a fact matched/didn't match)
+- Regex match groups not captured
+- No "near miss" tracking for almost-matched slots
+- Ordering constraint violations not surfaced in SlotFill
 
 ---
 
@@ -137,10 +137,10 @@ pub enum PromotionReason {
 ```
 
 ### Gaps
-- ❌ No audit trail of state transitions over time
-- ❌ Missing explicit `expired_at`, `suppressed_at` timestamps
-- ❌ Absorption reason not captured
-- ❌ Cooldown state not directly queryable from API
+- No audit trail of state transitions over time
+- Missing explicit `expired_at`, `suppressed_at` timestamps
+- Absorption reason not captured
+- Cooldown state not directly queryable from API
 
 ---
 
@@ -183,10 +183,10 @@ pub struct Incident {
 ```
 
 ### Gaps
-- ❌ **Critical**: Two different `SignalResult` structs need unification
-- ❌ `explanation_bundle_ref` field exists but bundles never created
-- ❌ `playbook_id` only in metadata, not first-class field
-- ❌ MITRE techniques field exists but rarely populated
+- **Critical**: Two different `SignalResult` structs need unification
+- `explanation_bundle_ref` field exists but bundles never created
+- `playbook_id` only in metadata, not first-class field
+- MITRE techniques field exists but rarely populated
 
 ---
 
@@ -195,9 +195,9 @@ pub struct Incident {
 ### Existing Endpoints
 | Endpoint | Method | Status |
 |----------|--------|--------|
-| `GET /api/incidents/:id/explain` | GET | ✅ Exists, partial response |
-| `GET /api/alerts/:id/explain` | GET | ⚠️ Legacy, may not work |
-| `GET /api/signals/:id/explain` | GET | ❌ **Missing** |
+| `GET /api/incidents/:id/explain` | GET | Exists, partial response |
+| `GET /api/alerts/:id/explain` | GET | Legacy, may not work |
+| `GET /api/signals/:id/explain` | GET | **Missing** |
 
 ### ExplanationResponse Structure
 ```rust
@@ -222,11 +222,11 @@ The UI renders:
 - Visibility state indicators
 
 ### Gaps
-- ❌ No `GET /api/signals/:id/explain` endpoint
-- ❌ Response fields mostly unpopulated in practice
-- ❌ Evidence pointers shown but cannot be dereferenced to raw data
-- ❌ No interactive slot fill exploration
-- ❌ `confidence_severity_breakdown` not computed
+- No `GET /api/signals/:id/explain` endpoint
+- Response fields mostly unpopulated in practice
+- Evidence pointers shown but cannot be dereferenced to raw data
+- No interactive slot fill exploration
+- `confidence_severity_breakdown` not computed
 
 ---
 

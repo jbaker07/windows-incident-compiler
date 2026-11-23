@@ -46,10 +46,10 @@ Displays:
 - Detection counts: signals, explained, playbooks hit, false positives
 - Telemetry stats: events, segments, channels, EPS
 - Pass/Fail verdicts:
-  - ✅ Telemetry flowing
-  - ✅ Detections fired
-  - ✅ Explanations valid
-  - ✅ No fake detections
+  - Telemetry flowing
+  - Detections fired
+  - Explanations valid
+  - No fake detections
 
 ### Pivot & Search Panel
 
@@ -108,7 +108,7 @@ Manage telemetry capture:
 
 3. Click "Refresh" or "Load File" to view results
 
-4. Check all verdicts are ✅
+4. Check all verdicts pass
 
 ### Investigating an Incident
 
@@ -142,9 +142,9 @@ Manage telemetry capture:
 
 | Badge | Meaning |
 |-------|---------|
-| 🟢 `live` | Real-time telemetry active |
-| 🟡 `verification` | Synthetic test data loaded |
-| 🔴 `degraded` | Visibility issues detected |
+| `live` (green) | Real-time telemetry active |
+| `verification` (yellow) | Synthetic test data loaded |
+| `degraded` (red) | Visibility issues detected |
 
 ## Troubleshooting
 

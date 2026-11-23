@@ -17,6 +17,14 @@ description: |
 enabled: true
 confidence_threshold: 0.7
 
+mitre:
+  tactics:
+    - persistence
+    - execution
+    - privilege_escalation
+  techniques:
+    - T1053.005  # Scheduled Task
+
 # Input signals from task_scheduler_monitor
 signals:
   - tag: "windows_scheduler"

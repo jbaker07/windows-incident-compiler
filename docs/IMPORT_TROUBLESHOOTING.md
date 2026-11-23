@@ -8,7 +8,7 @@ When imports fail silently or produce unexpected results, check these common fai
 
 ---
 
-## 🔴 Failure Mode 1: FileKind Misclassification
+## Failure Mode 1: FileKind Misclassification
 
 **Symptom**: File shows `parsed: false` or wrong adapter used
 
@@ -57,7 +57,7 @@ Get-Content imports/*/manifest.json | ConvertFrom-Json |
 
 ---
 
-## 🟠 Failure Mode 2: Entity Key Mismatch
+## Failure Mode 2: Entity Key Mismatch
 
 **Symptom**: Events exist but playbooks don't correlate them (no signals from related events)
 
@@ -103,7 +103,7 @@ Get-Content imports/*/events.json | ConvertFrom-Json |
 
 ---
 
-## 🟡 Failure Mode 3: Event Type Mapping Drift
+## Failure Mode 3: Event Type Mapping Drift
 
 **Symptom**: Events parse successfully but playbooks don't trigger
 
@@ -154,7 +154,7 @@ Get-ChildItem playbooks/import/*.yaml | ForEach-Object {
 
 ---
 
-## 🟢 Failure Mode 4: Playbook Slot Predicate Mismatch
+## Failure Mode 4: Playbook Slot Predicate Mismatch
 
 **Symptom**: Events match type but signal doesn't fire or has empty fields
 
@@ -203,7 +203,7 @@ Get-Content playbooks/import/yara_malware_detection.yaml |
 
 ---
 
-## 🔵 Failure Mode 5: Adapter Parse Errors
+## Failure Mode 5: Adapter Parse Errors
 
 **Symptom**: `warnings` array in manifest has entries, `events_extracted: 0`
 
@@ -239,7 +239,7 @@ Get-Content imports/*/manifest.json | ConvertFrom-Json |
 
 ---
 
-## 🟣 Failure Mode 6: Import Limits Exceeded
+## Failure Mode 6: Import Limits Exceeded
 
 **Symptom**: Partial import, truncated events, or rejection
 

@@ -1,5 +1,5 @@
 ---
-# playbooks/windows/signal_log_tampering.yaml
+# playbooks/windows/signal_log_tamper_detection.yaml
 # Detection of log tampering and evasion attempts
 # Monitors Security event log (1102, 104) and process creation (4688)
 
@@ -19,6 +19,12 @@ description: |
 enabled: true
 confidence_threshold: 0.9
 severity_floor: HIGH  # Always HIGH or CRITICAL
+
+mitre:
+  tactics:
+    - defense_evasion
+  techniques:
+    - T1070.001  # Clear Windows Event Logs
 
 # Input signals from log_tamper_monitor
 signals:
@@ -144,7 +150,7 @@ remediation:
 critical_actions:
   - "Log tampering indicates active exploitation or post-compromise cleanup"
   - "Attacker likely still on system or has recently left"
-  - "Logs may be unrecoverable - rely on alternative telemetry:"
+  - "Logs may be unrecoverable - rely on alternative telemetry":
     - "PowerShell event log (Event ID 4104 - script block)"
     - "Sysmon logs (if enabled)"
     - "Network traffic analysis"
