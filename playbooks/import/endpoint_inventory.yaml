@@ -65,32 +65,32 @@ signal_template:
     summary: >
       Endpoint inventory collected for {{hostname}}:
       
-      📊 **Overview**
+      **Overview**
       - Processes: {{unique_processes}} unique ({{process_count}} total entries)
       - Users: {{user_count}} ({{admin_users_count}} administrators)
       - Listening ports: {{listener_count}}
       - Services: {{service_count}}
       
       {% if admin_users_count > 0 %}
-      👤 **Administrators**: {{admin_users | join: ', '}}
+      **Administrators**: {{admin_users | join: ', '}}
       {% endif %}
       
-      🔌 **Listening Ports**: {{listening_ports | first: 15 | join: ', '}}
+      **Listening Ports**: {{listening_ports | first: 15 | join: ', '}}
       {% if high_port_listeners | size > 0 %}
-      ⚠️ High ports listening: {{high_port_listeners | join: ', '}}
+      Warning: high ports listening: {{high_port_listeners | join: ', '}}
       {% endif %}
       
       {% if has_privileged_process %}
-      ⚠️ **SECURITY ALERT**: Suspicious tools detected: {{suspicious_processes | join: ', '}}
+      **SECURITY ALERT**: Suspicious tools detected: {{suspicious_processes | join: ', '}}
       {% endif %}
       
     recommendations:
       - "Review high-port listeners for unauthorized services"
       - "Validate administrator account list"
       - "Check for unauthorized remote access tools"
-      {% if has_privileged_process %}
+    # Added to the list above when has_privileged_process is true
+    recommendations_if_privileged_process:
       - "URGENT: Investigate suspicious tool presence"
-      {% endif %}
       
     evidence_refs:
       - "Collection data: {{events | first | get: 'evidence_ptr'}}"

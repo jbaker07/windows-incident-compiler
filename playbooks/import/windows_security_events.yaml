@@ -109,20 +109,20 @@ signal_template:
       
       {% endif %}
       
-    recommendations:
-      {% if matched_group == 'failed_logons' %}
-      - "Block source IP: {{src_ip}}"
-      - "Review account {{target_user}} for compromise indicators"
-      - "Enable account lockout if not configured"
-      {% elsif matched_group == 'suspicious_process' %}
-      - "Investigate process execution on {{hostname}}"
-      - "Check for persistence mechanisms"
-      - "Review parent-child process relationships"
-      {% elsif matched_group == 'encoded_powershell' %}
-      - "Decode and analyze script content"
-      - "Check for download/execute patterns"
-      - "Review PowerShell logging configuration"
-      {% endif %}
+    # Recommendations for the correlation group that matched (matched_group)
+    recommendations_by_group:
+      failed_logons:
+        - "Block source IP: {{src_ip}}"
+        - "Review account {{target_user}} for compromise indicators"
+        - "Enable account lockout if not configured"
+      suspicious_process:
+        - "Investigate process execution on {{hostname}}"
+        - "Check for persistence mechanisms"
+        - "Review parent-child process relationships"
+      encoded_powershell:
+        - "Decode and analyze script content"
+        - "Check for download/execute patterns"
+        - "Review PowerShell logging configuration"
       
     evidence_refs:
       - "Events from: {{events | map: 'source_file' | unique | join: ', '}}"
