@@ -185,6 +185,30 @@ pub fn detect_process_injection_from_exec(base_event: &Event) -> Option<Event> {
         }
     }
 
+    // PowerShell calling Win32 APIs is reported as such, before the generic
+    // API name patterns below would label it with the API it calls.
+    if matched_tool.is_none()
+        && (image_lower.contains("powershell") || image_lower.contains("pwsh"))
+    {
+        let ps_injection_patterns = [
+            "[System.Runtime.InteropServices.Marshal]",
+            "GetDelegateForFunctionPointer",
+            "VirtualProtect",
+            "CreateThread",
+            "[DllImport",
+            "Add-Type -TypeDefinition",
+            "Invoke-ReflectivePEInjection",
+            "Invoke-Shellcode",
+        ];
+
+        for pattern in &ps_injection_patterns {
+            if cmd_line.contains(&pattern.to_lowercase()) {
+                matched_tool = Some("powershell_reflection");
+                break;
+            }
+        }
+    }
+
     // Check for specific injection patterns in command line
     if matched_tool.is_none() {
         let injection_cmdline_patterns = [
@@ -204,27 +228,6 @@ pub fn detect_process_injection_from_exec(base_event: &Event) -> Option<Event> {
         for pattern in &injection_cmdline_patterns {
             if cmd_line.contains(pattern) {
                 matched_tool = Some(*pattern);
-                break;
-            }
-        }
-    }
-
-    // Check for PowerShell reflection/injection
-    if matched_tool.is_none() && image_lower.contains("powershell") {
-        let ps_injection_patterns = [
-            "[System.Runtime.InteropServices.Marshal]",
-            "GetDelegateForFunctionPointer",
-            "VirtualProtect",
-            "CreateThread",
-            "[DllImport",
-            "Add-Type -TypeDefinition",
-            "Invoke-ReflectivePEInjection",
-            "Invoke-Shellcode",
-        ];
-
-        for pattern in &ps_injection_patterns {
-            if cmd_line.contains(&pattern.to_lowercase()) {
-                matched_tool = Some("powershell_reflection");
                 break;
             }
         }
@@ -405,7 +408,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Test assertion needs update - detection returns virtualalloc not powershell_reflection"]
     fn test_detect_powershell_reflection() {
         let event = make_base_event(
             vec!["sysmon_process", "exec"],

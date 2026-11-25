@@ -201,7 +201,8 @@ pub fn detect_auth_event_from_exec(base_event: &Event) -> Option<Event> {
         .and_then(|v| v.as_str())?;
 
     let image_lower = image.to_lowercase();
-    let image_base = std::path::Path::new(&image_lower).file_name()?.to_str()?;
+    // Windows paths, split on both separators so this also works off Windows
+    let image_base = image_lower.rsplit(['\\', '/']).next()?;
 
     let cmd_line = base_event
         .fields
@@ -236,13 +237,9 @@ pub fn detect_auth_event_from_exec(base_event: &Event) -> Option<Event> {
                 return None;
             }
         }
-        "wmic.exe" => {
-            if cmd_line.contains("/user:") {
-                let target = extract_wmic_user(&cmd_line);
-                ("wmic", target)
-            } else {
-                return None;
-            }
+        "wmic.exe" if cmd_line.contains("/user:") => {
+            let target = extract_wmic_user(&cmd_line);
+            ("wmic", target)
         }
         _ => return None,
     };
@@ -331,17 +328,18 @@ fn logon_type_name(lt: u32) -> &'static str {
 
 /// Convert failure status to reason
 fn failure_status_to_reason(status: &str) -> &'static str {
-    match status {
-        "0xC000006D" => "bad_username_or_password",
-        "0xC000006E" => "account_restriction",
-        "0xC000006F" => "invalid_logon_hours",
-        "0xC0000070" => "invalid_workstation",
-        "0xC0000071" => "password_expired",
-        "0xC0000072" => "account_disabled",
-        "0xC00000DC" => "invalid_server_state",
-        "0xC0000133" => "clocks_out_of_sync",
-        "0xC0000224" => "password_must_change",
-        "0xC0000234" => "account_locked",
+    // Windows writes the status in lowercase hex (0xc000006d)
+    match status.to_ascii_lowercase().as_str() {
+        "0xc000006d" => "bad_username_or_password",
+        "0xc000006e" => "account_restriction",
+        "0xc000006f" => "invalid_logon_hours",
+        "0xc0000070" => "invalid_workstation",
+        "0xc0000071" => "password_expired",
+        "0xc0000072" => "account_disabled",
+        "0xc00000dc" => "invalid_server_state",
+        "0xc0000133" => "clocks_out_of_sync",
+        "0xc0000224" => "password_must_change",
+        "0xc0000234" => "account_locked",
         _ => "unknown",
     }
 }
@@ -412,7 +410,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Test expects fields not yet populated by detect_auth_event"]
     fn test_detect_logon_success() {
         let event = make_base_event(
             vec!["security"],
@@ -429,14 +426,16 @@ mod tests {
         assert!(result.is_some());
         let e = result.unwrap();
         assert!(e.tags.contains(&"auth_event".to_string()));
-        assert_eq!(e.fields.get("auth_user").unwrap(), "CORP\\admin");
-        assert_eq!(e.fields.get("auth_method").unwrap(), "rdp");
-        assert_eq!(e.fields.get("auth_result").unwrap(), "success");
-        assert_eq!(e.fields.get("auth_src_ip").unwrap(), "192.168.1.100");
+        assert_eq!(e.fields.get(event_keys::AUTH_USER).unwrap(), "CORP\\admin");
+        assert_eq!(e.fields.get(event_keys::AUTH_METHOD).unwrap(), "rdp");
+        assert_eq!(e.fields.get(event_keys::AUTH_RESULT).unwrap(), "success");
+        assert_eq!(
+            e.fields.get(event_keys::AUTH_SRC_IP).unwrap(),
+            "192.168.1.100"
+        );
     }
 
     #[test]
-    #[ignore = "Test expects fields not yet populated by detect_auth_event"]
     fn test_detect_logon_failed() {
         let event = make_base_event(
             vec!["security"],
@@ -446,14 +445,14 @@ mod tests {
                 ("TargetDomainName", json!("CORP")),
                 ("IpAddress", json!("10.0.0.50")),
                 ("LogonType", json!(3)),
-                ("Status", json!("0xC000006D")),
+                ("Status", json!("0xc000006d")),
             ],
         );
 
         let result = detect_auth_event(&event);
         assert!(result.is_some());
         let e = result.unwrap();
-        assert_eq!(e.fields.get("auth_result").unwrap(), "failure");
+        assert_eq!(e.fields.get(event_keys::AUTH_RESULT).unwrap(), "failure");
         assert_eq!(
             e.fields.get("failure_reason").unwrap(),
             "bad_username_or_password"
@@ -461,7 +460,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Test expects fields not yet populated by detect_auth_event"]
     fn test_detect_runas() {
         let event = make_base_event(
             vec!["sysmon_process", "exec"],
@@ -479,12 +477,11 @@ mod tests {
         let result = detect_auth_event_from_exec(&event);
         assert!(result.is_some());
         let e = result.unwrap();
-        assert_eq!(e.fields.get("auth_method").unwrap(), "runas");
-        assert_eq!(e.fields.get("auth_user").unwrap(), "admin");
+        assert_eq!(e.fields.get(event_keys::AUTH_METHOD).unwrap(), "runas");
+        assert_eq!(e.fields.get(event_keys::AUTH_USER).unwrap(), "admin");
     }
 
     #[test]
-    #[ignore = "Test expects fields not yet populated by detect_auth_event"]
     fn test_detect_psexec() {
         let event = make_base_event(
             vec!["sysmon_process", "exec"],
@@ -502,7 +499,7 @@ mod tests {
         let result = detect_auth_event_from_exec(&event);
         assert!(result.is_some());
         let e = result.unwrap();
-        assert_eq!(e.fields.get("auth_method").unwrap(), "psexec");
+        assert_eq!(e.fields.get(event_keys::AUTH_METHOD).unwrap(), "psexec");
     }
 
     #[test]
