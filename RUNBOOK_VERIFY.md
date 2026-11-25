@@ -55,7 +55,10 @@ $env:EDR_TELEMETRY_ROOT = "C:\ProgramData\edr"
 cd path\to\windows-incident-compiler
 .\target\release\capture_windows_rotating.exe
 ```
-**Expected output**: `Writing to segments...` messages every ~15s
+**Expected output**: `Beginning Windows Event Log capture loop ...`, then a
+`[capture_windows] Wrote evtx_NNNNNN (N records, N total)` line each time new
+events are written (at most once a second). Ctrl-C, or creating
+`C:\ProgramData\edr\capture.stop`, stops it after the last write.
 
 ### Terminal 2 - Locald (Signal Detector)
 ```powershell
@@ -65,9 +68,9 @@ cd path\to\windows-incident-compiler
 ```
 **Expected output**:
 ```
-edr-locald starting (FULL PIPELINE MODE)
+edr-locald starting (YAML playbook engine)
 TELEMETRY_ROOT: C:\ProgramData\edr
-Loaded 21 Windows playbooks
+Loaded 30 Windows playbooks (131 rules) from 30 files
 Watching: C:\ProgramData\edr\index.json
 ```
 
@@ -77,7 +80,10 @@ $env:EDR_TELEMETRY_ROOT = "C:\ProgramData\edr"
 cd path\to\windows-incident-compiler
 .\target\release\edr-server.exe
 ```
-**Expected output**: `Listening on http://0.0.0.0:3000`
+**Expected output**: `Attack Documentation Workbench running at http://127.0.0.1:3000`.
+The server listens on loopback only. Set `EDR_SERVER_BIND=0.0.0.0` to open it
+to the network (for example inside a container), knowing the API has no
+authentication.
 
 ---
 
@@ -129,8 +135,8 @@ $signals.data | Select-Object -First 3 | ForEach-Object {
 **Sample output**:
 ```
 Signal count: 4
-  [Critical] playbook:defense_evasion - inc_f3c4243b165efa3083344eeb3d046dd3
-  [High] playbook:persistence - inc_0c622e4eedd25af33c20bee475eec659
+  [CRITICAL] playbook:signal_log_tamper_detection - sig_5c0f8f1e2b7d4a6c9e3b1a0d7f2c4e81
+  [HIGH] playbook:signal_service_persistence - sig_0c622e4eedd25af33c20bee475eec659
 ```
 
 ---
@@ -148,7 +154,7 @@ $explain.data | ConvertTo-Json -Depth 5
 ```
 
 **Expected**: ExplanationBundle with:
-- `playbook_id`: e.g., "windows_persist_task"
+- `playbook_id`: e.g., "signal_task_persistence"
 - `slots`: Array with at least 1 filled slot
 - `evidence`: Array with dereferenced excerpts
 - `counters.required_slots_filled >= 1`
@@ -156,12 +162,12 @@ $explain.data | ConvertTo-Json -Depth 5
 **Sample output structure**:
 ```json
 {
-  "playbook_id": "windows_persist_task",
-  "playbook_title": "Scheduled Task Creation",
+  "playbook_id": "signal_task_persistence",
+  "playbook_title": "Windows Task Scheduler Persistence",
   "family": "persistence",
   "slots": [
     {
-      "slot_id": "task_create",
+      "slot_id": "step1",
       "status": "filled",
       "required": true,
       "matched_facts": [...]
@@ -190,8 +196,11 @@ $explain.data | ConvertTo-Json -Depth 5
 # From explanation, get evidence pointer
 $ptr = $explain.data.evidence[0].ptr
 
-# Read the segment file
+# Read the segment file (capture names segments evtx_NNNNNN.jsonl)
 $segmentPath = "$env:EDR_TELEMETRY_ROOT\segments\$($ptr.segment_id).jsonl"
+if (-not (Test-Path $segmentPath)) {
+    $segmentPath = "$env:EDR_TELEMETRY_ROOT\segments\evtx_{0:D6}.jsonl" -f [int]$ptr.segment_id
+}
 if (Test-Path $segmentPath) {
     $lines = Get-Content $segmentPath
     $record = $lines[$ptr.record_index] | ConvertFrom-Json
@@ -216,15 +225,19 @@ Get-Process edr-server, edr-locald, capture_windows_rotating -ErrorAction Silent
 
 A minimal bundle that **reliably triggers** a signal:
 
-**Option A: Use existing test data (in repo)**
+**Option A: Replay the end to end test fixture (any OS)**
+
+`test_e2e/` holds only an `index.json` from a capture run, without its segment files, so
+copying it does not trigger a signal. The end to end test builds a small telemetry folder
+(Security log cleared, a service installed from a temp folder, a shadow copy deletion) and
+runs `edr-locald --once` on it:
 ```powershell
-# Copy test_e2e to telemetry root
-Copy-Item "test_e2e\*" "$env:EDR_TELEMETRY_ROOT\" -Recurse -Force
+cargo test -p edr-locald --test locald_yaml_e2e
 ```
 
 **Option B: Generate fresh (requires admin)**
 1. Start full stack (Steps 3)
-2. Clear Security log (triggers Event ID 1102 → `windows_log_tamper_clear` playbook)
+2. Clear Security log (Event ID 1102 fires `signal_log_tamper_detection` and `signal_defense_evasion`)
    ```powershell
    # CAUTION: Only in test environments!
    wevtutil cl Security

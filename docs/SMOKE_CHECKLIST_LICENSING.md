@@ -42,13 +42,13 @@ cargo test --workspace --release --features pro
 
 | Gate | Status |
 |------|--------|
-| `cargo fmt -- --check` | ☐ PASS |
-| `cargo clippy --workspace --all-targets -- -D warnings` | ☐ PASS |
-| `cargo clippy --workspace --all-targets --features pro -- -D warnings` | ☐ PASS |
-| `RUSTFLAGS="-D warnings" cargo build --release` | ☐ PASS |
-| `RUSTFLAGS="-D warnings" cargo build --release --features pro` | ☐ PASS |
-| `cargo test --workspace --release` | ☐ PASS |
-| `cargo test --workspace --release --features pro` | ☐ PASS |
+| `cargo fmt -- --check` | [ ] PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | [ ] PASS |
+| `cargo clippy --workspace --all-targets --features pro -- -D warnings` | [ ] PASS |
+| `RUSTFLAGS="-D warnings" cargo build --release` | [ ] PASS |
+| `RUSTFLAGS="-D warnings" cargo build --release --features pro` | [ ] PASS |
+| `cargo test --workspace --release` | [ ] PASS |
+| `cargo test --workspace --release --features pro` | [ ] PASS |
 
 ---
 
@@ -120,7 +120,7 @@ Import in UI:
 
 **Expected**:
 - Status changes to "License Valid"
-- Entitlements show "Diff Mode ✓"
+- Entitlements list "Diff Mode"
 - Customer name displayed
 
 ### 2.6 Valid License → 200 Response
@@ -166,12 +166,12 @@ Test-Path target/release/license_gen.exe
 
 | Check | Status |
 |-------|--------|
-| Private key NOT in any source file | ☐ PASS |
-| `license_gen` NOT in dist folder | ☐ PASS |
-| Public key only in `license.rs` | ☐ PASS |
-| 402 response includes install_id | ☐ PASS |
-| Expired license returns 402 | ☐ PASS |
-| Wrong install_id returns 402 | ☐ PASS |
+| Private key NOT in any source file | [ ] PASS |
+| `license_gen` NOT in dist folder | [ ] PASS |
+| Public key only in `license.rs` | [ ] PASS |
+| 402 response includes install_id | [ ] PASS |
+| Expired license returns 402 | [ ] PASS |
+| Wrong install_id returns 402 | [ ] PASS |
 
 ---
 
@@ -194,7 +194,7 @@ This will trigger the GitHub Actions release workflow.
 
 | Tester | Date | All Checks Pass |
 |--------|------|-----------------|
-| ______ | ____ | ☐ Yes / ☐ No |
+| ______ | ____ | [ ] Yes / [ ] No |
 
 ---
 

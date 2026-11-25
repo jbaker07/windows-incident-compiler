@@ -106,8 +106,8 @@ Each run creates an isolated directory under:
   "pipeline": {
     "signals_count": 5,
     "signals_by_playbook": {
-      "windows_lolbin_abuse": 2,
-      "windows_log_tamper_clear": 1
+      "signal_lolbin_abuse": 2,
+      "signal_log_tamper_detection": 1
     },
     "signals_by_severity": {
       "high": 2,
@@ -169,10 +169,11 @@ Each run creates an isolated directory under:
 Windows Events → capture_windows_rotating.exe
      ↓ (JSONL segments)
 edr-locald.exe
+     ↓ playbook/loader.rs: Load playbooks/windows/*.yaml (EDR_PLAYBOOKS_DIR, EDR_SELECTED_PLAYBOOKS)
+     ↓ event_xml.rs: Copy EventData fields out of the event XML
      ↓ fact_extractor.rs: Event → Fact
-     ↓ playbook_loader.rs: Load YAML playbooks
-     ↓ signal_engine.rs: Facts × Playbooks → Signals
-     ↓ explanation_builder.rs: Signal → ExplanationBundle
+     ↓ playbook/engine.rs: Facts × YAML rules → PlaybookMatch → signals table
+     ↓ explanation_builder.rs: PlaybookMatch → ExplanationBundle
 edr-server.exe
      ↓ GET /api/signals
      ↓ GET /api/signals/:id/explain
@@ -187,7 +188,8 @@ UI displays with ExplanationBundle viewer
 | `src-tauri/src/main.rs` | Tauri commands |
 | `ui/index.html` | Desktop UI with modals and panels |
 | `crates/locald/src/os/windows/fact_extractor.rs` | Event → Fact mapping |
-| `crates/locald/src/os/windows/signal_engine.rs` | Signal detection |
+| `crates/locald/src/playbook/` | YAML playbook loader, schema checks and rule engine |
+| `crates/locald/src/os/windows/signal_engine.rs` | Legacy WorkflowSeed signal (only with `EDR_WORKFLOW_SEED=1`) |
 | `crates/core/src/explain.rs` | ExplanationBundle structure |
 
 ## User Workflow

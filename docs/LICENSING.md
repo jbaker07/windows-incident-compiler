@@ -68,7 +68,7 @@ cargo run --bin license_gen -- --generate-keypair
 
 Output:
 ```
-🔑 Generated new Ed25519 keypair
+Generated new Ed25519 keypair
 
 === PRIVATE KEY (keep secret!) ===
 Set this in your environment:
@@ -80,8 +80,8 @@ Replace LICENSE_PUBLIC_KEY_B64 in crates/core/src/license.rs:
 
   pub const LICENSE_PUBLIC_KEY_B64: &str = "<base64-public-key>";
 
-⚠️  WARNING: Store the private key securely. If lost, you cannot generate new licenses.
-⚠️  WARNING: Do not commit the private key to version control!
+WARNING: Store the private key securely. If lost, you cannot generate new licenses.
+WARNING: Do not commit the private key to version control!
 ```
 
 **Important**: 

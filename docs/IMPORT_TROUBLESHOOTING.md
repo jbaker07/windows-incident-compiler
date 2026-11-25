@@ -277,46 +277,22 @@ Get-Content imports/*/manifest.json | ConvertFrom-Json |
 
 ## Quick Diagnostic Script
 
-Save as `diagnose_import.ps1`:
+`scripts/diagnose_import.ps1` reads a bundle's `manifest.json` and prints the
+summary counts, the file kinds, files of a parseable kind that were not parsed,
+parse warnings, rejected files, event types (when the bundle has an
+`events.json`) and the limits that were applied.
 
 ```powershell
-param([string]$BundleId)
+# Search the telemetry root (imports\ and runs\*\imports\)
+.\scripts\diagnose_import.ps1 -BundleId "bundle_1a20b3da754_f936"
 
-$manifestPath = "imports/$BundleId/manifest.json"
-if (-not (Test-Path $manifestPath)) {
-    Write-Error "Bundle not found: $BundleId"
-    exit 1
-}
-
-$manifest = Get-Content $manifestPath | ConvertFrom-Json
-
-Write-Host "=== Bundle: $BundleId ===" -ForegroundColor Cyan
-Write-Host "Files: $($manifest.summary.total_files)"
-Write-Host "Parsed: $($manifest.summary.parsed_files)"
-Write-Host "Events: $($manifest.summary.events_extracted)"
-Write-Host "Rejected: $($manifest.summary.rejected_files)"
-Write-Host "Warnings: $($manifest.summary.warnings_count)"
-
-Write-Host "`n=== File Types ===" -ForegroundColor Cyan
-$manifest.files | Group-Object kind | Sort-Object Count -Descending | Format-Table Name, Count
-
-Write-Host "`n=== Unparsed Files ===" -ForegroundColor Yellow
-$manifest.files | Where-Object { -not $_.parsed -and $_.kind -ne "Unknown" } | 
-  Select-Object rel_path, kind, @{N='warnings';E={$_.warnings -join '; '}} | Format-Table
-
-Write-Host "`n=== Parse Warnings ===" -ForegroundColor Yellow
-$manifest.files | Where-Object { $_.warnings.Count -gt 0 } |
-  ForEach-Object { Write-Host "$($_.rel_path): $($_.warnings -join ', ')" }
-
-$eventsPath = "imports/$BundleId/events.json"
-if (Test-Path $eventsPath) {
-    Write-Host "`n=== Event Types ===" -ForegroundColor Cyan
-    Get-Content $eventsPath | ConvertFrom-Json |
-      Group-Object event_type | Sort-Object Count -Descending | Format-Table Name, Count
-}
+# Read bundles from a folder that holds bundle folders directly
+.\scripts\diagnose_import.ps1 -BundleId "bundle_1a20b3da754_f936" -ImportsRoot testdata\import_bundles
 ```
 
-Usage: `.\diagnose_import.ps1 -BundleId "bundle_20250105_123456"`
+`testdata/import_bundles/` holds the `manifest.json` and `events.json` the
+`import_bundle` CLI wrote for `testdata/import_formats/` (one file per supported
+format), and CI runs the script on it.
 
 ---
 
@@ -344,8 +320,7 @@ When adding support for a new tool:
 ## See Also
 
 - [IMPORT_PIPELINE_MAP.md](IMPORT_PIPELINE_MAP.md) - Two-pipeline architecture overview
-- [IMPORT_ARCHITECTURE.md](IMPORT_ARCHITECTURE.md) - System design
-- [README.md](../README.md#-evidence-import) - Format matrix
+- [README.md](../README.md#evidence-import): format matrix
 - `src-tauri/src/import_types.rs` - Canonical model (UI import)
 - `src-tauri/src/adapters/` - UI import adapter implementations
 - `crates/locald/src/integrations/` - Backend live ingestion (different pipeline)

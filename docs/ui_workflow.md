@@ -15,23 +15,23 @@ The UI provides a unified view for:
 ### Dashboard (Main View)
 
 #### Alerts Panel
-- Real-time alerts from the detection pipeline
-- Filter by severity (low/medium/high)
+- Real-time alerts from the detection pipeline (`/alerts`, one per signal)
+- Filter by severity (low/medium/high/critical)
 - Search by process name, command line, or tags
-- Click any alert to see JSON details
+- Click any alert to open its explanation
 
 #### Timeline
 - Visual timeline of alert frequency
 - Helps identify attack bursts and patterns
 
 #### Incidents (Rollups)
-- Correlated alerts grouped by hypothesis
-- Higher-level view of potential attacks
+- Signals grouped per host and hour (`/incidents/stream`)
+- Shows the playbooks, techniques and highest severity in each group
 
 ### Playbook Signals Panel
 - Shows signals from playbook-based detection
 - Click "Explain" to see slot fills and evidence
-- Signals are linked to specific playbooks (e.g., `credential_lsass_access`)
+- Signals are linked to specific playbooks and rules (e.g., `playbook:signal_credential_access`, rule "LSASS Process Access")
 
 ### Run Metrics Panel
 
@@ -64,14 +64,6 @@ Features:
 - **Pivot by Entity**: Select entity type and value to pivot
   - Process, File, Network, User, Registry
 
-### Analyst Workflow Panel
-
-Advanced controls for investigation:
-- **Focus Window**: Set time range for analysis
-- **Checkpoints**: Save/restore investigation state
-- **Diff View**: Compare changes between checkpoints
-- **Disambiguators**: Apply pivot actions
-
 ### Capture Control Panel
 
 Manage telemetry capture:
@@ -89,7 +81,7 @@ Manage telemetry capture:
    .\scripts\run_stack_windows.ps1
    ```
 
-2. Open UI at http://localhost:3000
+2. Open UI at http://127.0.0.1:3000
 
 3. Monitor Alerts panel for incoming events
 
@@ -99,12 +91,13 @@ Manage telemetry capture:
 
 ### Running Evaluation
 
-1. Run the eval harness:
+1. On a throwaway VM, run the live evaluation and leave edr-server running. It clears
+   the Security and System logs and changes the audit policy:
    ```powershell
-   .\scripts\eval_windows.ps1 -ScenarioSet basic
+   .\scripts\eval_windows.ps1 -ScenarioSet basic -DisposableHost -KeepRunning
    ```
 
-2. In UI, go to Run Metrics panel
+2. Open http://127.0.0.1:3000 and go to the Run Metrics panel
 
 3. Click "Refresh" or "Load File" to view results
 
@@ -155,13 +148,13 @@ Manage telemetry capture:
 
 ### Signals Not Firing
 1. Verify telemetry channels are enabled
-2. Check Playbook Signals panel for pending matches
+2. Check the Playbook Signals panel for hits
 3. Review playbook requirements in [playbooks_windows_coverage.md](playbooks_windows_coverage.md)
 
 ### UI Not Loading
 1. Verify edr-server.exe is running on port 3000
 2. Check browser console for errors
-3. Try http://localhost:3000/health endpoint
+3. Try the http://127.0.0.1:3000/health endpoint
 
 ## See Also
 

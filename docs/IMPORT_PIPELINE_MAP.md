@@ -9,7 +9,7 @@ This document clarifies the **two distinct import systems** in this project and 
 | Aspect | UI Import (Tauri Desktop) | Backend Import (locald integrations) |
 |--------|---------------------------|--------------------------------------|
 | **Purpose** | Import evidence bundles from external tools (YARA, Nmap, etc.) | Ingest live third-party alerts (Wazuh, Zeek) |
-| **Entry Point** | Desktop app drag-and-drop, or `import_bundle` CLI | locald daemon integration sources |
+| **Entry Point** | `import_bundle` CLI (the `SafeImporter` library). The desktop app lists imported bundles but has no import command yet | locald daemon integration sources |
 | **Code Location** | `src-tauri/src/adapters/` | `crates/locald/src/integrations/` |
 | **Output** | `imports/<bundle_id>/manifest.json` + `events.json` | Facts in hypothesis engine |
 | **Event Flow** | Files → Adapters → ImportEvents → Playbooks → Signals | Live stream → VendorAlertFact → Signals |
@@ -34,18 +34,25 @@ This document clarifies the **two distinct import systems** in this project and 
 
 | Adapter | File | Event Types |
 |---------|------|-------------|
-| atomic | `atomic.rs` | `technique_executed` |
-| evtx_json | `evtx_json.rs` | Windows event types |
-| har | `har.rs` | `http_request`, `http_response` |
-| jsonl | `jsonl.rs` | Passthrough |
-| nmap | `nmap.rs` | `host_discovered`, `port_discovered` |
-| osquery | `osquery.rs` | `process_info`, `user_info`, `listening_port` |
-| plaintext | `plaintext.rs` | `shell_command`, `directory_found`, `fuzz_result` |
-| suricata | `suricata.rs` | `net_alert`, `dns_query`, `http_txn` |
-| velociraptor | `velociraptor.rs` | Various |
+| atomic | `atomic.rs` | `technique_executed` (ATT&CK v20.1 names and tactics) |
+| burp | `burp.rs` | `http_request` (Burp "Save items" XML), `web_vulnerability` (Burp scanner issues XML) |
+| evtx_json | `evtx_json.rs` | `process_create`, `logon_success`, `logon_failure`, `service_installed`, `scheduled_task_created`, `log_cleared`, Sysmon and PowerShell types, `windows_event` |
+| har | `har.rs` | `http_request`, `security_pattern` |
+| jsonl | `jsonl.rs` | The record's own type, or `process_creation`, `network_connection`, `http_request`, `dns_query`, `auth_event`, `generic` |
+| nmap | `nmap.rs` | `host_discovered`, `port_discovered`, `nmap_script` |
+| osquery | `osquery.rs` | `process_info`, `user_info`, `listening_port`, `file_event`, `active_session`, `process_exec`, `socket_event`, `table_row` |
+| plaintext | `plaintext.rs` | `shell_command`, `powershell_command`, `directory_found`, `fuzz_result`, `log_line` |
+| suricata | `suricata.rs` | `net_alert`, `dns_query`, `http_txn`, `tls_handshake`, `netflow` |
+| velociraptor | `velociraptor.rs` | `process_info`, `network_connection`, `mft_entry`, `file_info`, `registry_entry`, `prefetch_entry`, `scheduled_task`, `service_info`, `user_info`, `vr_artifact` |
 | yara | `yara.rs` | `yara_match` |
 | zap | `zap.rs` | `web_vulnerability` |
-| zeek | `zeek.rs` | `dns_query`, `http_txn`, `ssl_handshake` |
+| zeek | `zeek.rs` | `netflow`, `dns_query`, `http_txn`, `tls_handshake`, `file_transfer`, `zeek_log` |
+| yaml | `structured.rs` | One event per YAML document or list item, typed like a JSON record |
+| csv | `structured.rs` | One event per CSV row, typed like a JSON record |
+
+The importer runs `AdapterRegistry::parse_manifest` at the end of every import,
+writes the events to `events.json` (a JSON array) and records `parsed`, `parser`,
+`warnings` and `events_extracted` per file in `manifest.json`.
 
 ### Data Flow
 
@@ -62,9 +69,9 @@ Evidence Folder/ZIP
        ↓
    Events written to imports/<bundle_id>/events.json
        ↓
-   Import playbooks (playbooks/import/*.yaml) evaluate
+   Import playbooks (playbooks/import/*.yaml): defined, not evaluated yet
        ↓
-   Signals emitted to timeline
+   ImportEvents and the bundle manifest are the output
 ```
 
 ### Key Types
@@ -72,17 +79,15 @@ Evidence Folder/ZIP
 ```rust
 // src-tauri/src/import_types.rs
 pub struct ImportEvent {
-    pub event_type: String,
+    pub event_id: String,
     pub timestamp: DateTime<Utc>,
-    pub source_adapter: String,
-    pub evidence_ptr: EvidencePtr,
+    pub timestamp_quality: TimestampQuality, // precise, estimated or unknown
+    pub event_type: String,
+    pub source_file: String,
+    pub source_line: Option<u64>,
     pub fields: HashMap<String, serde_json::Value>,
-    // Entity keys for correlation
-    pub host_key: Option<String>,
-    pub proc_key: Option<String>,
-    pub file_key: Option<String>,
-    pub identity_key: Option<String>,
-    pub net_key: Option<String>,
+    pub evidence_ptr: ImportEvidencePtr, // bundle, file, line or JSON path
+    pub tags: Vec<String>,
 }
 ```
 
@@ -192,11 +197,11 @@ Both pipelines produce events that map to the same canonical types:
 2. **Where do backend integration adapters live?**
    → `crates/locald/src/integrations/`
 
-3. **Which runs when I drag-and-drop a folder?**
-   → UI Import (Tauri SafeImporter → Adapters)
+3. **Which runs on an evidence folder or ZIP?**
+   → UI Import (`import_bundle` CLI → SafeImporter → Adapters)
 
 4. **Which runs when Wazuh writes alerts to a file?**
    → Backend Import (IngestSource → VendorAlertFact)
 
 5. **Where are import playbooks?**
-   → `playbooks/import/*.yaml` (evaluated by UI import pipeline)
+   → `playbooks/import/*.yaml` (templates only, no code evaluates them yet)

@@ -96,12 +96,28 @@ $metrics.grounding.source
 Key fact types: `ProcessExecution`, `NetworkConnection`, `FileOperation`, `RegistryModification`, `PowershellCommand`, `ServiceOperation`, `UserLogon`
 
 ### Gate C: Detection
+
+Gate C checks detection against what the run expected. Each scenario lists the playbooks it
+should fire (`expectations.playbooks` in `src-tauri/src/scenario_profiles.rs`). When a
+scenario runs during a run, the supervisor adds its playbooks to the run's expected set.
+Expected playbooks that `edr-locald` did not load (deselected in the picker) are left out
+and named in the diagnosis.
+
 | Status | Condition |
 |--------|-----------|
-| PASS | ≥1 signal AND ≥50% playbook match AND DB/API consistent |
-| PARTIAL | ≥1 signal but low match rate or inconsistent |
-| FAIL | 0 signals (when facts exist) |
-| NO_DATA | 0 signals and 0 facts |
+| NO_DATA | 0 facts and 0 signals |
+| PARTIAL | Signal counts in the database and the API disagree |
+| PASS | Expected set not empty, and every expected playbook fired |
+| PARTIAL | Expected set not empty, and some expected playbooks did not fire |
+| FAIL | Expected set not empty, and none of them fired |
+| PASS | No expected set, and at least 1 signal |
+| NO_DATA | No expected set, and 0 signals. A quiet host is not a failure |
+
+The match rate (playbooks that fired out of playbooks loaded) is reported as coverage and
+does not change the status. The playbook count comes from `playbooks_loaded.json`, which
+`edr-locald` writes into the run directory. Signals are counted from the `signals` table in
+`workbench.db` and from `/api/signals`, and a signal belongs to the playbook in
+`metadata.playbook_id` or in its `playbook:<id>` signal type.
 
 ### Gate D: Explainability
 | Status | Condition |
@@ -210,7 +226,7 @@ The `verify_grounded_gates` command runs these checks:
 |---------|-------------|---------|
 | `get_grounded_health_gates` | Get computed gates from artifacts | JSON with all gate data |
 | `verify_grounded_gates` | Run E2E verification | Verification result with checks |
-| `get_grounded_gates_summary` | One-liner status | String like "✅ A ✅ B ⚠️ C ✅ D → ⚠️" |
+| `get_grounded_gates_summary` | One-liner status | String like "PASS A:Telemetry \| PASS B:Extraction \| PARTIAL C:Detection \| PASS D:Explainability → PARTIAL Overall" |
 
 ### JavaScript Usage
 
