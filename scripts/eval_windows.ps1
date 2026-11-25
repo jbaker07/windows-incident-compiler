@@ -1,75 +1,201 @@
+#Requires -Version 7.0
 <#
 .SYNOPSIS
-    Windows EDR Evaluation Harness - Full E2E Detection + Explainability Verification
+    Windows detection evaluation: real activity, live capture, playbook checks.
 .DESCRIPTION
-    Starts the full stack, generates scenario activity, validates detections, and produces metrics.
+    Runs attack-like activity on this machine, captures it with the WEVTAPI
+    capture agent, runs edr-locald over the capture and checks, by playbook
+    id, that the expected YAML playbooks fired. Then checks the explanation of
+    every signal through edr-server and writes a metrics file that the UI
+    Metrics tab reads (GET /api/eval/metrics).
+
+    Nothing is injected. Every event comes from the Security and System logs.
+
+    The activity changes the host. It clears the Security and System logs,
+    turns on the audit policy the playbooks need, makes failed logons, and in
+    the full set creates and then deletes a scheduled task, a service and a
+    local administrator account. Run it only on a throwaway VM or a CI runner,
+    and pass -DisposableHost to confirm that.
+
+    Steps:
+      1. Build (unless -SkipBuild)
+      2. enable_advanced_telemetry.ps1 -AutoFix (audit policy, command lines)
+      3. New telemetry root, clear the Security and System logs
+      4. Start capture_windows_rotating
+      5. Generate the activity, then a marker process
+      6. Wait until the marker is in a segment, stop the capture
+      7. edr-locald --once over the capture
+      8. edr-server, then check signals by playbook id and every explanation
+      9. Write metrics, stop edr-server (or leave it running with -KeepRunning)
 .PARAMETER ScenarioSet
-    'basic' for quick validation, 'full' for comprehensive scenarios
+    basic: discovery, encoded PowerShell, certutil, failed logons, log clear.
+    full: basic plus a scheduled task, a service and a local admin account.
 .PARAMETER SkipBuild
-    Use pre-built binaries
+    Use binaries that are already built.
+.PARAMETER BinDir
+    Folder with capture_windows_rotating.exe, edr-locald.exe and
+    edr-server.exe. Default: target\release in the repo.
+.PARAMETER TelemetryRoot
+    Folder for this run. It is deleted and created again, so it is never taken
+    from EDR_TELEMETRY_ROOT. Default: C:\ProgramData\edr_eval.
+.PARAMETER Port
+    Port for edr-server. Default 3000.
+.PARAMETER DisposableHost
+    Required. Confirms that this machine may be changed as described above.
 .PARAMETER KeepRunning
-    Don't shut down stack after verification
+    Leave edr-server running after the checks so other scripts can query it.
+    Its process id is printed and written to <TelemetryRoot>\logs\server.pid.
+.PARAMETER CheckOnly
+    Skip steps 1 to 6: no build, no host changes, no activity, no capture.
+    Runs edr-locald again over the segments already in -TelemetryRoot (its
+    database is reset first) and does the checks of steps 7 to 9. Needs no
+    administrator rights and also runs on Linux and macOS, for example on the
+    replay the windows_eval_replay test writes when EDR_EVAL_REPLAY_DIR is set.
 .EXAMPLE
-    .\eval_windows.ps1 -ScenarioSet basic
-    .\eval_windows.ps1 -ScenarioSet full -KeepRunning
+    .\scripts\eval_windows.ps1 -DisposableHost
+.EXAMPLE
+    .\scripts\eval_windows.ps1 -ScenarioSet full -SkipBuild -DisposableHost -KeepRunning
+.EXAMPLE
+    pwsh scripts/eval_windows.ps1 -CheckOnly -TelemetryRoot /tmp/replay -BinDir target/debug
 #>
 
 param(
     [ValidateSet("basic", "full")]
-    [string]$ScenarioSet = "basic",
+    [string]$ScenarioSet = "full",
     [switch]$SkipBuild,
+    [string]$BinDir = "",
+    [string]$TelemetryRoot = "",
+    [int]$Port = 3000,
+    [switch]$DisposableHost,
     [switch]$KeepRunning,
-    [switch]$Help
+    [switch]$CheckOnly
 )
 
-if ($Help) {
-    Get-Help $MyInvocation.MyCommand.Path -Detailed
-    exit 0
-}
-
 $ErrorActionPreference = "Stop"
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $ScriptDir
 Set-Location $ProjectRoot
 
+$isAdmin = $false
+if ($IsWindows) {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+if (-not $CheckOnly -and -not $IsWindows) {
+    Write-Host "The live run needs Windows. Use -CheckOnly on other systems." -ForegroundColor Yellow
+    exit 2
+}
+if (-not $CheckOnly -and -not $isAdmin) {
+    Write-Host "The live run needs an elevated PowerShell (Run as administrator)." -ForegroundColor Yellow
+    exit 2
+}
+if (-not $CheckOnly -and -not $DisposableHost) {
+    Write-Host "This script clears the Security and System logs, changes the audit policy and" -ForegroundColor Yellow
+    Write-Host "creates a scheduled task, a service and a local administrator account (then" -ForegroundColor Yellow
+    Write-Host "deletes them). Run it only on a throwaway VM or a CI runner, with -DisposableHost." -ForegroundColor Yellow
+    exit 2
+}
+
 # ============================================================================
 # Configuration
 # ============================================================================
-$TelemetryRoot = if ($env:EDR_TELEMETRY_ROOT) { $env:EDR_TELEMETRY_ROOT } else { "C:\ProgramData\edr" }
-$env:EDR_TELEMETRY_ROOT = $TelemetryRoot
-$BaseUrl = "http://localhost:3000"
+if (-not $BinDir) { $BinDir = Join-Path (Join-Path $ProjectRoot "target") "release" }
+if (-not $TelemetryRoot) { $TelemetryRoot = "C:\ProgramData\edr_eval" }
 $RunId = Get-Date -Format "yyyyMMdd_HHmmss"
-$MetricsDir = "$TelemetryRoot\metrics"
-$LogsDir = "$TelemetryRoot\logs"
+$BaseUrl = "http://127.0.0.1:$Port"
+$LogsDir = Join-Path $TelemetryRoot "logs"
+$MetricsDir = Join-Path $TelemetryRoot "metrics"
+$SegmentsDir = Join-Path $TelemetryRoot "segments"
+$WorkDir = Join-Path $TelemetryRoot "work"
+$PlaybooksDir = Join-Path (Join-Path $ProjectRoot "playbooks") "windows"
+$Marker = "edr-eval-marker-$RunId"
 
-# Thresholds
-$Thresholds = @{
-    basic = @{ min_detections = 1; explain_success_rate = 0.8 }
-    full  = @{ min_detections = 3; explain_success_rate = 0.9 }
+$exe = if ($IsWindows) { ".exe" } else { "" }
+$CaptureBin = Join-Path $BinDir "capture_windows_rotating$exe"
+$LocaldBin = Join-Path $BinDir "edr-locald$exe"
+$ServerBin = Join-Path $BinDir "edr-server$exe"
+
+# Playbooks the activity must fire, by scenario set
+$Expected = [ordered]@{
+    signal_encoded_powershell   = "powershell.exe -EncodedCommand with a hidden window"
+    signal_discovery_burst      = "whoami, net user, net localgroup and other discovery tools"
+    signal_certutil_abuse       = "certutil -urlcache download and certutil -encode"
+    signal_logon_anomaly        = "six failed network logons for one account"
+    signal_log_tamper_detection = "Security and System logs cleared (1102, 104)"
+}
+if ($ScenarioSet -eq "full") {
+    $Expected["signal_schtasks_abuse"] = "schtasks /create running PowerShell as SYSTEM at logon"
+    $Expected["signal_task_persistence"] = "Security 4698 for that task"
+    $Expected["signal_sc_abuse"] = "sc create with a binary under C:\Users\Public"
+    $Expected["signal_service_persistence"] = "System 7045 for that service"
+    $Expected["signal_net_command_abuse"] = "net user /add and net localgroup administrators /add"
+    $Expected["signal_group_membership_change"] = "Security 4720 and 4732 for that account"
 }
 
-# Process tracking
+$TaskName = "EdrEvalTask"
+$ServiceName = "EdrEvalSvc"
+$EvalUser = "edr_eval_user"
 $script:Processes = @()
+$script:Activity = @()
+$startTime = Get-Date
 
 Write-Host @"
-
 ==============================================================================
- EDR EVALUATION HARNESS - Windows
+ EDR DETECTION EVALUATION - Windows (live capture)
 ==============================================================================
  Run ID:         $RunId
- Scenario Set:   $ScenarioSet
- Telemetry Root: $TelemetryRoot
+ Scenario set:   $ScenarioSet ($($Expected.Count) playbooks expected)$(if ($CheckOnly) { ', check only' })
+ Telemetry root: $TelemetryRoot
+ Binaries:       $BinDir
  API URL:        $BaseUrl
 ==============================================================================
-
 "@ -ForegroundColor Cyan
 
 # ============================================================================
-# Helper Functions
+# Helpers
 # ============================================================================
+function Write-Step([int]$Step, [string]$Message) {
+    Write-Host "`n[$Step/9] $Message" -ForegroundColor Yellow
+}
 
-function Cleanup {
-    Write-Host "`n[SHUTDOWN] Stopping stack processes..."
+function Write-Check([string]$Name, [bool]$Pass, [string]$Detail = "") {
+    $status = if ($Pass) { "[PASS]" } else { "[FAIL]" }
+    $color = if ($Pass) { "Green" } else { "Red" }
+    Write-Host "  $status " -ForegroundColor $color -NoNewline
+    if ($Detail) { Write-Host "$Name - $Detail" } else { Write-Host $Name }
+}
+
+# Run a program with its arguments quoted one by one, wait at most
+# $TimeoutSec seconds and return the exit code (-1 on timeout).
+function Invoke-Tool([string]$File, [string[]]$Arguments, [int]$TimeoutSec = 120) {
+    $psi = [System.Diagnostics.ProcessStartInfo]::new($File)
+    foreach ($a in $Arguments) { $psi.ArgumentList.Add($a) }
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.RedirectStandardInput = $true
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.StandardInput.Close()
+    $out = $p.StandardOutput.ReadToEndAsync()
+    $err = $p.StandardError.ReadToEndAsync()
+    if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+        try { $p.Kill($true) } catch {}
+        Write-Host "    $File timed out after ${TimeoutSec}s" -ForegroundColor Yellow
+        return -1
+    }
+    $p.WaitForExit()
+    $null = $out.Result, $err.Result
+    return $p.ExitCode
+}
+
+function Add-Activity([string]$Name, [string]$File, [string[]]$Arguments, [int]$TimeoutSec = 120) {
+    $code = Invoke-Tool $File $Arguments $TimeoutSec
+    $script:Activity += [ordered]@{ step = $Name; command = "$File $($Arguments -join ' ')"; exit_code = $code }
+    Write-Host ("  {0,-34} exit {1}" -f $Name, $code)
+    return $code
+}
+
+function Stop-Stack {
     foreach ($proc in $script:Processes) {
         if ($proc -and -not $proc.HasExited) {
             Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
@@ -77,420 +203,355 @@ function Cleanup {
     }
 }
 
-trap { Cleanup; break }
-
-function Write-Step {
-    param([int]$Step, [int]$Total, [string]$Message)
-    Write-Host "[$Step/$Total] $Message" -ForegroundColor Yellow
+# Undo the host changes of the full set. Safe to call more than once.
+function Remove-HostChanges {
+    $null = Invoke-Tool "schtasks.exe" @("/Delete", "/TN", $TaskName, "/F") 30
+    $null = Invoke-Tool "sc.exe" @("delete", $ServiceName) 30
+    $null = Invoke-Tool "net.exe" @("user", $EvalUser, "/delete") 30
 }
 
-function Write-Check {
-    param([string]$Name, [bool]$Pass, [string]$Detail = "")
-    $status = if ($Pass) { "[PASS]" } else { "[FAIL]" }
-    $color = if ($Pass) { "Green" } else { "Red" }
-    Write-Host "  $status " -ForegroundColor $color -NoNewline
-    Write-Host "$Name" -NoNewline
-    if ($Detail) { Write-Host " - $Detail" -ForegroundColor Gray } else { Write-Host "" }
-}
-
-function Test-ServerHealth {
-    try {
-        $health = Invoke-RestMethod -Uri "$BaseUrl/health" -TimeoutSec 5
-        return $health.status -eq "ok"
-    } catch {
-        return $false
-    }
-}
-
-function Wait-ForServer {
-    param([int]$TimeoutSeconds = 30)
-    $elapsed = 0
-    while ($elapsed -lt $TimeoutSeconds) {
-        if (Test-ServerHealth) { return $true }
+function Wait-ForServer([int]$TimeoutSeconds = 30) {
+    for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
+        try {
+            $health = Invoke-RestMethod -Uri "$BaseUrl/api/health" -TimeoutSec 5
+            if ($health) { return $true }
+        } catch {}
         Start-Sleep -Seconds 1
-        $elapsed++
     }
     return $false
 }
 
-# ============================================================================
-# STEP 1: Telemetry Prerequisites
-# ============================================================================
-Write-Step 1 8 "Checking telemetry prerequisites..."
-
-$prereqScript = Join-Path $ScriptDir "enable_advanced_telemetry.ps1"
-if (Test-Path $prereqScript) {
-    $prereqResult = & $prereqScript -Quiet 2>&1
-    $prereqExit = $LASTEXITCODE
-    if ($prereqExit -ne 0) {
-        Write-Host "  WARNING: Telemetry prerequisites not fully met" -ForegroundColor Yellow
-        Write-Host "  Run: .\scripts\enable_advanced_telemetry.ps1 -AutoFix" -ForegroundColor Yellow
-        # Continue but warn - don't fail for missing optional telemetry
-    } else {
-        Write-Check "Telemetry prerequisites" $true
+function Show-Log([string]$Path, [int]$Tail = 40) {
+    if (Test-Path $Path) {
+        Write-Host "--- $Path (last $Tail lines) ---" -ForegroundColor DarkGray
+        Get-Content $Path -Tail $Tail | ForEach-Object { Write-Host "  $_" }
     }
-} else {
-    Write-Host "  Skipping prereq check (script not found)"
 }
 
-# ============================================================================
-# STEP 2: Setup Directories
-# ============================================================================
-Write-Step 2 8 "Setting up directories..."
+$failures = @()
+$exitCode = 1
+try {
+    # ========================================================================
+    # STEP 1: Build
+    # ========================================================================
+    Write-Step 1 "Binaries"
+    $needed = if ($CheckOnly) { @($LocaldBin, $ServerBin) } else { @($CaptureBin, $LocaldBin, $ServerBin) }
+    if (-not $SkipBuild -and -not $CheckOnly) {
+        cargo build --release -p agent-windows -p edr-locald -p edr-server
+        if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+    }
+    foreach ($bin in $needed) {
+        if (-not (Test-Path $bin)) { throw "Binary not found: $bin (build first or drop -SkipBuild)" }
+    }
+    Write-Check "Binaries present" $true $BinDir
 
-$dirs = @($MetricsDir, $LogsDir, "$TelemetryRoot\segments", "$TelemetryRoot\playbooks\windows")
-foreach ($dir in $dirs) {
-    if (-not (Test-Path $dir)) {
+    $env:EDR_TELEMETRY_ROOT = $TelemetryRoot
+    $env:EDR_PLAYBOOKS_DIR = $PlaybooksDir
+    $env:EDR_SERVER_PORT = "$Port"
+    $env:EDR_WORKFLOW_SEED = ""
+    $captureProc = $null
+
+    if ($CheckOnly) {
+        if (-not (Test-Path (Join-Path $TelemetryRoot "index.json"))) { throw "No index.json in $TelemetryRoot" }
+        foreach ($dir in @($LogsDir, $MetricsDir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        # Fresh database, so the checks see only this run of edr-locald
+        foreach ($f in @("workbench.db", "workbench.db-wal", "workbench.db-shm", "playbooks_loaded.json")) {
+            Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $TelemetryRoot $f)
+        }
+        Write-Host "`n[2-6/9] Skipped (-CheckOnly), using the segments in $TelemetryRoot" -ForegroundColor Yellow
+    } else {
+
+    # ========================================================================
+    # STEP 2: Telemetry prerequisites
+    # ========================================================================
+    Write-Step 2 "Telemetry prerequisites (enable_advanced_telemetry.ps1 -AutoFix)"
+    & (Join-Path $ScriptDir "enable_advanced_telemetry.ps1") -AutoFix -Quiet
+    if ($LASTEXITCODE -ne 0) { throw "enable_advanced_telemetry.ps1 -AutoFix failed (exit $LASTEXITCODE)" }
+    Write-Check "Audit policy and command line logging" $true
+
+    # ========================================================================
+    # STEP 3: Fresh telemetry root, cleared logs
+    # ========================================================================
+    Write-Step 3 "Telemetry root and event logs"
+    Get-Process -Name "capture_windows_rotating", "edr-locald", "edr-server" -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    if (Test-Path $TelemetryRoot) { Remove-Item -Recurse -Force $TelemetryRoot }
+    foreach ($dir in @($SegmentsDir, $LogsDir, $MetricsDir, $WorkDir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
-}
+    Remove-HostChanges
 
-# Copy playbooks
-if (Test-Path "$ProjectRoot\playbooks\windows") {
-    Copy-Item -Path "$ProjectRoot\playbooks\windows\*" -Destination "$TelemetryRoot\playbooks\windows" -Force -ErrorAction SilentlyContinue
-    $pbCount = (Get-ChildItem "$TelemetryRoot\playbooks\windows" -Filter "*.yaml" -ErrorAction SilentlyContinue).Count
-    Write-Host "  Copied $pbCount playbooks"
-}
-
-Write-Check "Directories" $true
-
-# ============================================================================
-# STEP 3: Build (optional)
-# ============================================================================
-Write-Step 3 8 "Building binaries..."
-
-if (-not $SkipBuild) {
-    $buildOutput = cargo build --release -p agent-windows -p edr-locald -p edr-server 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Build failed:" -ForegroundColor Red
-        Write-Host $buildOutput
-        exit 1
+    # Security first: the 4688 of the second wevtutil lands in the new Security log.
+    foreach ($log in @("Security", "System")) {
+        $code = Add-Activity "clear $log log" "wevtutil.exe" @("cl", $log)
+        if ($code -ne 0) { throw "wevtutil cl $log failed (exit $code)" }
     }
-    Write-Check "Build" $true
-} else {
-    Write-Host "  Skipped (using existing binaries)"
-}
 
-# Verify binaries
-$CaptureBin = "$ProjectRoot\target\release\capture_windows_rotating.exe"
-$LocaldBin = "$ProjectRoot\target\release\edr-locald.exe"
-$ServerBin = "$ProjectRoot\target\release\edr-server.exe"
+    # ========================================================================
+    # STEP 4: Start capture
+    # ========================================================================
+    Write-Step 4 "Start capture_windows_rotating"
+    $captureErr = Join-Path $LogsDir "capture_err.log"
+    $captureProc = Start-Process -FilePath $CaptureBin -PassThru -NoNewWindow `
+        -RedirectStandardOutput (Join-Path $LogsDir "capture.log") `
+        -RedirectStandardError $captureErr
+    $script:Processes += $captureProc
+    Write-Host "  PID $($captureProc.Id)"
 
-$binariesExist = (Test-Path $CaptureBin) -and (Test-Path $LocaldBin) -and (Test-Path $ServerBin)
-if (-not $binariesExist) {
-    Write-Host "ERROR: Required binaries not found. Run without -SkipBuild" -ForegroundColor Red
-    exit 1
-}
-
-# ============================================================================
-# STEP 4: Start Stack
-# ============================================================================
-Write-Step 4 8 "Starting stack..."
-
-# Kill any existing processes
-Get-Process -Name "capture_windows_rotating", "edr-locald", "edr-server" -ErrorAction SilentlyContinue | 
-    Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 1
-
-# Start server
-Write-Host "  Starting edr-server..."
-$serverProc = Start-Process -FilePath $ServerBin `
-    -RedirectStandardOutput "$LogsDir\server_$RunId.log" `
-    -RedirectStandardError "$LogsDir\server_$RunId.err" `
-    -PassThru -WindowStyle Hidden
-$script:Processes += $serverProc
-Write-Host "    PID: $($serverProc.Id)"
-
-Start-Sleep -Seconds 2
-
-# Start capture (requires admin for Security log)
-Write-Host "  Starting capture_windows_rotating..."
-$captureProc = Start-Process -FilePath $CaptureBin `
-    -RedirectStandardOutput "$LogsDir\capture_$RunId.log" `
-    -RedirectStandardError "$LogsDir\capture_$RunId.err" `
-    -PassThru -WindowStyle Hidden
-$script:Processes += $captureProc
-Write-Host "    PID: $($captureProc.Id)"
-
-Start-Sleep -Seconds 2
-
-# Start locald
-Write-Host "  Starting edr-locald..."
-$localdProc = Start-Process -FilePath $LocaldBin `
-    -RedirectStandardOutput "$LogsDir\locald_$RunId.log" `
-    -RedirectStandardError "$LogsDir\locald_$RunId.err" `
-    -PassThru -WindowStyle Hidden
-$script:Processes += $localdProc
-Write-Host "    PID: $($localdProc.Id)"
-
-# Wait for server
-Write-Host "  Waiting for server to be ready..."
-if (-not (Wait-ForServer -TimeoutSeconds 15)) {
-    Write-Host "ERROR: Server failed to start" -ForegroundColor Red
-    Get-Content "$LogsDir\server_$RunId.err" -Tail 20 -ErrorAction SilentlyContinue
-    Cleanup
-    exit 1
-}
-
-Write-Check "Stack started" $true
-
-# ============================================================================
-# STEP 5: Generate Scenario Activity
-# ============================================================================
-Write-Step 5 8 "Generating scenario activity..."
-
-# Inject test events for reliable detection
-$testSegment = "$TelemetryRoot\segments\eval_$RunId.jsonl"
-$tsNow = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-
-$testEvents = @()
-
-# Event: Log cleared (1102) - Defense Evasion
-$testEvents += @{
-    ts_ms = $tsNow
-    host = $env:COMPUTERNAME
-    type = "windows_event"
-    tags = @("windows", "event_log", "security")
-    fields = @{
-        "windows.event_id" = 1102
-        "windows.channel" = "Security"
-        "windows.provider" = "Microsoft-Windows-Eventlog"
-        "SubjectUserName" = $env:USERNAME
+    $indexPath = Join-Path $TelemetryRoot "index.json"
+    $deadline = (Get-Date).AddSeconds(60)
+    while (-not (Test-Path $indexPath) -and (Get-Date) -lt $deadline -and -not $captureProc.HasExited) {
+        Start-Sleep -Seconds 1
     }
-    evidence_ptr = @{ stream_id = "eval_$RunId"; segment_id = 1; record_index = 0 }
-}
+    if ($captureProc.HasExited) { Show-Log $captureErr; throw "capture exited early (code $($captureProc.ExitCode))" }
+    if (-not (Test-Path $indexPath)) { Show-Log $captureErr; throw "capture wrote no segment in 60s" }
+    Write-Check "Capture running, first segment written" $true
 
-# Event: Service installed (7045) - Persistence
-$testEvents += @{
-    ts_ms = $tsNow + 1000
-    host = $env:COMPUTERNAME
-    type = "windows_event"
-    tags = @("windows", "event_log", "system")
-    fields = @{
-        "windows.event_id" = 7045
-        "windows.channel" = "System"
-        "windows.provider" = "Service Control Manager"
-        "ServiceName" = "EvalTestService"
-        "ImagePath" = "C:\Windows\Temp\eval_test.exe"
+    # ========================================================================
+    # STEP 5: Activity
+    # ========================================================================
+    Write-Step 5 "Activity ($ScenarioSet)"
+    $activityStart = Get-Date
+
+    # Discovery: whoami, hostname, ipconfig, tasklist, net and net1 within a minute
+    $null = Add-Activity "whoami /all" "whoami.exe" @("/all")
+    $null = Add-Activity "hostname" "hostname.exe" @()
+    $null = Add-Activity "ipconfig /all" "ipconfig.exe" @("/all")
+    $null = Add-Activity "tasklist" "tasklist.exe" @()
+    $null = Add-Activity "net user" "net.exe" @("user")
+    $null = Add-Activity "net localgroup administrators" "net.exe" @("localgroup", "administrators")
+
+    # Encoded PowerShell in a hidden window
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes("Write-Output 'edr eval encoded command'"))
+    $null = Add-Activity "powershell -EncodedCommand" "powershell.exe" @("-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", $encoded)
+
+    # certutil: encode a file, and a download from a closed local port
+    $plain = Join-Path $WorkDir "edr_eval_plain.txt"
+    Set-Content -Path $plain -Value "edr eval certutil input"
+    $null = Add-Activity "certutil -encode" "certutil.exe" @("-f", "-encode", $plain, (Join-Path $WorkDir "edr_eval_b64.txt"))
+    $null = Add-Activity "certutil -urlcache download" "certutil.exe" @("-urlcache", "-split", "-f", "http://127.0.0.1:9/edr_eval.txt", (Join-Path $WorkDir "edr_eval_dl.txt")) 60
+
+    # Failed network logons for an account that does not exist
+    if (-not ("EdrEval.Logon" -as [type])) {
+        Add-Type -Namespace EdrEval -Name Logon -MemberDefinition @'
+[DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+public static extern bool LogonUser(string user, string domain, string password, int logonType, int logonProvider, out IntPtr token);
+'@
     }
-    evidence_ptr = @{ stream_id = "eval_$RunId"; segment_id = 1; record_index = 1 }
-}
+    $failed = 0
+    foreach ($i in 1..6) {
+        $token = [IntPtr]::Zero
+        if (-not [EdrEval.Logon]::LogonUser("edr_eval_nouser", ".", "not-the-password-$i", 3, 0, [ref]$token)) { $failed++ }
+    }
+    $script:Activity += [ordered]@{ step = "failed network logons"; command = "LogonUser(edr_eval_nouser) x6"; exit_code = 6 - $failed }
+    Write-Host ("  {0,-34} {1} of 6 failed" -f "failed network logons", $failed)
 
-if ($ScenarioSet -eq "full") {
-    # Additional events for full scenario
-    
-    # Event: Scheduled task (4698)
-    $testEvents += @{
-        ts_ms = $tsNow + 2000
-        host = $env:COMPUTERNAME
-        type = "windows_event"
-        tags = @("windows", "event_log", "security")
-        fields = @{
-            "windows.event_id" = 4698
-            "windows.channel" = "Security"
-            "TaskName" = "\Microsoft\Windows\EvalTask"
-            "TaskContent" = "cmd.exe /c eval"
+    if ($ScenarioSet -eq "full") {
+        # Scheduled task that runs PowerShell from a user writable folder as SYSTEM at logon
+        $null = Add-Activity "schtasks /create" "schtasks.exe" @("/Create", "/F", "/TN", $TaskName, "/SC", "ONLOGON", "/RU", "SYSTEM", "/TR", "powershell.exe -NoProfile -File C:\Users\Public\edr_eval.ps1")
+
+        # Service whose binary is in C:\Users\Public (the file does not need to exist)
+        $null = Add-Activity "sc create" "sc.exe" @("create", $ServiceName, "binPath=", "C:\Users\Public\edr_eval_svc.exe", "start=", "demand")
+
+        # Local account added to Administrators. 14 characters at most, or net.exe asks a question.
+        $password = "Ev1!" + ([guid]::NewGuid().ToString("N").Substring(0, 10))
+        $null = Add-Activity "net user /add" "net.exe" @("user", $EvalUser, $password, "/add")
+        $null = Add-Activity "net localgroup administrators /add" "net.exe" @("localgroup", "administrators", $EvalUser, "/add")
+    }
+
+    # Marker: the last event of the run
+    $null = Add-Activity "marker" "cmd.exe" @("/c", "echo", $Marker)
+    $activitySeconds = [math]::Round(((Get-Date) - $activityStart).TotalSeconds, 1)
+    Write-Check "Activity generated" $true "$($script:Activity.Count) steps in ${activitySeconds}s"
+
+    # ========================================================================
+    # STEP 6: Wait for the capture, then stop it
+    # ========================================================================
+    Write-Step 6 "Wait for the marker in a segment, stop the capture"
+    $deadline = (Get-Date).AddSeconds(180)
+    $seen = $false
+    while ((Get-Date) -lt $deadline -and -not $captureProc.HasExited) {
+        if (Get-ChildItem -Path $SegmentsDir -Filter "*.jsonl" | Select-String -SimpleMatch $Marker -List | Select-Object -First 1) {
+            $seen = $true
+            break
         }
-        evidence_ptr = @{ stream_id = "eval_$RunId"; segment_id = 1; record_index = 2 }
+        Start-Sleep -Seconds 2
     }
-    
-    # Event: Network share access (5140)
-    $testEvents += @{
-        ts_ms = $tsNow + 3000
-        host = $env:COMPUTERNAME
-        type = "windows_event"
-        tags = @("windows", "event_log", "security")
-        fields = @{
-            "windows.event_id" = 5140
-            "windows.channel" = "Security"
-            "ShareName" = "\\*\ADMIN$"
-            "SubjectUserName" = $env:USERNAME
-            "IpAddress" = "192.168.1.100"
-        }
-        evidence_ptr = @{ stream_id = "eval_$RunId"; segment_id = 1; record_index = 3 }
+    if (-not $seen) { Show-Log $captureErr; throw "marker not captured within 180s" }
+    Write-Check "Marker captured" $true
+
+    # Graceful stop: the capture writes what it holds and exits
+    New-Item -ItemType File -Path (Join-Path $TelemetryRoot "capture.stop") -Force | Out-Null
+    if (-not $captureProc.WaitForExit(30000)) {
+        Stop-Process -Id $captureProc.Id -Force
+        throw "capture did not stop within 30s of the stop file"
     }
-}
+    Write-Check "Capture stopped" $true "exit $($captureProc.ExitCode)"
+    }
 
-# Write events to segment
-foreach ($evt in $testEvents) {
-    ($evt | ConvertTo-Json -Compress) | Out-File -FilePath $testSegment -Append -Encoding utf8
-}
+    # ========================================================================
+    # STEP 7: edr-locald over the capture
+    # ========================================================================
+    Write-Step 7 "edr-locald --once"
+    $localdErr = Join-Path $LogsDir "locald_err.log"
+    $localdProc = Start-Process -FilePath $LocaldBin -ArgumentList "--once" -PassThru -NoNewWindow `
+        -RedirectStandardOutput (Join-Path $LogsDir "locald.log") -RedirectStandardError $localdErr
+    if (-not $localdProc.WaitForExit(300000)) {
+        Stop-Process -Id $localdProc.Id -Force
+        throw "edr-locald --once did not finish within 300s"
+    }
+    if ($localdProc.ExitCode -ne 0) { Show-Log $localdErr; throw "edr-locald --once exited with $($localdProc.ExitCode)" }
 
-Write-Host "  Created $($testEvents.Count) test events"
+    $status = Get-Content (Join-Path $TelemetryRoot "playbooks_loaded.json") -Raw | ConvertFrom-Json
+    $yamlCount = @(Get-ChildItem -Path $PlaybooksDir -Filter "*.yaml").Count
+    $loadedOk = ($status.count -eq $yamlCount) -and (@($status.errors).Count -eq 0)
+    Write-Check "Playbooks loaded" $loadedOk "$($status.count) of $yamlCount, $($status.rules) rules, $(@($status.errors).Count) errors"
+    if (-not $loadedOk) { $failures += "playbooks not all loaded" }
 
-# Update index.json
-$indexPath = "$TelemetryRoot\index.json"
-if (Test-Path $indexPath) {
-    $index = Get-Content $indexPath -Raw | ConvertFrom-Json
-} else {
-    $index = @{ schema_version = "1.0"; segments = @() }
-}
-$index.segments += @{
-    rel_path = "segments/eval_$RunId.jsonl"
-    record_count = $testEvents.Count
-    byte_size = (Get-Item $testSegment).Length
-    created_at = (Get-Date).ToString("o")
-}
-$index | ConvertTo-Json -Depth 10 | Set-Content $indexPath -Encoding utf8
+    # ========================================================================
+    # STEP 8: edr-server, signals by playbook id, explanations
+    # ========================================================================
+    Write-Step 8 "edr-server checks"
+    $serverProc = Start-Process -FilePath $ServerBin -PassThru -NoNewWindow `
+        -RedirectStandardOutput (Join-Path $LogsDir "server.log") `
+        -RedirectStandardError (Join-Path $LogsDir "server_err.log")
+    $script:Processes += $serverProc
+    if (-not (Wait-ForServer 30)) { Show-Log (Join-Path $LogsDir "server_err.log"); throw "edr-server did not answer /api/health in 30s" }
 
-Write-Check "Scenarios injected" $true
-
-# Wait for processing
-Write-Host "  Waiting for detection pipeline (15s)..."
-Start-Sleep -Seconds 15
-
-# ============================================================================
-# STEP 6: Validate Detections
-# ============================================================================
-Write-Step 6 8 "Validating detections..."
-
-$metrics = @{
-    run_id = $RunId
-    scenario_set = $ScenarioSet
-    timestamp = (Get-Date).ToString("o")
-    signals = @()
-    explanations = @()
-    checks = @{}
-}
-
-try {
-    $signalsResp = Invoke-RestMethod -Uri "$BaseUrl/api/signals" -TimeoutSec 10
-    $signals = if ($signalsResp.data) { $signalsResp.data } else { @($signalsResp) }
-    $metrics.checks.signals_count = $signals.Count
-    
-    Write-Host "  Found $($signals.Count) signals"
-    
-    $minDetections = $Thresholds[$ScenarioSet].min_detections
-    $detectionsPass = $signals.Count -ge $minDetections
-    Write-Check "Minimum detections ($minDetections)" $detectionsPass "$($signals.Count) found"
-    
-    # Record signals
+    $resp = Invoke-RestMethod -Uri "$BaseUrl/api/signals?limit=1000" -TimeoutSec 30
+    $signals = @($resp.data)
+    $byPlaybook = @{}
     foreach ($sig in $signals) {
-        $metrics.signals += @{
-            signal_id = $sig.signal_id
-            signal_type = $sig.signal_type
-            severity = $sig.severity
-            ts = $sig.ts
-        }
+        $id = "$($sig.signal_type)" -replace '^playbook:', ''
+        if (-not $byPlaybook.ContainsKey($id)) { $byPlaybook[$id] = 0 }
+        $byPlaybook[$id]++
     }
-} catch {
-    Write-Check "Signal API" $false $_.Exception.Message
-    $detectionsPass = $false
-}
+    Write-Host "  $($signals.Count) signals from $($byPlaybook.Count) playbooks"
 
-# ============================================================================
-# STEP 7: Validate Explainability
-# ============================================================================
-Write-Step 7 8 "Validating explainability..."
-
-$explainSuccess = 0
-$explainTotal = 0
-
-foreach ($sig in $signals) {
-    $explainTotal++
-    try {
-        $explainResp = Invoke-RestMethod -Uri "$BaseUrl/api/signals/$($sig.signal_id)/explain" -TimeoutSec 10
-        $explanation = $explainResp.data
-        
-        if ($explanation -and $explanation.playbook_id) {
-            $explainSuccess++
-            
-            $metrics.explanations += @{
-                signal_id = $sig.signal_id
-                playbook_id = $explanation.playbook_id
-                playbook_title = $explanation.playbook_title
-                family = $explanation.family
-                slots_filled = ($explanation.slots | Where-Object { $_.status -eq "filled" }).Count
-                slots_total = $explanation.slots.Count
-                evidence_count = $explanation.evidence.Count
-            }
-            
-            Write-Host "    $($sig.signal_id): $($explanation.playbook_title)" -ForegroundColor Green
-        }
-    } catch {
-        # No explanation for this signal
+    $expectedResults = @()
+    foreach ($id in $Expected.Keys) {
+        $count = if ($byPlaybook.ContainsKey($id)) { $byPlaybook[$id] } else { 0 }
+        Write-Check $id ($count -gt 0) "$count signal(s), from $($Expected[$id])"
+        if ($count -eq 0) { $failures += "no signal from $id" }
+        $expectedResults += [ordered]@{ playbook_id = $id; activity = $Expected[$id]; fired = ($count -gt 0); signals = $count }
     }
-}
+    $unexpected = @($byPlaybook.Keys | Where-Object { -not $Expected.Contains($_) } | Sort-Object)
+    if ($unexpected.Count -gt 0) {
+        Write-Host "  Also fired: $($unexpected -join ', ')" -ForegroundColor DarkGray
+    }
 
-$explainRate = if ($explainTotal -gt 0) { $explainSuccess / $explainTotal } else { 0 }
-$explainThreshold = $Thresholds[$ScenarioSet].explain_success_rate
-$explainPass = $explainRate -ge $explainThreshold
-
-$metrics.checks.explain_success_rate = $explainRate
-$metrics.checks.explain_threshold = $explainThreshold
-
-Write-Check "Explanation rate (>= $([int]($explainThreshold * 100))%)" $explainPass "$([int]($explainRate * 100))%"
-
-# ============================================================================
-# STEP 8: Write Metrics & Open UI
-# ============================================================================
-Write-Step 8 8 "Writing metrics and opening UI..."
-
-# Write metrics
-$metricsPath = "$MetricsDir\run_${RunId}_metrics.json"
-$metrics | ConvertTo-Json -Depth 10 | Set-Content $metricsPath -Encoding utf8
-Write-Host "  Metrics: $metricsPath"
-
-# Write detections
-$detectionsPath = "$MetricsDir\run_${RunId}_detections.jsonl"
-foreach ($sig in $metrics.signals) {
-    ($sig | ConvertTo-Json -Compress) | Out-File -FilePath $detectionsPath -Append -Encoding utf8
-}
-Write-Host "  Detections: $detectionsPath"
-
-# Write explanations
-$explanationsPath = "$MetricsDir\run_${RunId}_explanations.jsonl"
-foreach ($exp in $metrics.explanations) {
-    ($exp | ConvertTo-Json -Compress) | Out-File -FilePath $explanationsPath -Append -Encoding utf8
-}
-Write-Host "  Explanations: $explanationsPath"
-
-# Open UI
-Start-Process $BaseUrl
-Write-Host "  UI opened in browser"
-
-# ============================================================================
-# Summary
-# ============================================================================
-Write-Host @"
-
-==============================================================================
- EVALUATION RESULTS
-==============================================================================
-"@ -ForegroundColor Cyan
-
-$overallPass = $detectionsPass -and $explainPass
-
-Write-Host "  Signals:      $($metrics.checks.signals_count)"
-Write-Host "  Explanations: $explainSuccess / $explainTotal"
-Write-Host "  Metrics:      $metricsPath"
-
-if ($overallPass) {
-    Write-Host "`n  RESULT: PASS" -ForegroundColor Green
-} else {
-    Write-Host "`n  RESULT: FAIL" -ForegroundColor Red
-}
-
-Write-Host "`n  Logs: $LogsDir"
-Write-Host "  UI:   $BaseUrl"
-
-if (-not $KeepRunning) {
-    Write-Host "`nShutting down stack..."
-    Cleanup
-    exit $(if ($overallPass) { 0 } else { 1 })
-} else {
-    Write-Host "`nStack is running. Press Ctrl+C to stop."
-    try {
-        while ($true) {
-            Start-Sleep -Seconds 10
-            # Check process health
-            foreach ($proc in $script:Processes) {
-                if ($proc.HasExited) {
-                    Write-Host "Process $($proc.Id) exited" -ForegroundColor Yellow
+    $explained = 0
+    $explanations = @()
+    foreach ($sig in $signals) {
+        try {
+            $exp = Invoke-RestMethod -Uri "$BaseUrl/api/signals/$($sig.signal_id)/explain" -TimeoutSec 30
+            $data = $exp.data
+            if ($exp.success -and $data -and $data.playbook_id -and @($data.slots).Count -gt 0 -and @($data.evidence).Count -gt 0) {
+                $explained++
+                $explanations += [ordered]@{
+                    signal_id = $sig.signal_id
+                    playbook_id = $data.playbook_id
+                    playbook_title = $data.playbook_title
+                    family = $data.family
+                    slots_filled = @($data.slots | Where-Object { $_.status -eq "filled" }).Count
+                    slots_total = @($data.slots).Count
+                    evidence_count = @($data.evidence).Count
+                    summary = $data.summary
                 }
+            } else {
+                Write-Host "  No complete explanation for $($sig.signal_id) ($($sig.signal_type))" -ForegroundColor Red
             }
+        } catch {
+            Write-Host "  Explain request failed for $($sig.signal_id): $($_.Exception.Message)" -ForegroundColor Red
         }
-    } finally {
-        Cleanup
+    }
+    $explainOk = $signals.Count -gt 0 -and $explained -eq $signals.Count
+    Write-Check "Every signal has an explanation with slots and evidence" $explainOk "$explained of $($signals.Count)"
+    if (-not $explainOk) { $failures += "explanations missing" }
+
+    # ========================================================================
+    # STEP 9: Metrics
+    # ========================================================================
+    Write-Step 9 "Metrics"
+    $segmentFiles = @(Get-ChildItem -Path $SegmentsDir -Filter "*.jsonl")
+    $eventsCount = 0
+    $channels = @{}
+    foreach ($f in $segmentFiles) {
+        foreach ($line in [System.IO.File]::ReadLines($f.FullName)) {
+            $eventsCount++
+            if ($line -match '"windows\.channel":"([^"]+)"') { $channels[$Matches[1]] = $true }
+        }
+    }
+    $eps = $null
+    if ($captureProc) {
+        $captureSeconds = [math]::Max(1, ($captureProc.ExitTime - $captureProc.StartTime).TotalSeconds)
+        $eps = [math]::Round($eventsCount / $captureSeconds, 1)
+    }
+    $pass = $failures.Count -eq 0
+    $metrics = [ordered]@{
+        run_id = $RunId
+        timestamp = $startTime.ToString("o")
+        duration_ms = [int]((Get-Date) - $startTime).TotalMilliseconds
+        status = if ($pass) { "pass" } else { "fail" }
+        scenario_set = $ScenarioSet
+        check_only = [bool]$CheckOnly
+        host = $env:COMPUTERNAME
+        telemetry = [ordered]@{
+            events_count = $eventsCount
+            segments_count = $segmentFiles.Count
+            channels_count = $channels.Count
+            channels = @($channels.Keys | Sort-Object)
+            eps = $eps
+        }
+        detections = [ordered]@{
+            signals_count = $signals.Count
+            explained_count = $explained
+            playbooks_hit = $byPlaybook.Count
+        }
+        verdicts = [ordered]@{
+            telemetry_flowing = $eventsCount -gt 0
+            detections_fired = $signals.Count -gt 0
+            expected_playbooks_fired = -not ($expectedResults | Where-Object { -not $_.fired })
+            explanations_valid = $explainOk
+            no_fake_detections = $true
+        }
+        expected_playbooks = $expectedResults
+        other_playbooks = $unexpected
+        activity = $script:Activity
+        failures = $failures
+        explanations = $explanations
+    }
+    $metricsPath = Join-Path $MetricsDir "run_${RunId}_metrics.json"
+    $metrics | ConvertTo-Json -Depth 10 | Set-Content -Path $metricsPath -Encoding utf8
+    Write-Host "  Metrics: $metricsPath"
+    Write-Host "  Events: $eventsCount in $($segmentFiles.Count) segments from $($channels.Count) channels"
+
+    $exitCode = if ($pass) { 0 } else { 1 }
+} catch {
+    $failures += "$_"
+    Write-Host "`nERROR: $_" -ForegroundColor Red
+    $exitCode = 1
+} finally {
+    if (-not $CheckOnly) { Remove-HostChanges }
+    if ($exitCode -ne 0 -or -not $KeepRunning) {
+        Stop-Stack
     }
 }
+
+Write-Host ""
+Write-Host "==============================================================================" -ForegroundColor Cyan
+if ($exitCode -eq 0) {
+    Write-Host " RESULT: PASS ($($Expected.Count) expected playbooks fired)" -ForegroundColor Green
+} else {
+    Write-Host " RESULT: FAIL" -ForegroundColor Red
+    $failures | ForEach-Object { Write-Host "   - $_" -ForegroundColor Red }
+}
+Write-Host " Logs: $LogsDir"
+if ($exitCode -eq 0 -and $KeepRunning) {
+    $serverPid = $serverProc.Id
+    Set-Content -Path (Join-Path $LogsDir "server.pid") -Value $serverPid
+    Write-Host " edr-server is still running at $BaseUrl (PID $serverPid)"
+    Write-Host " Stop it with: Stop-Process -Id $serverPid"
+}
+Write-Host "==============================================================================" -ForegroundColor Cyan
+exit $exitCode

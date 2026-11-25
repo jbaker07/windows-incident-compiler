@@ -81,6 +81,46 @@ jobs:
       - name: Run tests (Linux crates)
         run: cargo test -p edr-core -p edr-locald -p workbench
 
+  # The desktop crate (src-tauri) is not a workspace member, so its format
+  # check, clippy and tests, including one import per supported evidence
+  # format, run here.
+  desktop-linux:
+    name: Desktop crate tests (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Check formatting (desktop)
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Install WebKitGTK and GTK headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libssl-dev
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-desktop-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-desktop-cargo-
+
+      - name: Clippy (desktop)
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tests (desktop, includes the import format tests)
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
   # Security: Verify binaries don't contain sensitive material
   security-scan:
     name: Security Scan
@@ -121,7 +161,7 @@ jobs:
           
           foreach ($bin in $SHIPPING_BINARIES) {
             if (!(Test-Path $bin)) {
-              Write-Host "  ⚠ Skipping (not found): $bin"
+              Write-Host "  [WARN] Skipping (not found): $bin"
               continue
             }
             
@@ -131,7 +171,7 @@ jobs:
             foreach ($pattern in $FORBIDDEN_PATTERNS) {
               if ($content -match $pattern) {
                 $violations += "VIOLATION: Found '$pattern' in $bin"
-                Write-Host "    ✗ Found forbidden pattern: $pattern" -ForegroundColor Red
+                Write-Host "    [FAIL] Found forbidden pattern: $pattern" -ForegroundColor Red
               }
             }
           }
@@ -144,7 +184,7 @@ jobs:
           }
           
           Write-Host ""
-          Write-Host "✓ Security scan passed - no sensitive strings found" -ForegroundColor Green
+          Write-Host "[OK] Security scan passed - no sensitive strings found" -ForegroundColor Green
 
   # Verify artifact allowlist
   artifact-allowlist:
@@ -186,9 +226,9 @@ jobs:
           foreach ($bin in $ALLOWED_BINARIES) {
             $path = Join-Path "target/release" $bin
             if (Test-Path $path) {
-              Write-Host "  ✓ Found: $bin" -ForegroundColor Green
+              Write-Host "  [OK] Found: $bin" -ForegroundColor Green
             } else {
-              Write-Host "  ✗ MISSING: $bin" -ForegroundColor Red
+              Write-Host "  [FAIL] MISSING: $bin" -ForegroundColor Red
               exit 1
             }
           }
@@ -199,7 +239,7 @@ jobs:
           foreach ($forbidden in $FORBIDDEN_BINARIES) {
             $path = Join-Path "target/release" $forbidden
             if (Test-Path $path) {
-              Write-Host "  ⚠ Built (correctly excluded from shipping): $forbidden" -ForegroundColor Yellow
+              Write-Host "  [WARN] Built (correctly excluded from shipping): $forbidden" -ForegroundColor Yellow
             }
           }
           
@@ -207,8 +247,139 @@ jobs:
           $licenseGenPath = Join-Path "target/release" "license_gen.exe"
           if (!(Test-Path $licenseGenPath)) {
             Write-Host ""
-            Write-Host "✗ WARNING: license_gen.exe not built - vendor tool missing" -ForegroundColor Yellow
+            Write-Host "[WARN] license_gen.exe not built - vendor tool missing" -ForegroundColor Yellow
           }
           
           Write-Host ""
-          Write-Host "✓ Artifact allowlist verification passed" -ForegroundColor Green
+          Write-Host "[OK] Artifact allowlist verification passed" -ForegroundColor Green
+
+  # Live run on a real Windows host: WEVTAPI capture of attack-like activity,
+  # edr-locald over the capture, checks by playbook id, then every PowerShell
+  # script in the repo. The runner is a throwaway VM with administrator rights,
+  # which eval_windows.ps1 needs (it clears logs and changes the audit policy).
+  windows-live-e2e:
+    name: Windows live capture end to end
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-e2e-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-e2e-cargo-
+
+      - name: Build workspace (release)
+        run: cargo build --release --workspace
+
+      - name: Run tests (release)
+        run: cargo test --release --workspace
+
+      - name: Parse every PowerShell script
+        shell: pwsh
+        run: |
+          $failed = 0
+          Get-ChildItem -Path scripts, packaging -Filter *.ps1 | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors) {
+              $failed++
+              $errors | ForEach-Object { Write-Host "$($_.Extent.File):$($_.Extent.StartLineNumber): $($_.Message)" }
+            } else {
+              Write-Host "[OK] $($_.Name)"
+            }
+          }
+          if ($failed -gt 0) { exit 1 }
+
+      - name: WEVTAPI read smoke test (wevt_smoke.exe)
+        shell: pwsh
+        run: |
+          .\target\release\wevt_smoke.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Telemetry prerequisites (enable_advanced_telemetry.ps1 -AutoFix)
+        shell: pwsh
+        run: |
+          .\scripts\enable_advanced_telemetry.ps1 -AutoFix
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Live capture and playbook checks, then the API scripts
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "edr_eval"
+          $url = "http://127.0.0.1:3000"
+          .\scripts\eval_windows.ps1 -ScenarioSet full -SkipBuild -DisposableHost -KeepRunning -TelemetryRoot $root
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $serverPid = Get-Content (Join-Path $root "logs\server.pid")
+          $code = 0
+          try {
+            $env:EDR_API_URL = $url
+            .\scripts\smoke_stack.ps1
+            if ($LASTEXITCODE -ne 0) { throw "smoke_stack.ps1 failed" }
+            .\scripts\quick_explain_check.ps1 -ServerUrl $url
+            if ($LASTEXITCODE -ne 0) { throw "quick_explain_check.ps1 failed" }
+            .\scripts\verify_explainability.ps1 -ServerUrl $url -MinSignals 11 -RequireSignals -RequireEvidence -RequireFilledSlot
+            if ($LASTEXITCODE -ne 0) { throw "verify_explainability.ps1 failed" }
+            .\scripts\verify_narration.ps1 -ServerUrl $url
+            if ($LASTEXITCODE -ne 0) { throw "verify_narration.ps1 failed" }
+            $metrics = Invoke-RestMethod -Uri "$url/api/eval/metrics" -TimeoutSec 10
+            if (-not $metrics.success -or $metrics.data.status -ne "pass") { throw "GET /api/eval/metrics did not return the passing run" }
+            Write-Host "[OK] /api/eval/metrics serves run $($metrics.data.run_id)"
+            cargo test --release -p edr-server --test pdf_report_tests -- --ignored
+            if ($LASTEXITCODE -ne 0) { throw "live PDF report test failed" }
+          } catch {
+            Write-Host "FAILED: $_" -ForegroundColor Red
+            $code = 1
+          } finally {
+            Stop-Process -Id $serverPid -Force -ErrorAction SilentlyContinue
+          }
+          exit $code
+
+      - name: Stack run with verification (run_stack_windows.ps1)
+        shell: pwsh
+        env:
+          EDR_TELEMETRY_ROOT: ${{ runner.temp }}\edr_stack
+        run: |
+          .\scripts\run_stack_windows.ps1 -NoBuild -Verify -Explain -Metrics
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Import diagnosis on the importer fixture (diagnose_import.ps1)
+        shell: pwsh
+        run: |
+          .\scripts\diagnose_import.ps1 -BundleId bundle_1a20b3da754_f936 -ImportsRoot testdata\import_bundles
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Release allowlist (validate_allowlist.ps1)
+        shell: pwsh
+        run: |
+          $dist = Join-Path $env:RUNNER_TEMP "dist"
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+          $allow = Get-Content packaging\allowlist.json -Raw | ConvertFrom-Json
+          foreach ($bin in $allow.allowed_binaries) { Copy-Item (Join-Path "target\release" $bin) $dist }
+          Copy-Item ui (Join-Path $dist "ui") -Recurse
+          Copy-Item README.md $dist
+          Copy-Item docs\LICENSING.md $dist
+          Copy-Item crates\server\fonts\LICENSE (Join-Path $dist "LIBERATION-FONTS-LICENSE.txt")
+          .\packaging\validate_allowlist.ps1 -DistPath $dist
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload telemetry and logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-live-e2e
+          path: |
+            ${{ runner.temp }}/edr_eval
+            ${{ runner.temp }}/edr_stack
+          if-no-files-found: ignore

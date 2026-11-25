@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "imported_at": "2026-11-24T01:48:39.659445138Z",
+  "source_type": "folder",
+  "source_path": "/src/testdata/import_formats",
+  "bundle_id": "bundle_1a20b3da754_f936",
+  "run_id": "cli_1795484919",
+  "files": [
+    {
+      "rel_path": "gobuster_dir.txt",
+      "sha256": "3492cfbd6ac010601c2e3383f101836ad1b439b7edc8f7a4116568da49d94671",
+      "bytes": 877,
+      "kind": "gobuster",
+      "parsed": true,
+      "parser": "plaintext",
+      "warnings": [],
+      "events_extracted": 3
+    },
+    {
+      "rel_path": "Invoke-AtomicTest-ExecutionLog.csv",
+      "sha256": "e3f45602fcbc51fc6eb467944acd239dcb4b2eb1a77dda401615004b2ec8d226",
+      "bytes": 487,
+      "kind": "atomic_output",
+      "parsed": true,
+      "parser": "atomic",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "ffuf_results.json",
+      "sha256": "ee27d6baff5dc435d56c1db770b76a11afb929ff03d5094a50e160d9693e326d",
+      "bytes": 1051,
+      "kind": "ffuf",
+      "parsed": true,
+      "parser": "plaintext",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "firewall_export.csv",
+      "sha256": "bd9937ef6d9e309208f3001464041c808a8349c915407e58604799f32ea45d8c",
+      "bytes": 229,
+      "kind": "csv",
+      "parsed": true,
+      "parser": "csv",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "burp_scan_issues.xml",
+      "sha256": "5847852957e2775465aacda38e1d9403f71516dc0c5ae84bd646f44b98b36166",
+      "bytes": 1933,
+      "kind": "burp_xml",
+      "parsed": true,
+      "parser": "burp",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "burp_proxy_history.xml",
+      "sha256": "e27f26c4605bee72baa63412d3f7f687d347ae3f654b41acc34f316240d16e57",
+      "bytes": 1881,
+      "kind": "burp_xml",
+      "parsed": true,
+      "parser": "burp",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "zap_report.json",
+      "sha256": "4c24a01fe3ffe09af394b79bd80cb542f87b2a44715ec165a3e757988a1d48e3",
+      "bytes": 1936,
+      "kind": "zap_json",
+      "parsed": true,
+      "parser": "zap",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "conn.log",
+      "sha256": "2fa91f60fca97ad55d9c350217a47936bdba74d86ae4f84b838d8b685eab9f89",
+      "bytes": 724,
+      "kind": "zeek_conn",
+      "parsed": true,
+      "parser": "zeek",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "burp_export.har",
+      "sha256": "754f90e6ee88133f00561c5382d13be05653f42aa83a5be3b1e4c6f53f710f39",
+      "bytes": 3001,
+      "kind": "har",
+      "parsed": true,
+      "parser": "har",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "yara_scan.txt",
+      "sha256": "55e380f4d5aa918a9ebd5c48c46eb0998cc432c9f98386c82165e2b8333ce010",
+      "bytes": 158,
+      "kind": "yara_text",
+      "parsed": true,
+      "parser": "yara",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "ssl.log",
+      "sha256": "7bf9873146703d346fa80e51bfaced257fcc54c4a00fb745a413097d7b05cbd5",
+      "bytes": 713,
+      "kind": "zeek_ssl",
+      "parsed": true,
+      "parser": "zeek",
+      "warnings": [],
+      "events_extracted": 1
+    },
+    {
+      "rel_path": ".zsh_history",
+      "sha256": "cc55ce0a3e051cf8b26888b3ec2867df09f8a1bb627297e03452dbbe1f95680f",
+      "bytes": 87,
+      "kind": "shell_history",
+      "parsed": true,
+      "parser": "plaintext",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "eve.json",
+      "sha256": "ffe0fa49bbace5d2140d4eeac31eda18fcb16f2171c8512144e5180a1af890c6",
+      "bytes": 2127,
+      "kind": "suricata_eve",
+      "parsed": true,
+      "parser": "suricata",
+      "warnings": [],
+      "events_extracted": 5
+    },
+    {
+      "rel_path": "velociraptor_Windows.System.Pslist.json",
+      "sha256": "088102da005cb29c6711afdcb5ca2869dc8132235fd7c5c4bccad7ac7a5eca90",
+      "bytes": 503,
+      "kind": "velociraptor",
+      "parsed": true,
+      "parser": "velociraptor",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "alerts_export.yaml",
+      "sha256": "11d910804536c0724120d1f6e494b3c148fe4e7becb4d1f6a216968a0b22ea3f",
+      "bytes": 516,
+      "kind": "yaml",
+      "parsed": true,
+      "parser": "yaml",
+      "warnings": [],
+      "events_extracted": 3
+    },
+    {
+      "rel_path": "http.log",
+      "sha256": "4ca2e2148eae53c736dd6bef02b653fd621ee0a876ed09451afcff53d2f7cfac",
+      "bytes": 944,
+      "kind": "zeek_http",
+      "parsed": true,
+      "parser": "zeek",
+      "warnings": [],
+      "events_extracted": 1
+    },
+    {
+      "rel_path": "siem_export.jsonl",
+      "sha256": "c9f238efd00ed0d5d9294eacae2b59bc6c2d2dd86f1642cf12974f223ad05194",
+      "bytes": 516,
+      "kind": "jsonl",
+      "parsed": true,
+      "parser": "jsonl",
+      "warnings": [],
+      "events_extracted": 2
+    },
+    {
+      "rel_path": "nmap_scan.xml",
+      "sha256": "1b1400665867853780a8933cb322092123337a32328ba56d47aa4c65389f757b",
+      "bytes": 1215,
+      "kind": "nmap_xml",
+      "parsed": true,
+      "parser": "nmap",
+      "warnings": [],
+      "events_extracted": 6
+    },
+    {
+      "rel_path": "osquery_results.json",
+      "sha256": "9ce48875953c86aa1daab159c9ecc34b40f9a86d950a6ac1632788850a08c013",
+      "bytes": 1472,
+      "kind": "osquery",
+      "parsed": true,
+      "parser": "osquery",
+      "warnings": [],
+      "events_extracted": 4
+    },
+    {
+      "rel_path": "yara_results.json",
+      "sha256": "f3f5e4ac0177d2900add3aab0c33589261496b36ee3a7b59f58c54d55ddee3a4",
+      "bytes": 368,
+      "kind": "yara_json",
+      "parsed": true,
+      "parser": "yara",
+      "warnings": [],
+      "events_extracted": 1
+    },
+    {
+      "rel_path": ".bash_history",
+      "sha256": "436e145d825310eb60513b0484b9ba5cba231abe753343b7d64af6161291cff7",
+      "bytes": 98,
+      "kind": "shell_history",
+      "parsed": true,
+      "parser": "plaintext",
+      "warnings": [],
+      "events_extracted": 5
+    },
+    {
+      "rel_path": "dns.log",
+      "sha256": "193341ac2ba8a796278637ef4a71be3ecbb33fa70559f9bb95da652c252b2237",
+      "bytes": 627,
+      "kind": "zeek_dns",
+      "parsed": true,
+      "parser": "zeek",
+      "warnings": [],
+      "events_extracted": 1
+    },
+    {
+      "rel_path": "capture.pcap",
+      "sha256": "de9bdfd02ae5d86c4299234c9353ad2c83d2f345bb58e862666a9c6287264262",
+      "bytes": 100,
+      "kind": "pcap",
+      "parsed": false,
+      "parser": null,
+      "warnings": [],
+      "events_extracted": null
+    },
+    {
+      "rel_path": "PowerShell_transcript.WS01.abc123.20240101000050.txt",
+      "sha256": "87734ff98e175789df170ee854504742b69505fd93ae23f8a996d47d039232ce",
+      "bytes": 753,
+      "kind": "ps_transcript",
+      "parsed": true,
+      "parser": "plaintext",
+      "warnings": [],
+      "events_extracted": 3
+    },
+    {
+      "rel_path": "security_evtx.json",
+      "sha256": "e0f82225951d82d1c5ad76720abcfed47df0f315e763261b03192fee3157f341",
+      "bytes": 2954,
+      "kind": "evtx_json",
+      "parsed": true,
+      "parser": "evtx_json",
+      "warnings": [],
+      "events_extracted": 3
+    }
+  ],
+  "rejected": [],
+  "limits": {
+    "max_total_bytes": 2147483648,
+    "max_files": 50000,
+    "max_depth": 16,
+    "max_single_file_bytes": 209715200,
+    "max_compression_ratio": 200.0,
+    "max_lines_per_file": 10000000,
+    "max_line_bytes": 1048576
+  },
+  "summary": {
+    "total_files": 25,
+    "total_bytes": 25270,
+    "parsed_files": 24,
+    "rejected_files": 0,
+    "events_extracted": 60,
+    "file_kinds": {
+      "shellhistory": 2,
+      "velociraptor": 1,
+      "gobuster": 1,
+      "csv": 1,
+      "evtxjson": 1,
+      "atomicoutput": 1,
+      "yaml": 1,
+      "pcap": 1,
+      "zeekdns": 1,
+      "suricataeve": 1,
+      "yarajson": 1,
+      "yaratext": 1,
+      "zeekconn": 1,
+      "zeekhttp": 1,
+      "zapjson": 1,
+      "jsonl": 1,
+      "burpxml": 2,
+      "ffuf": 1,
+      "nmapxml": 1,
+      "osquery": 1,
+      "har": 1,
+      "zeekssl": 1,
+      "pstranscript": 1
+    }
+  }
+}

@@ -3,14 +3,20 @@
 .SYNOPSIS
     Enable detection-grade telemetry channels for Windows EDR collection.
 .DESCRIPTION
-    - Enables Windows Event Log channels via wevtutil
-    - Configures advanced audit policies via auditpol
+    - Checks the Windows Event Log channels and enables them with -AutoFix (wevtutil)
+    - Checks the audit policy subcategories the playbooks need and sets them
+      with -AutoFix (auditpol)
+    - Checks command line logging in Security 4688 and PowerShell script block
+      logging, and turns them on with -AutoFix
     - Checks for Sysmon presence and configuration
     - Returns PASS/FAIL status
 .EXAMPLE
     .\enable_advanced_telemetry.ps1
+.EXAMPLE
+    .\enable_advanced_telemetry.ps1 -AutoFix
 .NOTES
-    Must run as Administrator
+    Must run as Administrator. The audit policy subcategory names are the
+    English ones that auditpol uses on an en-US system.
 #>
 
 [CmdletBinding()]
@@ -178,7 +184,7 @@ if ($sysmonService) {
     
     # Check config
     try {
-        $sysmonExe = (Get-WmiObject Win32_Service -Filter "Name LIKE 'Sysmon%'" -ErrorAction SilentlyContinue).PathName
+        $sysmonExe = (Get-CimInstance Win32_Service -Filter "Name LIKE 'Sysmon%'" -ErrorAction SilentlyContinue | Select-Object -First 1).PathName
         if ($sysmonExe) {
             $sysmonExe = $sysmonExe -replace '"', '' -replace '\s+-.*$', ''
             if (Test-Path $sysmonExe) {
@@ -219,31 +225,64 @@ if ($sysmonService) {
 Write-Host "`n--- Audit Policy Status ---" -ForegroundColor Yellow
 
 if (-not $SkipAuditPolicy) {
+    # Subcategories the Windows playbooks read, and the events they produce.
     $requiredPolicies = @(
-        @{ Subcategory = "Process Creation"; Expected = "Success" },
-        @{ Subcategory = "Logon"; Expected = "Success and Failure" },
-        @{ Subcategory = "Special Logon"; Expected = "Success" },
-        @{ Subcategory = "Logoff"; Expected = "Success" },
-        @{ Subcategory = "Security System Extension"; Expected = "Success" }
+        @{ Subcategory = "Process Creation"; Success = $true; Failure = $false; Events = "4688" },
+        @{ Subcategory = "Logon"; Success = $true; Failure = $true; Events = "4624, 4625" },
+        @{ Subcategory = "Special Logon"; Success = $true; Failure = $false; Events = "4672" },
+        @{ Subcategory = "Logoff"; Success = $true; Failure = $false; Events = "4634" },
+        @{ Subcategory = "Security System Extension"; Success = $true; Failure = $false; Events = "4697" },
+        @{ Subcategory = "Other Object Access Events"; Success = $true; Failure = $false; Events = "4698, 4702" },
+        @{ Subcategory = "User Account Management"; Success = $true; Failure = $false; Events = "4720, 4722, 4724" },
+        @{ Subcategory = "Security Group Management"; Success = $true; Failure = $false; Events = "4728, 4732, 4756" },
+        @{ Subcategory = "Audit Policy Change"; Success = $true; Failure = $false; Events = "4719" }
     )
-    
+
+    # Current setting of one subcategory: "No Auditing", "Success", "Failure",
+    # "Success and Failure", or $null when auditpol does not list it.
+    function Get-AuditSetting([string]$Subcategory) {
+        $output = auditpol /get /subcategory:"$Subcategory" 2>&1
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $pattern = "^\s+" + [regex]::Escape($Subcategory) + "\s{2,}(\S.*)$"
+        foreach ($line in $output) {
+            if ("$line" -match $pattern) { return $Matches[1].Trim() }
+        }
+        return $null
+    }
+
     foreach ($policy in $requiredPolicies) {
-        try {
-            $result = auditpol /get /subcategory:"$($policy.Subcategory)" 2>&1
-            $line = $result | Select-String -Pattern $policy.Subcategory
-            if ($line) {
-                $lineStr = $line.ToString()
-                if ($lineStr -match "Success and Failure|Success") {
-                    Write-Status "Audit: $($policy.Subcategory) - Enabled" "PASS"
-                    $script:PassCount++
-                } else {
-                    Write-Status "Audit: $($policy.Subcategory) - Not configured" "WARN"
-                    Write-Host "      Fix: auditpol /set /subcategory:`"$($policy.Subcategory)`" /success:enable /failure:enable"
-                    $script:WarnCount++
-                }
+        $name = $policy.Subcategory
+        $wanted = if ($policy.Success -and $policy.Failure) { "Success and Failure" } else { "Success" }
+        $setting = Get-AuditSetting $name
+        if ($null -eq $setting) {
+            Write-Status "Audit: $name - Query failed" "WARN"
+            $script:WarnCount++
+            continue
+        }
+
+        $ok = (-not $policy.Success -or $setting -match "Success") -and (-not $policy.Failure -or $setting -match "Failure")
+        if ($ok) {
+            Write-Status "Audit: $name - $setting (events $($policy.Events))" "PASS"
+            $script:PassCount++
+            continue
+        }
+
+        $flags = @("/success:enable")
+        if ($policy.Failure) { $flags += "/failure:enable" }
+        if ($AutoFix) {
+            auditpol /set /subcategory:"$name" @flags 2>&1 | Out-Null
+            $setExit = $LASTEXITCODE
+            $after = Get-AuditSetting $name
+            if ($setExit -eq 0 -and $after -and (-not $policy.Success -or $after -match "Success") -and (-not $policy.Failure -or $after -match "Failure")) {
+                Write-Status "Audit: $name - $after (auto-fixed)" "FIX"
+                $script:PassCount++
+            } else {
+                Write-Status "Audit: $name - Failed to set $wanted" "FAIL"
+                $script:FailCount++
             }
-        } catch {
-            Write-Status "Audit: $($policy.Subcategory) - Query failed" "WARN"
+        } else {
+            Write-Status "Audit: $name - $setting, playbooks need $wanted (events $($policy.Events))" "WARN"
+            Write-Host "      Fix: auditpol /set /subcategory:`"$name`" $($flags -join ' ')"
             $script:WarnCount++
         }
     }

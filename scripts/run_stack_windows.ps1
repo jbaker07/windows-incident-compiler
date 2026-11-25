@@ -28,7 +28,7 @@ if ($Help) {
     Write-Host "  -Verify       Run E2E verification (generate activity, check /api/signals, exit)"
     Write-Host "  -Explain      Validate ExplanationBundle for each signal (requires -Verify)"
     Write-Host "  -Metrics      Write metrics artifact JSON to `$EDR_TELEMETRY_ROOT\metrics"
-    Write-Host "  -OpenUI       Open browser to http://localhost:3000/ after server healthy"
+    Write-Host "  -OpenUI       Open browser to http://127.0.0.1:3000/ after server healthy"
     Write-Host "  -KeepRunning  Don't shut down after verification (for debugging)"
     Write-Host ""
     Write-Host "Examples:"
@@ -53,7 +53,7 @@ if (-not $env:EDR_TELEMETRY_ROOT) {
     $env:EDR_TELEMETRY_ROOT = "C:\ProgramData\edr"
 }
 $TelemetryRoot = $env:EDR_TELEMETRY_ROOT
-$BaseUrl = "http://localhost:3000"
+$BaseUrl = "http://127.0.0.1:3000"
 $RunId = "run_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
 
 # Check Admin privileges
@@ -266,7 +266,7 @@ try {
     if ($OpenUI) {
         Write-Host ""
         Write-Host "[UI] Opening browser..." -ForegroundColor Cyan
-        Start-Process "http://localhost:3000/"
+        Start-Process "$BaseUrl/"
         Write-Host "  Opened $BaseUrl in default browser"
     }
     

@@ -6,7 +6,7 @@ param(
     [switch]$Verbose
 )
 
-$BaseUrl = if ($env:EDR_API_URL) { $env:EDR_API_URL } else { "http://localhost:3000" }
+$BaseUrl = if ($env:EDR_API_URL) { $env:EDR_API_URL } else { "http://127.0.0.1:3000" }
 $Failed = 0
 
 function Check-Endpoint {
@@ -23,7 +23,7 @@ function Check-Endpoint {
         $body = $response.Content
         
         if ($response.StatusCode -ne 200) {
-            Write-Host "✗ $Name - HTTP $($response.StatusCode)"
+            Write-Host "[FAIL] $Name - HTTP $($response.StatusCode)"
             $script:Failed++
             return $false
         }
@@ -32,27 +32,27 @@ function Check-Endpoint {
         try {
             $json = $body | ConvertFrom-Json
         } catch {
-            Write-Host "✗ $Name - Invalid JSON response"
+            Write-Host "[FAIL] $Name - Invalid JSON response"
             $script:Failed++
             return $false
         }
         
         # Check for expected field if specified
         if ($ExpectedField -and -not ($json.PSObject.Properties.Name -contains $ExpectedField)) {
-            Write-Host "✗ $Name - Missing field: $ExpectedField"
+            Write-Host "[FAIL] $Name - Missing field: $ExpectedField"
             if ($Verbose) { Write-Host "Response: $body" }
             $script:Failed++
             return $false
         }
         
-        Write-Host "✓ $Name - OK"
+        Write-Host "[OK] $Name - OK"
         if ($Verbose) { 
             $preview = $body.Substring(0, [Math]::Min(200, $body.Length))
             Write-Host "Response: $preview..."
         }
         return $true
     } catch {
-        Write-Host "✗ $Name - Connection failed: $($_.Exception.Message)"
+        Write-Host "[FAIL] $Name - Connection failed: $($_.Exception.Message)"
         $script:Failed++
         return $false
     }
@@ -79,11 +79,11 @@ Check-Endpoint -Name "Signals" -Url "$BaseUrl/api/signals" | Out-Null
 Write-Host ""
 Write-Host "=========================================="
 if ($Failed -eq 0) {
-    Write-Host " All checks passed ✓"
+    Write-Host " All checks passed"
     Write-Host "=========================================="
     exit 0
 } else {
-    Write-Host " $Failed check(s) failed ✗"
+    Write-Host " $Failed check(s) failed"
     Write-Host "=========================================="
     exit 1
 }

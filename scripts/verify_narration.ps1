@@ -3,7 +3,7 @@
 # Tests all 7 hard requirements for the narrative system
 
 param(
-    [string]$ServerUrl = "http://localhost:3000",
+    [string]$ServerUrl = "http://127.0.0.1:3000",
     [switch]$Verbose,
     [switch]$CreateTestData
 )
@@ -16,9 +16,9 @@ $script:WarningCount = 0
 function Write-TestHeader {
     param([string]$Title)
     Write-Host "`n" -NoNewline
-    Write-Host "=" * 70 -ForegroundColor Cyan
+    Write-Host ("=" * 70) -ForegroundColor Cyan
     Write-Host " $Title" -ForegroundColor Cyan
-    Write-Host "=" * 70 -ForegroundColor Cyan
+    Write-Host ("=" * 70) -ForegroundColor Cyan
 }
 
 function Write-TestResult {
@@ -30,17 +30,17 @@ function Write-TestResult {
     )
     
     if ($IsWarning) {
-        Write-Host "  ⚠ " -ForegroundColor Yellow -NoNewline
+        Write-Host "  [WARN] " -ForegroundColor Yellow -NoNewline
         Write-Host "$TestName" -ForegroundColor Yellow
         if ($Message) { Write-Host "    $Message" -ForegroundColor Gray }
         $script:WarningCount++
     } elseif ($Passed) {
-        Write-Host "  ✓ " -ForegroundColor Green -NoNewline
+        Write-Host "  [OK] " -ForegroundColor Green -NoNewline
         Write-Host "$TestName" -ForegroundColor Green
         if ($Message -and $Verbose) { Write-Host "    $Message" -ForegroundColor Gray }
         $script:PassCount++
     } else {
-        Write-Host "  ✗ " -ForegroundColor Red -NoNewline
+        Write-Host "  [FAIL] " -ForegroundColor Red -NoNewline
         Write-Host "$TestName" -ForegroundColor Red
         if ($Message) { Write-Host "    $Message" -ForegroundColor Red }
         $script:FailCount++
@@ -380,9 +380,9 @@ if ($hasSignals -and $narrative -and $narrative.data) {
 # Final Summary
 # =============================================================================
 Write-Host ""
-Write-Host "=" * 70 -ForegroundColor Cyan
+Write-Host ("=" * 70) -ForegroundColor Cyan
 Write-Host " VERIFICATION SUMMARY" -ForegroundColor Cyan
-Write-Host "=" * 70 -ForegroundColor Cyan
+Write-Host ("=" * 70) -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Passed:   " -NoNewline -ForegroundColor Green
 Write-Host $script:PassCount -ForegroundColor Green
@@ -393,12 +393,12 @@ Write-Host $script:WarningCount -ForegroundColor Yellow
 Write-Host ""
 
 if ($script:FailCount -eq 0) {
-    Write-Host "  ✓ All critical tests passed!" -ForegroundColor Green
+    Write-Host "  [OK] All critical tests passed!" -ForegroundColor Green
     if ($script:WarningCount -gt 0) {
         Write-Host "    (Some warnings - usually due to missing test data)" -ForegroundColor Yellow
     }
     exit 0
 } else {
-    Write-Host "  ✗ Some tests failed - review output above" -ForegroundColor Red
+    Write-Host "  [FAIL] Some tests failed - review output above" -ForegroundColor Red
     exit 1
 }
