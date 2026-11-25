@@ -35,7 +35,7 @@ impl GateStatus {
             GateStatus::NoData => "NO_DATA",
         }
     }
-    
+
     pub fn emoji(&self) -> &'static str {
         match self {
             GateStatus::Pass => "✅",
@@ -44,7 +44,7 @@ impl GateStatus {
             GateStatus::NoData => "⏸️",
         }
     }
-    
+
     pub fn is_healthy(&self) -> bool {
         matches!(self, GateStatus::Pass | GateStatus::Partial)
     }
@@ -77,17 +77,29 @@ impl TelemetryGate {
         } else {
             0.0
         };
-        
+
         let (status, diagnosis) = if events_count == 0 {
             (GateStatus::Fail, Some("No events captured. Check: (1) Running as admin, (2) Capture process running, (3) Security log access".to_string()))
         } else if !channels.contains(&"Security".to_string()) {
-            (GateStatus::Partial, Some("Security channel not captured. Run as Administrator for full telemetry.".to_string()))
+            (
+                GateStatus::Partial,
+                Some(
+                    "Security channel not captured. Run as Administrator for full telemetry."
+                        .to_string(),
+                ),
+            )
         } else if events_count < 10 {
-            (GateStatus::Partial, Some("Very few events captured. Run may be too short or no activity occurred.".to_string()))
+            (
+                GateStatus::Partial,
+                Some(
+                    "Very few events captured. Run may be too short or no activity occurred."
+                        .to_string(),
+                ),
+            )
         } else {
             (GateStatus::Pass, None)
         };
-        
+
         Self {
             status,
             events_count,
@@ -119,14 +131,14 @@ impl ExtractionGate {
         "Exec",
         "ScriptBlock",
         "ServiceInstall",
-        "ScheduledTask", 
+        "ScheduledTask",
         "Logon",
         "LogCleared",
         "FileCreate",
         "RegistryMod",
         "NetworkConnect",
     ];
-    
+
     pub fn evaluate(
         facts_count: u32,
         events_count: u32,
@@ -137,10 +149,10 @@ impl ExtractionGate {
         } else {
             0.0
         };
-        
+
         let mut key_present = Vec::new();
         let mut key_missing = Vec::new();
-        
+
         for key_type in Self::KEY_FACT_TYPES {
             if facts_by_type.contains_key(*key_type) {
                 key_present.push(key_type.to_string());
@@ -148,19 +160,34 @@ impl ExtractionGate {
                 key_missing.push(key_type.to_string());
             }
         }
-        
+
         let (status, diagnosis) = if events_count == 0 {
-            (GateStatus::NoData, Some("No events to extract from (Gate A failed)".to_string()))
+            (
+                GateStatus::NoData,
+                Some("No events to extract from (Gate A failed)".to_string()),
+            )
         } else if facts_count == 0 {
-            (GateStatus::Fail, Some("Events received but no facts extracted. Check fact_extractor configuration.".to_string()))
+            (
+                GateStatus::Fail,
+                Some(
+                    "Events received but no facts extracted. Check fact_extractor configuration."
+                        .to_string(),
+                ),
+            )
         } else if key_present.is_empty() {
             (GateStatus::Fail, Some("Facts extracted but none are security-relevant. Missing key types: Exec, ServiceInstall, Logon, etc.".to_string()))
         } else if key_missing.len() > key_present.len() {
-            (GateStatus::Partial, Some(format!("Missing key fact types: {}. May need more telemetry or run activity.", key_missing.join(", "))))
+            (
+                GateStatus::Partial,
+                Some(format!(
+                    "Missing key fact types: {}. May need more telemetry or run activity.",
+                    key_missing.join(", ")
+                )),
+            )
         } else {
             (GateStatus::Pass, None)
         };
-        
+
         Self {
             status,
             facts_count,
@@ -199,21 +226,33 @@ impl DetectionGate {
         } else {
             0.0
         };
-        
+
         let playbooks_matched: Vec<String> = signals_by_playbook.keys().cloned().collect();
-        
+
         let (status, diagnosis) = if facts_count == 0 {
-            (GateStatus::NoData, Some("No facts to match against (Gate B failed)".to_string()))
+            (
+                GateStatus::NoData,
+                Some("No facts to match against (Gate B failed)".to_string()),
+            )
         } else if signals_count == 0 && playbooks_loaded > 0 {
             (GateStatus::Fail, Some(format!("Facts available ({}) but no playbooks matched. Either activity is benign or playbooks need tuning.", facts_count)))
         } else if signals_count == 0 && playbooks_loaded == 0 {
-            (GateStatus::Fail, Some("No playbooks loaded. Check playbooks directory.".to_string()))
+            (
+                GateStatus::Fail,
+                Some("No playbooks loaded. Check playbooks directory.".to_string()),
+            )
         } else if playbooks_matched.len() == 1 {
-            (GateStatus::Partial, Some(format!("Only 1 playbook matched ({}). Consider running more diverse scenarios.", playbooks_matched[0])))
+            (
+                GateStatus::Partial,
+                Some(format!(
+                    "Only 1 playbook matched ({}). Consider running more diverse scenarios.",
+                    playbooks_matched[0]
+                )),
+            )
         } else {
             (GateStatus::Pass, None)
         };
-        
+
         Self {
             status,
             signals_count,
@@ -261,20 +300,20 @@ impl ExplainabilityGate {
         let signals_validated = signals.len() as u32;
         let signals_valid = signals.iter().filter(|s| s.is_valid).count() as u32;
         let signals_invalid = signals_validated - signals_valid;
-        
+
         let explain_valid_rate = if signals_validated > 0 {
             signals_valid as f64 / signals_validated as f64
         } else {
             0.0
         };
-        
+
         let with_evidence = signals.iter().filter(|s| s.has_evidence_ptrs).count() as u32;
         let evidence_ptr_rate = if signals_validated > 0 {
             with_evidence as f64 / signals_validated as f64
         } else {
             0.0
         };
-        
+
         let total_required = signals.iter().map(|s| s.required_slots_total).sum::<u32>();
         let total_filled = signals.iter().map(|s| s.required_slots_filled).sum::<u32>();
         let required_slot_filled_rate = if total_required > 0 {
@@ -282,17 +321,26 @@ impl ExplainabilityGate {
         } else {
             1.0 // No required slots means 100% filled
         };
-        
+
         let (status, diagnosis) = if signals_validated == 0 {
-            (GateStatus::NoData, Some("No signals to validate (Gate C may have failed)".to_string()))
+            (
+                GateStatus::NoData,
+                Some("No signals to validate (Gate C may have failed)".to_string()),
+            )
         } else if explain_valid_rate < 0.5 {
             (GateStatus::Fail, Some(format!("Only {:.0}% of signals have valid explanations. Check evidence_ptrs and required slots.", explain_valid_rate * 100.0)))
         } else if explain_valid_rate < 0.9 {
-            (GateStatus::Partial, Some(format!("{} signals missing evidence_ptrs or required slots.", signals_invalid)))
+            (
+                GateStatus::Partial,
+                Some(format!(
+                    "{} signals missing evidence_ptrs or required slots.",
+                    signals_invalid
+                )),
+            )
         } else {
             (GateStatus::Pass, None)
         };
-        
+
         Self {
             status,
             signals_validated,
@@ -325,31 +373,42 @@ impl HealthGates {
         detection: DetectionGate,
         explainability: ExplainabilityGate,
     ) -> Self {
-        let overall_healthy = 
-            telemetry.status.is_healthy() &&
-            extraction.status.is_healthy() &&
-            detection.status.is_healthy() &&
-            explainability.status.is_healthy();
-            
+        let overall_healthy = telemetry.status.is_healthy()
+            && extraction.status.is_healthy()
+            && detection.status.is_healthy()
+            && explainability.status.is_healthy();
+
         let overall_diagnosis = if overall_healthy {
             "All health gates passing - pipeline working correctly".to_string()
         } else {
             let mut issues = Vec::new();
             if !telemetry.status.is_healthy() {
-                issues.push(format!("Gate A (Telemetry): {}", telemetry.diagnosis.as_deref().unwrap_or("Failed")));
+                issues.push(format!(
+                    "Gate A (Telemetry): {}",
+                    telemetry.diagnosis.as_deref().unwrap_or("Failed")
+                ));
             }
             if !extraction.status.is_healthy() {
-                issues.push(format!("Gate B (Extraction): {}", extraction.diagnosis.as_deref().unwrap_or("Failed")));
+                issues.push(format!(
+                    "Gate B (Extraction): {}",
+                    extraction.diagnosis.as_deref().unwrap_or("Failed")
+                ));
             }
             if !detection.status.is_healthy() {
-                issues.push(format!("Gate C (Detection): {}", detection.diagnosis.as_deref().unwrap_or("Failed")));
+                issues.push(format!(
+                    "Gate C (Detection): {}",
+                    detection.diagnosis.as_deref().unwrap_or("Failed")
+                ));
             }
             if !explainability.status.is_healthy() {
-                issues.push(format!("Gate D (Explainability): {}", explainability.diagnosis.as_deref().unwrap_or("Failed")));
+                issues.push(format!(
+                    "Gate D (Explainability): {}",
+                    explainability.diagnosis.as_deref().unwrap_or("Failed")
+                ));
             }
             issues.join("\n")
         };
-        
+
         Self {
             telemetry,
             extraction,
@@ -359,7 +418,7 @@ impl HealthGates {
             overall_diagnosis,
         }
     }
-    
+
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
             "gates": {
@@ -419,7 +478,7 @@ pub struct EnhancedMetrics {
     pub os: String,
     pub os_version: String,
     pub arch: String,
-    
+
     pub environment: EnvironmentInfo,
     pub config: RunConfig,
     pub health_gates: HealthGates,

@@ -6,15 +6,15 @@
 //! This is a thin CLI wrapper around SafeImporter for dev/CI workflows.
 //! It mirrors what the Tauri UI does but runs headless.
 
-use edr_desktop_lib::{SafeImporter, ImportLimits};
+use edr_desktop_lib::{ImportLimits, SafeImporter};
 use std::path::PathBuf;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    
+
     let mut input_path: Option<String> = None;
     let mut out_dir: Option<PathBuf> = None;
-    
+
     // Simple arg parsing (no external deps)
     let mut i = 1;
     while i < args.len() {
@@ -43,7 +43,7 @@ fn main() {
         }
         i += 1;
     }
-    
+
     let input = match input_path {
         Some(p) => p,
         None => {
@@ -52,20 +52,24 @@ fn main() {
             std::process::exit(1);
         }
     };
-    
+
     // Default output to ./imports if not specified
     let run_dir = out_dir.unwrap_or_else(|| PathBuf::from("."));
     let run_id = generate_run_id();
-    
+
     println!("import_bundle CLI");
     println!("  input:  {}", input);
     println!("  out:    {}", run_dir.display());
     println!("  run_id: {}", run_id);
     println!();
-    
+
     // Create importer with default limits
-    let importer = SafeImporter::new(run_id.clone(), run_dir.clone(), Some(ImportLimits::default()));
-    
+    let importer = SafeImporter::new(
+        run_id.clone(),
+        run_dir.clone(),
+        Some(ImportLimits::default()),
+    );
+
     match importer.import(&input) {
         Ok(result) => {
             println!("✓ Import successful!");
@@ -76,12 +80,12 @@ fn main() {
             println!("  parsed_files:  {}", result.summary.parsed_files);
             println!("  events_extracted: {}", result.summary.events_extracted);
             println!("  total_bytes:   {}", result.summary.total_bytes);
-            
+
             if result.summary.rejected_files > 0 {
                 println!();
                 println!("Rejected files: {}", result.summary.rejected_files);
             }
-            
+
             std::process::exit(0);
         }
         Err(e) => {

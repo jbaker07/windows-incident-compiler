@@ -6,14 +6,14 @@
 use std::net::TcpListener;
 
 /// Find an available port in the given range
-/// 
+///
 /// Starts with `default_port` and increments up to `max_port` until
 /// an available port is found.
-/// 
+///
 /// # Arguments
 /// * `default_port` - The preferred port to use
 /// * `max_port` - The maximum port to try (inclusive)
-/// 
+///
 /// # Returns
 /// The first available port in the range, or None if all are busy
 pub async fn find_available_port(default_port: u16, max_port: u16) -> Option<u16> {
@@ -44,7 +44,7 @@ mod tests {
         // In a clean test environment, port 3000 should be available
         let port = find_available_port(3000, 3010).await;
         assert!(port.is_some(), "Should find an available port");
-        
+
         let port = port.unwrap();
         assert!(port >= 3000 && port <= 3010, "Port should be in range");
     }
@@ -53,10 +53,13 @@ mod tests {
     async fn test_find_available_port_skips_busy_ports() {
         // Bind to a test port to force fallback
         let _listener = std::net::TcpListener::bind("127.0.0.1:18765").ok();
-        
+
         // Should still find a port
         let port = find_available_port(18765, 18775).await;
-        assert!(port.is_some(), "Should find an available port even with busy default");
+        assert!(
+            port.is_some(),
+            "Should find an available port even with busy default"
+        );
     }
 
     #[test]
@@ -69,7 +72,10 @@ mod tests {
     fn test_is_port_available_returns_false_for_bound_port() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let bound_port = listener.local_addr().unwrap().port();
-        
-        assert!(!is_port_available(bound_port), "Bound port should not be available");
+
+        assert!(
+            !is_port_available(bound_port),
+            "Bound port should not be available"
+        );
     }
 }

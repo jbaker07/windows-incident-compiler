@@ -1,5 +1,5 @@
 //! Logging setup for EDR Desktop
-//! 
+//!
 //! Logs to a file in the app data directory
 
 use std::path::PathBuf;
@@ -7,12 +7,12 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Initialize logging with file output
-/// 
+///
 /// Returns a guard that must be held for the lifetime of the application
 /// to ensure logs are flushed.
 pub fn init_logging() -> WorkerGuard {
     let log_dir = get_log_dir();
-    
+
     // Ensure log directory exists
     std::fs::create_dir_all(&log_dir).ok();
 
@@ -26,20 +26,12 @@ pub fn init_logging() -> WorkerGuard {
 
     tracing_subscriber::registry()
         .with(filter)
-        .with(
-            fmt::layer()
-                .with_writer(non_blocking)
-                .with_ansi(false)
-        )
-        .with(
-            fmt::layer()
-                .with_writer(std::io::stderr)
-                .with_ansi(true)
-        )
+        .with(fmt::layer().with_writer(non_blocking).with_ansi(false))
+        .with(fmt::layer().with_writer(std::io::stderr).with_ansi(true))
         .init();
 
     tracing::info!("Logging initialized, log directory: {:?}", log_dir);
-    
+
     guard
 }
 
@@ -74,7 +66,7 @@ mod tests {
     fn test_log_dir_is_local() {
         let dir = get_log_dir();
         let path_str = dir.display().to_string();
-        
+
         // Should not point to any cloud locations
         assert!(!path_str.contains("iCloud"), "Should not use iCloud");
         assert!(!path_str.contains("Dropbox"), "Should not use Dropbox");

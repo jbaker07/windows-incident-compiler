@@ -1,5 +1,5 @@
 //! EDR Desktop Library
-//! 
+//!
 //! Re-exports for testing and potential library use
 //!
 //! Modules:
@@ -14,13 +14,13 @@
 
 pub mod grounded_gates;
 pub mod health_gates;
-pub mod importer;
 pub mod import_types;
+pub mod importer;
 pub mod logging;
 pub mod port;
 pub mod scenario_profiles;
 pub mod supervisor;
 
 // Re-export commonly used types for bin crates
-pub use importer::SafeImporter;
 pub use import_types::ImportLimits;
+pub use importer::SafeImporter;
