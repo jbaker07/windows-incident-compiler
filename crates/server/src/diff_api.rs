@@ -133,7 +133,7 @@ pub fn list_runs_from_db(db: &Database) -> Result<Vec<RunInfo>, String> {
         })
         .collect();
 
-    result.sort_by(|a, b| b.earliest_ts.cmp(&a.earliest_ts));
+    result.sort_by_key(|a| std::cmp::Reverse(a.earliest_ts));
     Ok(result)
 }
 

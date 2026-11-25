@@ -587,7 +587,7 @@ impl WindowsSignalEngine {
                     .identity_key
                     .as_ref()
                     .unwrap_or(&"unknown".to_string()),
-                &share_name
+                share_name
             );
             if self.should_fire("LateralShareAccess", entity_hash, 300) {
                 let signal_id = SignalResult::compute_signal_id(

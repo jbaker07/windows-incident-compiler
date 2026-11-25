@@ -397,7 +397,10 @@ impl AsyncPipelineRunner {
         (Self { tx }, handle)
     }
 
-    /// Submit telemetry to the pipeline
+    /// Submit telemetry to the pipeline. The error hands the input back to the
+    /// caller (that is how tokio channels report a closed receiver), so it is as
+    /// large as the input itself.
+    #[allow(clippy::result_large_err)]
     pub async fn submit(
         &self,
         input: TelemetryInput,

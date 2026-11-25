@@ -475,34 +475,31 @@ impl SlotMatcher {
 
         // Exe filter
         if let Some(exe_filter) = &pred.exe_filter {
-            if let Some(exe_path) = self.extract_exe(fact) {
+            {
+                let exe_path = self.extract_exe(fact)?;
                 if !exe_path.contains(exe_filter) {
                     return None;
                 }
-            } else {
-                return None;
             }
         }
 
         // Port filter
         if let Some(expected_port) = pred.dst_port {
-            if let Some(actual_port) = self.extract_dst_port(fact) {
+            {
+                let actual_port = self.extract_dst_port(fact)?;
                 if actual_port != expected_port {
                     return None;
                 }
-            } else {
-                return None;
             }
         }
 
         // Port range filter
         if let Some((min_port, max_port)) = pred.port_range {
-            if let Some(actual_port) = self.extract_dst_port(fact) {
+            {
+                let actual_port = self.extract_dst_port(fact)?;
                 if actual_port < min_port || actual_port > max_port {
                     return None;
                 }
-            } else {
-                return None;
             }
         }
 

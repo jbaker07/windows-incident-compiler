@@ -343,10 +343,8 @@ impl IncidentExporter {
                 ScopeKey::User { key } if keys.identity_key.is_none() => {
                     keys.identity_key = Some(key.clone());
                 }
-                ScopeKey::Executable { key } => {
-                    if !keys.exe_hashes.contains(key) {
-                        keys.exe_hashes.push(key.clone());
-                    }
+                ScopeKey::Executable { key } if !keys.exe_hashes.contains(key) => {
+                    keys.exe_hashes.push(key.clone());
                 }
                 _ => {}
             }
