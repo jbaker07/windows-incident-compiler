@@ -1,4 +1,4 @@
-/* app.js — hardened + with health + incidents + playbooks (safe if elements missing) */
+/* app.js, hardened + with health + incidents + playbooks (safe if elements missing) */
 
 (() => {
   "use strict";
@@ -266,19 +266,19 @@
     const status = desktopState.lastStatus;
 
     if (desktopState.isRunning) {
-      if (icon) icon.textContent = '🟢';
+      if (icon) icon.textContent = '';
       if (text) text.textContent = 'Stack Running';
       if (sub) sub.textContent = status?.run_id || 'Capturing telemetry...';
       if (btnStart) btnStart.classList.add('hidden');
       if (btnStop) btnStop.classList.remove('hidden');
     } else if (status?.crashed_process) {
-      if (icon) icon.textContent = '🔴';
+      if (icon) icon.textContent = '';
       if (text) text.textContent = 'Stack Crashed';
       if (sub) sub.textContent = `${status.crashed_process} exited unexpectedly`;
       if (btnStart) btnStart.classList.remove('hidden');
       if (btnStop) btnStop.classList.add('hidden');
     } else {
-      if (icon) icon.textContent = '⏹️';
+      if (icon) icon.textContent = '';
       if (text) text.textContent = 'Stack Stopped';
       if (sub) sub.textContent = 'Ready to start capture';
       if (btnStart) btnStart.classList.remove('hidden');
@@ -414,7 +414,7 @@
 
     content.innerHTML = checks.map(c => `
       <div class="flex items-center gap-3 p-2 rounded ${c.pass ? 'bg-emerald-900/30' : 'bg-red-900/30'}">
-        <span class="text-lg">${c.pass ? '✅' : '❌'}</span>
+        <span class="text-lg">${c.pass ? 'PASS' : 'FAIL'}</span>
         <div class="flex-1">
           <div class="font-medium text-sm">${c.name}</div>
           <div class="text-xs text-slate-400">${c.detail}</div>
@@ -450,7 +450,7 @@
     const statusBox = document.getElementById('activityStatusBox');
     if (statusBox) {
       statusBox.classList.remove('hidden');
-      statusBox.innerHTML = '🔄 Generating test activity...';
+      statusBox.innerHTML = 'Generating test activity...';
     }
 
     const results = [];
@@ -508,17 +508,17 @@
       if (statusBox) {
         const summary = results.map(r => 
           `<div class="flex items-center gap-2">
-            <span>${r.success ? '✅' : '⚠️'}</span>
+            <span>${r.success ? 'OK' : 'WARN'}</span>
             <span>${r.name}</span>
           </div>`
         ).join('');
 
         statusBox.innerHTML = `
-          <div class="font-medium mb-2">🧪 Activity Generated: ${succeeded}/${total} commands</div>
+          <div class="font-medium mb-2">Activity Generated: ${succeeded}/${total} commands</div>
           <div class="text-xs space-y-1">${summary}</div>
           <div class="text-xs text-amber-300 mt-2">
             Note: Detection depends on playbook configuration and Windows event channel availability.
-            ${!isAdmin ? '<br>⚠️ Running without admin - some event channels may be unavailable.' : ''}
+            ${!isAdmin ? '<br>Running without admin - some event channels may be unavailable.' : ''}
           </div>
         `;
 
@@ -531,7 +531,7 @@
     } catch (e) {
       console.error('[Desktop] Activity generation failed:', e);
       if (statusBox) {
-        statusBox.innerHTML = `<span class="text-red-300">❌ Activity generation failed: ${e}</span>`;
+        statusBox.innerHTML = `<span class="text-red-300">Activity generation failed: ${e}</span>`;
       }
     }
   }
@@ -566,9 +566,6 @@
   // Header stats (all optional)
   const statEvents  = document.getElementById('statEvents');
   const statAlerts  = document.getElementById('statAlerts');
-  const statNodes   = document.getElementById('statNodes');
-  const statEdges   = document.getElementById('statEdges');
-  const statDrops   = document.getElementById('statDrops');
 
   // Tabs / screens (optional)
   const screenDash  = document.getElementById('screenDash');
@@ -582,27 +579,14 @@
   const tabCompare  = document.getElementById('tabCompare');
   const tabLicense  = document.getElementById('tabLicense');
 
-  // Integrations pane (optional)
-  const addDlg      = document.getElementById('addDlg');
-  const vendorSel   = document.getElementById('vendorSel');
-  const credFields  = document.getElementById('credFields');
-  const tilesGrid   = document.getElementById('tiles');
-  const btnAdd      = document.getElementById('btnAdd');
-  const saveIntegrationBtn = document.getElementById('saveIntegration');
-
-  // Explain drawer (optional)
-  const drawer      = document.getElementById('drawer');
-  const exCloseBtn  = document.getElementById('ex_close');
-
   // Timeline canvas (optional)
   const timelineCanvas = document.getElementById('timeline');
 
   // Playbooks UI (optional; renders only if present)
   const pbFeedEl    = document.getElementById('pb-feed');
   const pbHitsEl    = document.getElementById('pb-hits');
-  const pbPendingEl = document.getElementById('pb-pending');
 
-  // Incidents (DecisionEngine rollups) — optional UI
+  // Incidents (DecisionEngine rollups), optional UI
   const incWrap     = document.getElementById('incidents');
   const incListEl   = document.getElementById('incList');
 
@@ -610,7 +594,6 @@
   const MAX_ALERTS = 2000;
   let alerts   = [];
   let eventsIn = 0;
-  let catalog  = { vendors: [] };
   const incidents = new Map(); // id -> incident json
 
   // ---------- Helpers ----------
@@ -656,6 +639,7 @@
 
   function badgeClass(a) {
     const s = severityCategory(a);
+    if (s === 'critical') return 'bg-rose-800/90';
     if (s === 'high')   return 'bg-rose-700/80';
     if (s === 'medium') return 'bg-amber-600/80';
     if (s === 'low')    return 'bg-emerald-700/80';
@@ -684,15 +668,10 @@
       exe,
       cmd,
     ].filter(Boolean);
-    const line = parts.join(' — ');
+    const line = parts.join(' | ');
     return line.length > 240 ? (line.slice(0, 237) + '…') : line;
   }
 
-  function synthIdFor(a) {
-    const key = `${tsOf(a)}${a?.event?.exe || a?.event?.binary_path || '-'}${a?.event?.cmdline || a?.event?.command_line || '-'}`;
-    let h = 0; for (let i = 0; i < key.length; i++) h = ((h << 5) - h) + key.charCodeAt(i) | 0;
-    return String(h >>> 0);
-  }
 
   function el(tag, cls, text) {
     const e = document.createElement(tag);
@@ -738,10 +717,11 @@
         : 'px-3 py-1 rounded bg-slate-800 text-slate-200';
     }
     
-    if (onInt) loadIntegrations();
-    if (onImport) loadImportedCases();
-    if (onCompare) loadRunsForCompare();
-    if (onLicense) loadLicenseStatus();
+    // These loaders live in the analyst workflow module below and are
+    // exposed on window, so look them up when the tab opens.
+    if (onImport && window.loadImportedCases) window.loadImportedCases();
+    if (onCompare && window.loadRunsForCompare) window.loadRunsForCompare();
+    if (onLicense && window.loadLicenseStatus) window.loadLicenseStatus();
   }
   if (tabDash) tabDash.onclick = () => activateTab('dash');
   if (tabInt)  tabInt.onclick  = () => activateTab('int');
@@ -796,15 +776,16 @@
       const li = el('li','py-2 flex items-start justify-between gap-2');
       const left = el('div','min-w-0');
       const sevColor =
+        x.severity_max === 'critical' ? 'bg-rose-800/90' :
         x.severity_max === 'high' ? 'bg-rose-700/80' :
         x.severity_max === 'medium' ? 'bg-amber-600/80' :
         x.severity_max === 'low' ? 'bg-emerald-700/80' : 'bg-slate-700/80';
       const sev = el('span',`inline-block px-2 py-0.5 rounded text-xs mr-2 ${sevColor}`, (x.severity_max || 'none'));
       const head = el('div','font-medium truncate');
       head.appendChild(sev);
-      head.appendChild(document.createTextNode(`${x.exe || '-'} · ${x.primary_technique || '-'}`));
+      head.appendChild(document.createTextNode(`${x.title || x.host || '-'} · ${x.primary_technique || '-'}`));
       const sub = el('div','text-xs text-slate-400 mt-0.5',
-        `alerts: ${x.alerts_count ?? 0} · risk_max: ${(x.risk_max ?? 0).toFixed(2)} · rgcn: ${(x.rgcn_score ?? 0).toFixed(2)} · ${new Date((x.last_ts||0)*1000).toLocaleString()}`);
+        `signals: ${x.alerts_count ?? 0} · risk_max: ${(x.risk_max ?? 0).toFixed(2)} · ${new Date((x.last_ts||0)*1000).toLocaleString()}`);
       left.appendChild(head); left.appendChild(sub);
       const techs = Array.isArray(x.techniques) ? x.techniques.slice(0,6) : [];
       const chips = el('div','mt-1 flex flex-wrap gap-1 text-[11px]');
@@ -868,7 +849,7 @@
         const right = el('div', 'flex items-center gap-1');
         const explainBtn = el('button', 
           'px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs font-medium',
-          '🔍 Explain');
+          'Explain');
         explainBtn.onclick = (e) => {
           e.stopPropagation();
           showExplanation(sig.signal_id);
@@ -878,7 +859,7 @@
         // Narrative button
         const narrativeBtn = el('button',
           'px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-medium',
-          '📜 Narrative');
+          'Narrative');
         narrativeBtn.onclick = (e) => {
           e.stopPropagation();
           showNarrative(sig.signal_id);
@@ -945,7 +926,7 @@
         
         tr.innerHTML = `
           <td class="py-1 px-2">${escapeHtml(slot.name)}</td>
-          <td class="py-1 px-2">${slot.required ? '✓' : ''}</td>
+          <td class="py-1 px-2">${slot.required ? 'yes' : ''}</td>
           <td class="py-1 px-2 ${statusColor}">${slot.status}</td>
           <td class="py-1 px-2 text-slate-400 truncate max-w-[150px]" title="${escapeHtml(slot.predicate_desc)}">${escapeHtml(slot.predicate_desc)}</td>
           <td class="py-1 px-2">${(slot.matched_facts || []).length}</td>
@@ -1027,7 +1008,7 @@
     
     currentNarrativeSignalId = signalId;
     narrativeModal.showModal();
-    document.getElementById('narrativeModalTitle').textContent = '📜 Loading...';
+    document.getElementById('narrativeModalTitle').textContent = 'Loading...';
     document.getElementById('narrativeModalSubtitle').textContent = signalId;
     document.getElementById('narrativeSentences').innerHTML = '<div class="text-slate-400">Loading narrative...</div>';
     
@@ -1036,7 +1017,7 @@
       const result = await r.json();
       
       if (!result.success || !result.data) {
-        document.getElementById('narrativeModalTitle').textContent = '📜 Narrative Not Available';
+        document.getElementById('narrativeModalTitle').textContent = 'Narrative Not Available';
         document.getElementById('narrativeSentences').innerHTML = `<div class="text-rose-400">${result.error || 'Could not generate narrative'}</div>`;
         return;
       }
@@ -1046,14 +1027,14 @@
       
     } catch (err) {
       console.error('Failed to load narrative:', err);
-      document.getElementById('narrativeModalTitle').textContent = '📜 Error';
+      document.getElementById('narrativeModalTitle').textContent = 'Error';
       document.getElementById('narrativeSentences').innerHTML = `<div class="text-rose-400">Failed to load narrative: ${err.message}</div>`;
     }
   }
 
   function renderNarrative(narrative) {
     // Title & mode
-    document.getElementById('narrativeModalTitle').textContent = '📜 Signal Narrative';
+    document.getElementById('narrativeModalTitle').textContent = 'Signal Narrative';
     document.getElementById('narrativeModalSubtitle').textContent = `${narrative.signal_id} · v${narrative.version}`;
     
     const mode = narrative.mode_context?.mode || 'Discovery';
@@ -1066,7 +1047,7 @@
     // Validation badge
     const validationBadge = document.getElementById('narrativeValidation');
     const isValid = validateNarrativeClient(narrative);
-    validationBadge.textContent = isValid ? '✓ Valid' : '⚠ Issues';
+    validationBadge.textContent = isValid ? 'Valid' : 'Issues';
     validationBadge.className = isValid 
       ? 'text-xs px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400'
       : 'text-xs px-2 py-0.5 rounded bg-amber-600/20 text-amber-400';
@@ -1101,10 +1082,10 @@
       // Build receipt indicators
       let receiptIndicators = '';
       if (evCount > 0) {
-        receiptIndicators += `<button class="receipt-btn px-1.5 py-0.5 rounded bg-sky-700/50 hover:bg-sky-600/70 text-[10px]" data-type="evidence" data-sentence="${sentence.sentence_id}">📄 ${evCount} evidence</button>`;
+        receiptIndicators += `<button class="receipt-btn px-1.5 py-0.5 rounded bg-sky-700/50 hover:bg-sky-600/70 text-[10px]" data-type="evidence" data-sentence="${sentence.sentence_id}">${evCount} evidence</button>`;
       }
       if (factCount > 0) {
-        receiptIndicators += `<button class="receipt-btn px-1.5 py-0.5 rounded bg-amber-700/50 hover:bg-amber-600/70 text-[10px]" data-type="facts" data-sentence="${sentence.sentence_id}">🔗 ${factCount} facts</button>`;
+        receiptIndicators += `<button class="receipt-btn px-1.5 py-0.5 rounded bg-amber-700/50 hover:bg-amber-600/70 text-[10px]" data-type="facts" data-sentence="${sentence.sentence_id}">${factCount} facts</button>`;
       }
       
       // Confidence
@@ -1323,7 +1304,7 @@
       const div = document.createElement('div');
       div.className = 'p-2 rounded bg-slate-700/50';
       div.innerHTML = `
-        <div class="text-sm text-slate-200 mb-1">❓ ${escapeHtml(q.text)}</div>
+        <div class="text-sm text-slate-200 mb-1">${escapeHtml(q.text)}</div>
         <div class="text-xs text-slate-400">${escapeHtml(q.reason)}</div>
       `;
       questionsEl.appendChild(div);
@@ -1336,7 +1317,7 @@
       const div = document.createElement('div');
       div.className = 'p-2 rounded bg-sky-900/30 border border-sky-700/50';
       div.innerHTML = `
-        <div class="text-sm text-sky-300 mb-1">🔄 ${escapeHtml(p.description)}</div>
+        <div class="text-sm text-sky-300 mb-1">${escapeHtml(p.description)}</div>
         <div class="text-xs text-slate-400">Target: ${p.target_slot || 'general'} · Impact: ${p.estimated_impact || 'unknown'}</div>
       `;
       pivotEl.appendChild(div);
@@ -1346,7 +1327,7 @@
     const capEl = document.getElementById('capabilitySuggestions');
     capEl.innerHTML = '';
     if ((disamb.capability_suggestions || []).length > 0) {
-      capEl.innerHTML = '<div class="text-xs text-slate-400 mb-2">💡 Missing capabilities:</div>';
+      capEl.innerHTML = '<div class="text-xs text-slate-400 mb-2">Missing capabilities:</div>';
       for (const cap of disamb.capability_suggestions) {
         const div = document.createElement('div');
         div.className = 'p-2 rounded bg-purple-900/30 border border-purple-700/50 mb-1';
@@ -1444,9 +1425,6 @@
       const m = await r.json();
       eventsIn = m.events_in || 0;
       setText(statEvents, `events: ${eventsIn}`);
-      setText(statNodes,  `nodes: ${m.nodes_count ?? 0}`);
-      setText(statEdges,  `edges: ${m.edges_count ?? 0}`);
-      setText(statDrops,  `bpf_drops: ${m.bpf_drops_total ?? 0}`);
     } catch { /* ignore */ }
   }
   setInterval(pollMetrics, 5000); pollMetrics();
@@ -1547,254 +1525,12 @@
     timelineChart.update('none');
   }
 
-  // ---------- Explain drawer ----------
-  if (exCloseBtn) exCloseBtn.onclick = () => drawer && drawer.classList.add('hidden');
-
-  async function openExplain(id) {
-    try {
-      const r = await fetch(`/alerts/${encodeURIComponent(id)}/explain`);
-      if (!r.ok) return;
-      const ex = await r.json();
-      renderExplain(ex);
-      if (drawer) drawer.classList.remove('hidden');
-    } catch { /* ignore */ }
-  }
-
-  function renderExplain(ex) {
-    if (!ex) return;
-    const H = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = v; };
-
-    // headline + scores
-    H('ex_head', ex.headline || 'Explain');
-    H('ex_risk', Number(ex.risk || 0).toFixed(2));
-    H('ex_rgcn', Number(ex.rgcn_score || 0).toFixed(2));
-
-    // entities
-    H('ex_entities', JSON.stringify(ex.entities || {}, null, 2));
-
-    // findings
-    const whyUl = document.getElementById('ex_why');
-    if (whyUl) {
-      whyUl.textContent = '';
-      (ex.why || []).forEach(w => {
-        const li  = el('li', null,
-          `${w?.source || 'detector'} · ${Number(w?.score || 0).toFixed(2)}${w?.label ? ` · ${w.label}` : ''}`
-        );
-        whyUl.appendChild(li);
-      });
-    }
-    H('ex_anoms', (ex.anomalies || []).join(', ') || '—');
-
-    // graph
-    const g = ex.graph || { nodes: [], edges: [], links: [] };
-    const edges = Array.isArray(g.edges) && g.edges.length ? g.edges : (g.links || []);
-    const graphDiv = document.getElementById('ex_graph');
-    if (graphDiv) {
-      graphDiv.innerHTML = '';
-      if ((g.nodes || []).length) {
-        ensureCytoscape().then(() => {
-          graphDiv.innerHTML = '';
-          cytoscape({
-            container: graphDiv,
-            elements: {
-              nodes: g.nodes.map(n => ({ data: { id: n.id, label: (n.binary_path || n.id) } })),
-              edges: edges.map(e => ({ data: { source: e.source, target: e.target } }))
-            },
-            style: [
-              { selector: 'node', style: { 'background-color': '#22d3ee', 'label': 'data(label)', 'font-size': '10px', 'color': '#0f172a', 'shape': 'round-rectangle', 'padding': '5px' } },
-              { selector: 'edge', style: { 'line-color': '#64748b', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle' } }
-            ],
-            layout: { name: 'breadthfirst', directed: true, padding: 8 }
-          });
-        });
-      }
-    }
-
-    // timeline (explain window)
-    const tlWrap = document.getElementById('ex_timeline');
-    if (tlWrap) {
-      tlWrap.textContent = '';
-      const frag = document.createDocumentFragment();
-      (ex.timeline || []).slice(0, 120).forEach(e => {
-        const line = el('div', null, `${new Date(parseTs(e.ts ?? e.time ?? e.timestamp) * 1000).toLocaleTimeString()} — pid ${e.pid ?? '—'} → ${e.exe || ''} `);
-        const span = el('span', 'text-slate-500', e.cmd || '');
-        line.appendChild(span);
-        frag.appendChild(line);
-      });
-      tlWrap.appendChild(frag);
-      if (!(ex.timeline || []).length) tlWrap.textContent = '—';
-    }
-
-    // enrichment
-    H('ex_enrich', JSON.stringify(ex.enrichment || {}, null, 2));
-
-    // actions
-    const actionsUl = document.getElementById('ex_actions');
-    if (actionsUl) {
-      actionsUl.textContent = '';
-      (ex.recommendations || []).forEach(a => actionsUl.appendChild(el('li', null, a)));
-    }
-  }
-
   function selectAlert(a) {
     if (detailEl) detailEl.textContent = JSON.stringify(a, null, 2);
-    const id = a.id || synthIdFor(a);
-    openExplain(id);
+    // Alerts are playbook signals, so open the same explanation the Playbook
+    // Signals panel shows.
+    if (a && a.id) showExplanation(a.id);
   }
-
-  // ---------- Integrations ----------
-  async function loadCatalog() {
-    try {
-      const r = await fetch('/integrations/catalog');
-      if (!r.ok) return;
-      const cat = await r.json();
-      catalog.vendors = Array.isArray(cat?.vendors) ? cat.vendors : (Array.isArray(cat?.items) ? cat.items : []);
-      if (vendorSel) {
-        vendorSel.innerHTML = (catalog.vendors || []).map(v => `<option value="${String(v.id)}">${String(v.name || v.id)}</option>`).join('');
-        vendorSel.onchange = renderCredFields;
-      }
-      renderCredFields();
-    } catch { /* ignore */ }
-  }
-
-  function renderCredFields() {
-    if (!credFields || !vendorSel) return;
-    const v = (catalog.vendors || []).find(x => String(x.id) === String(vendorSel.value));
-    const fields = (v?.auth?.fields || v?.required_fields || []);
-    credFields.textContent = '';
-    const frag = document.createDocumentFragment();
-    for (const f of fields) {
-      const lab = el('label', 'block text-sm capitalize', String(f).replace('_',' '));
-      const inp = el('input', 'w-full bg-slate-900 border border-slate-700 rounded px-2 py-1');
-      inp.id = `field_${f}`;
-      inp.placeholder = String(f);
-      frag.appendChild(lab);
-      frag.appendChild(inp);
-    }
-    credFields.appendChild(frag);
-  }
-
-  if (btnAdd) btnAdd.onclick = async () => { await loadCatalog(); addDlg?.showModal?.(); };
-
-  if (saveIntegrationBtn) saveIntegrationBtn.onclick = async (e) => {
-    e.preventDefault();
-    if (!vendorSel) return;
-    const id = vendorSel.value;
-    const v  = (catalog.vendors || []).find(x => String(x.id) === String(id));
-    const fields = (v?.auth?.fields || v?.required_fields || []);
-    const creds = {};
-    for (const f of fields) {
-      const elv = document.getElementById(`field_${f}`);
-      creds[f] = elv ? (elv.value || '') : '';
-    }
-    try {
-      await fetch('/integrations', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, kind: id, name: v?.name || id, creds })
-      });
-    } catch {}
-    addDlg?.close?.();
-    loadIntegrations();
-  };
-
-  async function loadIntegrations() {
-    try {
-      const r = await fetch('/integrations');
-      if (!r.ok) return;
-      const data = await r.json();
-
-      // normalize items
-      let items = [];
-      if (Array.isArray(data)) {
-        if (data.length && data[0]?.cfg) {
-          items = data.map(x => ({
-            id: x.cfg.id,
-            name: x.cfg.name,
-            status: x.rt?.status || 'unknown',
-            last_ok: x.cfg?.last_ok || null
-          }));
-        } else {
-          items = data;
-        }
-      } else {
-        items = data.items || [];
-      }
-
-      if (!tilesGrid) return;
-      tilesGrid.textContent = '';
-      const frag = document.createDocumentFragment();
-
-      for (const it of items) {
-        const card = el('div', 'rounded border border-slate-800 p-3 bg-slate-900/50');
-
-        const row1 = el('div', 'flex items-center justify-between');
-        row1.appendChild(el('div', 'font-medium', it.name || it.id));
-        row1.appendChild(el('span', 'text-xs text-slate-400', it.status || 'unknown'));
-        card.appendChild(row1);
-
-        card.appendChild(el('div', 'text-xs text-slate-400 mt-1', `last ok: ${it.last_ok || '—'}`));
-
-        const btnRow = el('div', 'mt-2 flex gap-2');
-        const bGraph = el('button', 'btnGraph px-2 py-1 rounded bg-slate-800 text-xs', 'Graph');
-        const bDel   = el('button', 'btnDel px-2 py-1 rounded bg-rose-700/80 text-xs', 'Remove');
-        bGraph.dataset.id = it.id; bDel.dataset.id = it.id;
-        btnRow.appendChild(bGraph); btnRow.appendChild(bDel);
-        card.appendChild(btnRow);
-
-        const wrap = el('div', 'mt-2 hidden'); wrap.id = `graph_${it.id}`;
-        wrap.appendChild(el('div', 'text-xs text-slate-400 mb-1', 'Endpoint R-GCN score (approx.): '));
-        const rg = el('span'); rg.id = `rg_${it.id}`; wrap.firstChild.appendChild(rg);
-        const cy = el('div'); cy.id = `cy_${it.id}`; cy.style.height = '180px';
-        wrap.appendChild(cy);
-        card.appendChild(wrap);
-
-        frag.appendChild(card);
-      }
-      tilesGrid.appendChild(frag);
-
-      for (const b of tilesGrid.querySelectorAll('.btnDel')) {
-        b.onclick = async () => {
-          try { await fetch(`/integrations/${encodeURIComponent(b.dataset.id)}`, { method: 'DELETE' }); } catch {}
-          loadIntegrations();
-        };
-      }
-
-      for (const b of tilesGrid.querySelectorAll('.btnGraph')) {
-        b.onclick = async () => {
-          const id = b.dataset.id;
-          try {
-            const r = await fetch(`/graph/${encodeURIComponent(id)}?window_sec=900`);
-            if (!r.ok) return;
-            const g = await r.json();
-            const rgEl = document.getElementById(`rg_${id}`);
-            if (rgEl) rgEl.textContent = Number(g.rgcn_score || 0).toFixed(2);
-            const wrap = document.getElementById(`graph_${id}`); if (wrap) wrap.classList.remove('hidden');
-
-            await ensureCytoscape();
-            const container = document.getElementById(`cy_${id}`);
-            if (container) {
-              container.innerHTML = ''; // idempotent
-              const edges = Array.isArray(g.edges) && g.edges.length ? g.edges : (g.links || []);
-              cytoscape({
-                container,
-                elements: {
-                  nodes: (g.nodes || []).map(n => ({ data: { id: n.id, label: (n.binary_path || n.id) } })),
-                  edges: edges.map(e => ({ data: { source: e.source, target: e.target } }))
-                },
-                style: [
-                  { selector: 'node', style: { 'background-color': '#22d3ee', 'label': 'data(label)', 'font-size': '10px', 'color': '#0f172a', 'shape': 'round-rectangle', 'padding': '5px' } },
-                  { selector: 'edge', style: { 'line-color': '#64748b', 'target-arrow-color': '#64748b', 'target-arrow-shape': 'triangle' } }
-                ],
-                layout: { name: 'breadthfirst', directed: true, padding: 8 }
-              });
-            }
-          } catch { /* ignore */ }
-        };
-      }
-    } catch { /* ignore */ }
-  }
-  loadIntegrations();
 
   // ---------- Integration Profiles & Capabilities API ----------
   const integrationRowsEl = document.getElementById('integrationRows');
@@ -1841,9 +1577,9 @@
     const label = {
       hard: 'HARD',
       soft: 'SOFT',
-      none: '—'
+      none: '-'
     };
-    return `<span class="inline-block w-3 h-3 rounded ${colors[fidelity] || colors.none}" title="${label[fidelity] || '—'}"></span>`;
+    return `<span class="inline-block w-3 h-3 rounded ${colors[fidelity] || colors.none}" title="${label[fidelity] || '-'}"></span>`;
   }
 
   // Load integration profiles
@@ -1855,8 +1591,7 @@
       const url = mode ? `/api/integrations?mode=${mode}` : '/api/integrations';
       const resp = await fetch(url);
       if (!resp.ok) {
-        // Fall back to demo data if API not available
-        renderDemoIntegrationProfiles();
+        integrationRowsEl.innerHTML = `<tr><td colspan="10" class="px-3 py-3 text-rose-400 text-xs">Could not load integrations (HTTP ${resp.status}).</td></tr>`;
         return;
       }
       
@@ -1877,7 +1612,7 @@
           <td class="px-3 py-2 ${int.parse_error_rate > 0.05 ? 'text-rose-400' : 'text-slate-400'}">${(int.parse_error_rate * 100).toFixed(2)}%</td>
           <td class="px-3 py-2 text-slate-300">${int.facts_supported_count || 0}</td>
           <td class="px-3 py-2 text-slate-300">${int.join_keys_supported_count || 0}</td>
-          <td class="px-3 py-2 text-slate-400 text-xs">${int.last_seen_ts ? new Date(int.last_seen_ts).toLocaleString() : '—'}</td>
+          <td class="px-3 py-2 text-slate-400 text-xs">${int.last_seen_ts ? new Date(int.last_seen_ts).toLocaleString() : '-'}</td>
           <td class="px-3 py-2">
             <button data-id="${int.integration_id}" class="btnViewSamples px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Samples</button>
           </td>
@@ -1890,43 +1625,7 @@
       }
     } catch (e) {
       console.error('Failed to load integration profiles:', e);
-      renderDemoIntegrationProfiles();
-    }
-  }
-
-  // Demo data for when API not available
-  function renderDemoIntegrationProfiles() {
-    if (!integrationRowsEl) return;
-    
-    const demo = [
-      { integration_id: 'wazuh_main', name: 'Wazuh HIDS', integration_type: 'wazuh', mode: 'both', health_status: 'healthy', eps: 42.5, parse_error_rate: 0.002, facts_supported_count: 7, join_keys_supported_count: 4, last_seen_ts: new Date().toISOString() },
-      { integration_id: 'zeek_network', name: 'Zeek Network Monitor', integration_type: 'zeek', mode: 'ingest', health_status: 'healthy', eps: 1250.0, parse_error_rate: 0.0001, facts_supported_count: 4, join_keys_supported_count: 2, last_seen_ts: new Date().toISOString() },
-      { integration_id: 'jsonl_export', name: 'JSONL File Export', integration_type: 'jsonl_file', mode: 'export', health_status: 'healthy', eps: 0, parse_error_rate: 0, facts_supported_count: 13, join_keys_supported_count: 0, last_seen_ts: null }
-    ];
-    
-    if (integrationCountEl) {
-      integrationCountEl.textContent = `${demo.length} integrations (demo)`;
-    }
-    
-    integrationRowsEl.innerHTML = demo.map(int => `
-      <tr class="border-t border-slate-800 hover:bg-slate-900/50">
-        <td class="px-3 py-2">${healthStatusBadge(int.health_status)}</td>
-        <td class="px-3 py-2 font-medium">${int.name}</td>
-        <td class="px-3 py-2 text-slate-400">${int.integration_type}</td>
-        <td class="px-3 py-2">${modeBadge(int.mode)}</td>
-        <td class="px-3 py-2 text-slate-300">${int.eps?.toFixed(1) || '0.0'}</td>
-        <td class="px-3 py-2 ${int.parse_error_rate > 0.05 ? 'text-rose-400' : 'text-slate-400'}">${(int.parse_error_rate * 100).toFixed(2)}%</td>
-        <td class="px-3 py-2 text-slate-300">${int.facts_supported_count || 0}</td>
-        <td class="px-3 py-2 text-slate-300">${int.join_keys_supported_count || 0}</td>
-        <td class="px-3 py-2 text-slate-400 text-xs">${int.last_seen_ts ? new Date(int.last_seen_ts).toLocaleString() : '—'}</td>
-        <td class="px-3 py-2">
-          <button data-id="${int.integration_id}" class="btnViewSamples px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Samples</button>
-        </td>
-      </tr>
-    `).join('');
-    
-    for (const btn of integrationRowsEl.querySelectorAll('.btnViewSamples')) {
-      btn.onclick = () => showSampleEvents(btn.dataset.id);
+      integrationRowsEl.innerHTML = `<tr><td colspan="10" class="px-3 py-3 text-rose-400 text-xs">Could not load integrations.</td></tr>`;
     }
   }
 
@@ -1939,7 +1638,7 @@
     try {
       const resp = await fetch(`/api/capabilities?include_collectors=${includeCollectors}`);
       if (!resp.ok) {
-        renderDemoCapabilitiesMatrix();
+        capabilitiesMatrixEl.textContent = `Could not load capabilities (HTTP ${resp.status}).`;
         return;
       }
       
@@ -1947,7 +1646,7 @@
       renderCapabilitiesMatrix(data);
     } catch (e) {
       console.error('Failed to load capabilities:', e);
-      renderDemoCapabilitiesMatrix();
+      capabilitiesMatrixEl.textContent = 'Could not load capabilities.';
     }
   }
 
@@ -1967,8 +1666,8 @@
     let html = '<table class="w-full border-collapse"><thead><tr>';
     html += '<th class="text-left px-2 py-1 border border-slate-700 bg-slate-900 sticky left-0">Fact Type</th>';
     for (const source of sources) {
-      const icon = source.source_type === 'collector' ? '🔬' : '🔗';
-      const healthDot = source.health_status === 'healthy' ? '🟢' : source.health_status === 'warning' ? '🟡' : '🔴';
+      const icon = source.source_type === 'collector' ? 'collector' : 'import';
+      const healthDot = source.health_status === 'healthy' ? '(ok)' : source.health_status === 'warning' ? '(warn)' : '(down)';
       html += `<th class="px-2 py-1 border border-slate-700 bg-slate-900" title="${source.name}">${icon} ${source.id.slice(0, 12)}... ${healthDot}</th>`;
     }
     html += '</tr></thead><tbody>';
@@ -2002,7 +1701,7 @@
         jkHtml += `<td class="px-2 py-1 border border-slate-700 font-medium sticky left-0 bg-slate-950">${jk}</td>`;
         for (const source of sources) {
           const supported = joinKeySupport[jk]?.[source.id];
-          jkHtml += `<td class="px-2 py-1 border border-slate-700 text-center">${supported ? '✅' : '—'}</td>`;
+          jkHtml += `<td class="px-2 py-1 border border-slate-700 text-center">${supported ? 'yes' : '-'}</td>`;
         }
         jkHtml += '</tr>';
       }
@@ -2010,37 +1709,6 @@
       
       joinKeyMatrixEl.innerHTML = jkHtml;
     }
-  }
-
-  // Demo capabilities matrix
-  function renderDemoCapabilitiesMatrix() {
-    const demoSources = [
-      { id: 'macos_endpoint_security', name: 'macOS ES', source_type: 'collector', health_status: 'healthy' },
-      { id: 'wazuh_main', name: 'Wazuh', source_type: 'integration', health_status: 'healthy' },
-      { id: 'zeek_network', name: 'Zeek', source_type: 'integration', health_status: 'healthy' }
-    ];
-    
-    const demoFactSupport = {
-      exec: { macos_endpoint_security: 'hard', wazuh_main: 'soft' },
-      proc_spawn: { macos_endpoint_security: 'hard', wazuh_main: 'soft' },
-      write_path: { macos_endpoint_security: 'hard', wazuh_main: 'soft' },
-      outbound_connect: { macos_endpoint_security: 'hard', wazuh_main: 'soft', zeek_network: 'soft' },
-      dns_resolve: { macos_endpoint_security: 'hard', zeek_network: 'hard' },
-      vendor_alert: { wazuh_main: 'hard', zeek_network: 'hard' }
-    };
-    
-    const demoJoinKeySupport = {
-      proc_key: { macos_endpoint_security: true, wazuh_main: true },
-      file_key: { macos_endpoint_security: true, wazuh_main: true },
-      socket_key: { macos_endpoint_security: true, wazuh_main: true, zeek_network: true },
-      dns_attribution: { macos_endpoint_security: true, zeek_network: true }
-    };
-    
-    renderCapabilitiesMatrix({
-      sources: demoSources,
-      fact_support: demoFactSupport,
-      join_key_support: demoJoinKeySupport
-    });
   }
 
   // Show sample events modal
@@ -2054,8 +1722,7 @@
     try {
       const resp = await fetch(`/api/integrations/${encodeURIComponent(integrationId)}/sample?limit=5`);
       if (!resp.ok) {
-        // Show demo data
-        showDemoSampleEvents(integrationId);
+        renderSampleEvents([]);
         return;
       }
       
@@ -2063,26 +1730,8 @@
       renderSampleEvents(data.samples || []);
     } catch (e) {
       console.error('Failed to load samples:', e);
-      showDemoSampleEvents(integrationId);
+      renderSampleEvents([]);
     }
-  }
-
-  // Demo sample events
-  function showDemoSampleEvents(integrationId) {
-    const demo = [
-      {
-        raw_event_id: `${integrationId}_sample_001`,
-        raw_json_hash: 'a1b2c3d4e5',
-        mapping_version: '1.0',
-        mapped_at: new Date().toISOString(),
-        raw_event_summary: '{"type":"alert","data":"..."}',
-        mapped_event: { fact_type: 'vendor_alert', vendor: integrationId },
-        derived_scope_keys: [
-          { key: 'proc:1234', key_type: 'process', fidelity: 'hard', join_confidence: 1.0 }
-        ]
-      }
-    ];
-    renderSampleEvents(demo);
   }
 
   // Render sample events
@@ -2178,10 +1827,7 @@
 
   async function loadPlaybooksSnapshots() {
     try {
-      const [hitsR, pendR] = await Promise.all([
-        fetch('/playbooks/hits'),
-        fetch('/playbooks/pending')
-      ]);
+      const hitsR = await fetch('/playbooks/hits');
       if (hitsR.ok) {
         const hits = await hitsR.json();
         if (pbHitsEl) {
@@ -2189,18 +1835,11 @@
           (Array.isArray(hits) ? hits : []).slice(-200).forEach(h => safeAdd(pbHitsEl, renderPbItem(h)));
         }
       }
-      if (pendR.ok) {
-        const pending = await pendR.json();
-        if (pbPendingEl) {
-          pbPendingEl.textContent = '';
-          (Array.isArray(pending) ? pending : []).slice(-200).forEach(p => safeAdd(pbPendingEl, renderPbItem(p)));
-        }
-      }
     } catch { /* ignore */ }
   }
 
   (function mountPlaybooksSSE() {
-    if (!pbFeedEl && !pbHitsEl && !pbPendingEl) return; // nothing to render
+    if (!pbFeedEl && !pbHitsEl) return; // nothing to render
     try {
       const esPB = new EventSource('/playbooks/stream');
       esPB.onmessage = (evt) => {
@@ -2220,597 +1859,12 @@
     }
   })();
 
-  // ---------- Lazy loader for Cytoscape ----------
-  function ensureCytoscape() {
-    if (window.cytoscape) return Promise.resolve();
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/cytoscape@3.26.0/dist/cytoscape.min.js';
-      s.onload = () => resolve();
-      s.onerror = reject;
-      document.head.appendChild(s);
-    });
-  }
-  /* ===================== Explain verdict + KPI row (additive) ===================== */
-
-/** Renders verdict badge + confidence + reasons inside an element with id="explainHeader".
- *  Call this after you open the Explain drawer. Safe if header is missing.
- */
-async function attachExplainSummary(alertId) {
-  try {
-    const res = await fetch(`/alerts/${encodeURIComponent(alertId)}/explain`, { cache: "no-store" });
-    const data = await res.json();
-    const hdr = document.querySelector("#explainHeader");
-    if (!hdr || !data || !data.summary) return;
-
-    const verdict = (data.summary.verdict || "unknown").toString().toLowerCase();
-    const conf = typeof data.summary.confidence === "number" ? Math.round(data.summary.confidence * 100) : null;
-    const reasons = Array.isArray(data.summary.reason_codes) ? data.summary.reason_codes.join(", ") : "";
-
-    hdr.innerHTML = `
-      <span class="badge verdict-${verdict}">${verdict.toUpperCase()}</span>
-      ${conf !== null ? `<span class="pill">${conf}%</span>` : ""}
-      ${reasons ? `<span class="muted">${reasons}</span>` : ""}
-    `;
-  } catch (e) {
-    console.warn("attachExplainSummary failed", e);
-  }
-}
-
-/** Lightweight KPI row pulling /hosts/self/health every 2s.
- *  Put a <div id="kpis"></div> somewhere in index.html (see section 3).
- */
-async function refreshKPIs() {
-  try {
-    const res = await fetch("/hosts/self/health", { cache: "no-store" });
-    const h = await res.json();
-    const el = document.querySelector("#kpis");
-    if (!el) return;
-    const safe = (v) => (v === null || v === undefined ? "-" : v);
-    // Display 9 canonical event types from health response
-    el.innerHTML = `
-      <div class="kpi">Credential Access: <b>${safe(h.credential_access_count)}</b></div>
-      <div class="kpi">Discovery: <b>${safe(h.discovery_count)}</b></div>
-      <div class="kpi">Exfiltration: <b>${safe(h.exfiltration_count)}</b></div>
-      <div class="kpi">Network: <b>${safe(h.network_connection_count)}</b></div>
-      <div class="kpi">Persistence: <b>${safe(h.persistence_change_count)}</b></div>
-      <div class="kpi">Evasion: <b>${safe(h.defense_evasion_count)}</b></div>
-      <div class="kpi">Injection: <b>${safe(h.process_injection_count)}</b></div>
-      <div class="kpi">Auth: <b>${safe(h.auth_event_count)}</b></div>
-      <div class="kpi">Scripts: <b>${safe(h.script_exec_count)}</b></div>
-    `;
-  } catch (_) {}
-}
-
-if (!window.__kpiPoll) {
-  window.__kpiPoll = setInterval(refreshKPIs, 2000);
-  refreshKPIs();
-}
-
-/* Optional helper to use from elsewhere */
-window.attachExplainSummary = attachExplainSummary;
-
-/* Minimal styles if you don’t already have them */
-(function injectExplainStyles(){
-  if (document.getElementById("verdict-style")) return;
-  const css = `
-    .badge{display:inline-block;padding:2px 6px;border-radius:6px;font-weight:600;font-size:12px}
-    .pill{display:inline-block;margin-left:6px;padding:2px 6px;border:1px solid #ccc;border-radius:999px;font-size:12px}
-    .muted{margin-left:6px;color:#888;font-size:12px}
-    .verdict-benign{background:#e8f7ee;color:#107b3e;border:1px solid #bce3cd}
-    .verdict-leaning{background:#fff4e5;color:#9a6d00;border:1px solid #f3d1a6}
-    .verdict-malicious{background:#fde8e8;color:#a31d1d;border:1px solid #f2b8b8}
-    .kpi-row{display:flex;gap:14px;align-items:center;margin:6px 0 10px 0;flex-wrap:wrap}
-    .kpi{font-size:13px;color:#444}
-  `;
-  const style = document.createElement("style");
-  style.id = "verdict-style";
-  style.textContent = css;
-  document.head.appendChild(style);
-})();
 
 // ============================================================================
 // ANALYST WORKFLOW MODULE
 // ============================================================================
 
 (function initAnalystWorkflow() {
-  const API_BASE = '/api';
-
-  // DOM elements
-  const focusFrom = document.getElementById('focusFrom');
-  const focusTo = document.getElementById('focusTo');
-  const btnSetFocus = document.getElementById('btnSetFocus');
-  const focusStatus = document.getElementById('focusStatus');
-  
-  const checkpointLabel = document.getElementById('checkpointLabel');
-  const btnCreateCheckpoint = document.getElementById('btnCreateCheckpoint');
-  const checkpointList = document.getElementById('checkpointList');
-  const btnRestoreCheckpoint = document.getElementById('btnRestoreCheckpoint');
-  
-  const btnShowDiff = document.getElementById('btnShowDiff');
-  const diffSummary = document.getElementById('diffSummary');
-  
-  const disambiguatorList = document.getElementById('disambiguatorList');
-  const btnApplyDisambiguator = document.getElementById('btnApplyDisambiguator');
-  const disambiguatorResult = document.getElementById('disambiguatorResult');
-  
-  const visibilityBadge = document.getElementById('visibilityBadge');
-
-  // Initialize datetime inputs to last hour
-  function initFocusDefaults() {
-    if (!focusFrom || !focusTo) return;
-    const now = new Date();
-    const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    focusFrom.value = hourAgo.toISOString().slice(0, 16);
-    focusTo.value = now.toISOString().slice(0, 16);
-  }
-  initFocusDefaults();
-
-  // ---------- Focus Window ----------
-  async function setFocusWindow() {
-    if (!focusFrom || !focusTo) return;
-    try {
-      const t_min = new Date(focusFrom.value).toISOString();
-      const t_max = new Date(focusTo.value).toISOString();
-      
-      const resp = await fetch(`${API_BASE}/session/focus`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ t_min, t_max, entities: [] })
-      });
-      
-      if (resp.ok) {
-        const data = await resp.json();
-        if (focusStatus) {
-          focusStatus.textContent = `✓ ${data.affected_count} events in window`;
-          focusStatus.className = 'text-emerald-400 text-[10px]';
-        }
-      } else {
-        if (focusStatus) {
-          focusStatus.textContent = '✗ Failed to set focus';
-          focusStatus.className = 'text-rose-400 text-[10px]';
-        }
-      }
-    } catch (e) {
-      if (focusStatus) focusStatus.textContent = `Error: ${e.message}`;
-    }
-  }
-  
-  async function loadFocusWindow() {
-    try {
-      const resp = await fetch(`${API_BASE}/session/focus`);
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data.focus_window && focusFrom && focusTo) {
-          focusFrom.value = data.focus_window.t_min.slice(0, 16);
-          focusTo.value = data.focus_window.t_max.slice(0, 16);
-          if (focusStatus) {
-            focusStatus.textContent = `Duration: ${data.focus_window.duration_seconds}s`;
-          }
-        }
-      }
-    } catch { /* ignore */ }
-  }
-  
-  if (btnSetFocus) btnSetFocus.onclick = setFocusWindow;
-
-  // ---------- Checkpoints ----------
-  async function createCheckpoint() {
-    if (!checkpointLabel) return;
-    const label = checkpointLabel.value.trim() || `Checkpoint ${new Date().toLocaleTimeString()}`;
-    
-    try {
-      const resp = await fetch(`${API_BASE}/checkpoints`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label, notes: null })
-      });
-      
-      if (resp.ok) {
-        const data = await resp.json();
-        checkpointLabel.value = '';
-        await loadCheckpoints();
-        console.log(`Checkpoint created: ${data.checkpoint_id}`);
-      }
-    } catch (e) {
-      console.error(`Checkpoint error: ${e.message}`);
-    }
-  }
-  
-  async function loadCheckpoints() {
-    if (!checkpointList) return;
-    try {
-      const resp = await fetch(`${API_BASE}/checkpoints`);
-      if (resp.ok) {
-        const data = await resp.json();
-        checkpointList.innerHTML = '<option value="">-- select checkpoint --</option>';
-        for (const ckpt of (data.checkpoints || [])) {
-          const opt = document.createElement('option');
-          opt.value = ckpt.checkpoint_id;
-          opt.textContent = `${ckpt.label} (${new Date(ckpt.ts).toLocaleString()})`;
-          checkpointList.appendChild(opt);
-        }
-      }
-    } catch { /* ignore */ }
-  }
-  
-  async function restoreCheckpoint() {
-    if (!checkpointList || !checkpointList.value) {
-      console.warn('Select a checkpoint first');
-      return;
-    }
-    
-    try {
-      const resp = await fetch(`${API_BASE}/checkpoints/restore`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checkpoint_id: checkpointList.value })
-      });
-      
-      if (resp.ok) {
-        const data = await resp.json();
-        console.log(`Restored: ${data.checkpoint.label}`);
-        await loadFocusWindow();
-      }
-    } catch (e) {
-      console.error(`Restore error: ${e.message}`);
-    }
-  }
-  
-  if (btnCreateCheckpoint) btnCreateCheckpoint.onclick = createCheckpoint;
-  if (btnRestoreCheckpoint) btnRestoreCheckpoint.onclick = restoreCheckpoint;
-
-  // ---------- Diff View ----------
-  async function showDiff() {
-    if (!focusFrom || !focusTo || !diffSummary) return;
-    
-    try {
-      const from_ts = new Date(focusFrom.value).toISOString();
-      const to_ts = new Date(focusTo.value).toISOString();
-      
-      const resp = await fetch(`${API_BASE}/diff`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from_ts, to_ts, domains: [] })
-      });
-      
-      if (resp.ok) {
-        const data = await resp.json();
-        const stats = data.stats || {};
-        let html = `<div class="text-emerald-400">Total: ${stats.total_changes || 0} changes</div>`;
-        html += `<div>High significance: ${stats.high_significance_count || 0}</div>`;
-        
-        if (data.changes && data.changes.length > 0) {
-          html += '<ul class="mt-1 space-y-0.5">';
-          for (const c of data.changes.slice(0, 5)) {
-            const sigColor = c.significance === 'high' ? 'text-rose-400' : 
-                            c.significance === 'medium' ? 'text-amber-400' : 'text-slate-400';
-            html += `<li class="${sigColor}">• ${c.domain}: ${c.entity}</li>`;
-          }
-          if (data.changes.length > 5) {
-            html += `<li class="text-slate-500">... and ${data.changes.length - 5} more</li>`;
-          }
-          html += '</ul>';
-        }
-        
-        diffSummary.innerHTML = html;
-      }
-    } catch (e) {
-      diffSummary.textContent = `Error: ${e.message}`;
-    }
-  }
-  
-  if (btnShowDiff) btnShowDiff.onclick = showDiff;
-
-  // ---------- Disambiguators ----------
-  async function loadDisambiguators() {
-    if (!disambiguatorList) return;
-    try {
-      const resp = await fetch(`${API_BASE}/disambiguators`);
-      if (resp.ok) {
-        const data = await resp.json();
-        disambiguatorList.innerHTML = '<option value="">-- select action --</option>';
-        for (const d of (data.disambiguators || [])) {
-          const opt = document.createElement('option');
-          opt.value = d.id;
-          opt.textContent = `[${d.priority}] ${d.question_text.slice(0, 40)}...`;
-          opt.title = d.question_text;
-          disambiguatorList.appendChild(opt);
-        }
-      }
-    } catch { /* ignore */ }
-  }
-  
-  async function applyDisambiguator() {
-    if (!disambiguatorList || !disambiguatorList.value) {
-      console.warn('Select a disambiguator first');
-      return;
-    }
-    
-    try {
-      const resp = await fetch(`${API_BASE}/disambiguators/apply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          disambiguator_id: disambiguatorList.value,
-          parameters_override: null 
-        })
-      });
-      
-      if (resp.ok) {
-        const data = await resp.json();
-        const result = data.result || {};
-        let html = `<div class="${result.evidence_found ? 'text-emerald-400' : 'text-amber-400'}">`;
-        html += result.evidence_found ? '✓ Evidence found' : '○ No new evidence';
-        html += `</div>`;
-        html += `<div>New items: ${result.new_evidence_count || 0}</div>`;
-        if (result.confidence_delta) {
-          html += `<div>Confidence Δ: ${(result.confidence_delta * 100).toFixed(1)}%</div>`;
-        }
-        
-        if (disambiguatorResult) disambiguatorResult.innerHTML = html;
-      }
-    } catch (e) {
-      if (disambiguatorResult) disambiguatorResult.textContent = `Error: ${e.message}`;
-    }
-  }
-  
-  if (btnApplyDisambiguator) btnApplyDisambiguator.onclick = applyDisambiguator;
-
-  // ---------- Entity Filter ----------
-  const entityFilterPanel = document.getElementById('entityFilterPanel');
-  const btnClearEntityFilter = document.getElementById('btnClearEntityFilter');
-  const entityFilterActiveLabel = document.getElementById('entityFilterActiveLabel');
-  const entityFilterActiveValue = document.getElementById('entityFilterActiveValue');
-  
-  // Entity filter state
-  let currentIncidentId = null;
-  let currentEntityFilter = null; // { type, id, displayName }
-  
-  // Make incidents clickable and load entities
-  function makeIncidentsClickable() {
-    const incItems = incListEl?.querySelectorAll('li');
-    if (!incItems) return;
-    
-    for (const li of incItems) {
-      li.style.cursor = 'pointer';
-      li.classList.add('hover:bg-slate-800/50', 'transition-colors');
-      li.onclick = async (e) => {
-        e.stopPropagation();
-        
-        // Extract incident ID from the item (find in incidents map)
-        const text = li.textContent;
-        let incId = null;
-        for (const [id, inc] of incidents.entries()) {
-          if (inc.exe && text.includes(inc.exe)) {
-            incId = id;
-            break;
-          }
-        }
-        
-        if (!incId) return;
-        currentIncidentId = incId;
-        currentEntityFilter = null;
-        
-        // Load and display entities
-        await loadIncidentEntities(incId);
-        
-        // Load and display explanation
-        await loadExplanation(incId);
-      };
-    }
-  }
-  
-  async function loadIncidentEntities(incId) {
-    if (!entityFilterPanel) return;
-    
-    try {
-      const resp = await fetch(`${API_BASE}/api/incidents/${incId}/entities`);
-      if (!resp.ok) return;
-      
-      const data = await resp.json();
-      renderEntityFilter(data.entities || []);
-      entityFilterPanel.classList.remove('hidden');
-    } catch (e) {
-      console.warn('Failed to load entities:', e);
-    }
-  }
-  
-  function renderEntityFilter(entities) {
-    // Group entities by type
-    const byType = {};
-    for (const ent of entities) {
-      if (!byType[ent.entity_type]) byType[ent.entity_type] = [];
-      byType[ent.entity_type].push(ent);
-    }
-    
-    const types = ['executable', 'user', 'process', 'file', 'socket'];
-    for (const type of types) {
-      const listEl = document.getElementById(`entityList${type.charAt(0).toUpperCase() + type.slice(1)}`);
-      if (!listEl) continue;
-      
-      listEl.textContent = '';
-      const items = byType[type] || [];
-      
-      for (const ent of items) {
-        const li = el('li', 'hover:bg-slate-700/70 px-1 py-0.5 rounded cursor-pointer transition-colors text-slate-300');
-        const label = `${ent.display_name} (${ent.count})`;
-        li.textContent = label;
-        li.title = label;
-        li.onclick = (e) => {
-          e.stopPropagation();
-          selectEntityFilter(ent);
-        };
-        listEl.appendChild(li);
-      }
-    }
-  }
-  
-  function selectEntityFilter(entity) {
-    currentEntityFilter = {
-      type: entity.entity_type,
-      id: entity.entity_id,
-      displayName: entity.display_name
-    };
-    
-    // Show active filter label
-    if (entityFilterActiveLabel && entityFilterActiveValue) {
-      entityFilterActiveLabel.classList.remove('hidden');
-      entityFilterActiveValue.textContent = `${entity.entity_type}: ${entity.display_name}`;
-    }
-    
-    // TODO: Filter timeline/incidents by this entity
-    console.log('Entity filter selected:', currentEntityFilter);
-  }
-  
-  if (btnClearEntityFilter) {
-    btnClearEntityFilter.onclick = () => {
-      currentEntityFilter = null;
-      if (entityFilterActiveLabel) entityFilterActiveLabel.classList.add('hidden');
-      console.log('Entity filter cleared');
-      // TODO: Re-render unfiltered timeline/incidents
-    };
-  }
-  
-  // Re-render incidents clickable after incidents are rendered
-  const origRenderIncidents = window.renderIncidents || renderIncidents;
-  window.renderIncidents = function() {
-    origRenderIncidents.call(this);
-    makeIncidentsClickable();
-  };
-
-  // ---------- Why This Hypothesis Panel ----------
-  const whyHypothesisPanel = document.getElementById('whyHypothesisPanel');
-  const top3HypothesesList = document.getElementById('top3HypothesesList');
-  const keyClaimsList = document.getElementById('keyClaimsList');
-  const evidencePointersList = document.getElementById('evidencePointersList');
-  const visibilityStateSummary = document.getElementById('visibilityStateSummary');
-  
-  async function loadExplanation(incidentId) {
-    if (!whyHypothesisPanel) return;
-    
-    try {
-      const resp = await fetch(`${API_BASE}/api/incidents/${incidentId}/explain`);
-      if (!resp.ok) return;
-      
-      const data = await resp.json();
-      renderWhyHypothesis(data);
-    } catch (e) {
-      console.warn('Failed to load explanation:', e);
-    }
-  }
-  
-  function renderWhyHypothesis(explanation) {
-    if (!whyHypothesisPanel) return;
-    
-    // Show the panel
-    whyHypothesisPanel.classList.remove('hidden');
-    
-    // Render top 3 hypotheses
-    if (top3HypothesesList) {
-      top3HypothesesList.textContent = '';
-      if (explanation.top3_hypotheses && explanation.top3_hypotheses.top3) {
-        for (let i = 0; i < Math.min(3, explanation.top3_hypotheses.top3.length); i++) {
-          const hyp = explanation.top3_hypotheses.top3[i];
-          const div = document.createElement('div');
-          div.className = 'p-2 rounded bg-slate-800/50 hover:bg-slate-800 transition-colors cursor-pointer';
-          
-          const severity = hyp.severity || 'unknown';
-          const sevColor = severity === 'high' ? 'text-rose-400' : severity === 'medium' ? 'text-amber-400' : 'text-sky-400';
-          
-          const confidence = Math.round((hyp.confidence || 0) * 100);
-          const title = document.createElement('div');
-          title.className = `font-semibold ${sevColor}`;
-          title.innerHTML = `${i+1}. ${hyp.family} (${hyp.template_id})`;
-          
-          const stats = document.createElement('div');
-          stats.className = 'text-[11px] text-slate-400 mt-1';
-          stats.innerHTML = `
-            Confidence: ${confidence}% &middot;
-            Rank: ${(hyp.rank_score || 0).toFixed(2)} &middot;
-            Required: ${hyp.required_satisfied}/${hyp.required_total}
-          `;
-          
-          div.appendChild(title);
-          div.appendChild(stats);
-          top3HypothesesList.appendChild(div);
-        }
-      }
-    }
-    
-    // Render key claims (observed, inferred, unknown)
-    if (keyClaimsList) {
-      keyClaimsList.textContent = '';
-      if (explanation.observed_claims && explanation.observed_claims.length > 0) {
-        for (const claim of explanation.observed_claims.slice(0, 5)) {
-          const div = document.createElement('div');
-          const certColor = 
-            claim.certainty === 'Observed' ? 'text-emerald-400' :
-            claim.certainty === 'InferredFromRules' ? 'text-amber-400' :
-            'text-slate-400';
-          
-          div.className = `${certColor} px-1 py-0.5`;
-          div.innerHTML = `<strong>${claim.certainty}:</strong> ${claim.text}`;
-          keyClaimsList.appendChild(div);
-        }
-      }
-    }
-    
-    // Render evidence pointers
-    if (evidencePointersList) {
-      evidencePointersList.textContent = '';
-      const evidencePtrs = new Set();
-      
-      // Collect evidence pointers from claims
-      if (explanation.observed_claims) {
-        for (const claim of explanation.observed_claims) {
-          if (claim.evidence_ptrs) {
-            for (const ptr of claim.evidence_ptrs) {
-              if (ptr) evidencePtrs.add(JSON.stringify(ptr));
-            }
-          }
-        }
-      }
-      
-      // Render up to 10 evidence pointers
-      let count = 0;
-      for (const ptrStr of evidencePtrs) {
-        if (count++ >= 10) break;
-        const div = document.createElement('div');
-        div.className = 'text-slate-400 truncate';
-        try {
-          const ptr = JSON.parse(ptrStr);
-          const label = `${ptr.stream_id || '?'}:${ptr.segment_id || '?'}#${ptr.record_index || 0}`;
-          div.textContent = label;
-          div.title = ptrStr;
-        } catch {
-          div.textContent = ptrStr;
-        }
-        evidencePointersList.appendChild(div);
-      }
-    }
-    
-    // Render visibility state
-    if (visibilityStateSummary) {
-      if (explanation.visibility_state) {
-        const vis = explanation.visibility_state;
-        const present = (vis.streams_present || []).join(', ') || 'none';
-        const missing = (vis.streams_missing || []).join(', ') || 'none';
-        const degradedMsg = vis.degraded ? ` (degraded: ${(vis.degraded_reasons || []).join('; ')})` : '';
-        
-        visibilityStateSummary.innerHTML = `
-          <div class="text-slate-400">
-            <div>Present: <span class="text-slate-300">${present}</span></div>
-            <div>Missing: <span class="text-slate-300">${missing}</span>${degradedMsg}</div>
-          </div>
-        `;
-      }
-    }
-  }
-  
-  // Make explanations load when an incident is selected
-  window.loadExplanation = loadExplanation;
-
   // ---------- Support Bundle Export ----------
   const exportSupportBundleBtn = document.getElementById('exportSupportBundleBtn');
   
@@ -2818,7 +1872,7 @@ window.attachExplainSummary = attachExplainSummary;
     exportSupportBundleBtn.onclick = async () => {
       try {
         exportSupportBundleBtn.disabled = true;
-        exportSupportBundleBtn.textContent = '⏳ Generating...';
+        exportSupportBundleBtn.textContent = 'Generating...';
         
         const resp = await fetch('/api/support/bundle', {
           method: 'POST',
@@ -2845,16 +1899,16 @@ window.attachExplainSummary = attachExplainSummary;
           URL.revokeObjectURL(url);
           
           // Show success toast
-          showToast(`✅ Support bundle exported (${(blob.size / 1024).toFixed(1)} KB)`, 'success');
+          showToast(`Support bundle exported (${(blob.size / 1024).toFixed(1)} KB)`, 'success');
         } else {
           const errData = await resp.json();
-          showToast(`❌ Failed to export: ${errData.error || 'Unknown error'}`, 'error');
+          showToast(`Failed to export: ${errData.error || 'Unknown error'}`, 'error');
         }
       } catch (e) {
-        showToast(`❌ Error: ${e.message}`, 'error');
+        showToast(`Error: ${e.message}`, 'error');
       } finally {
         exportSupportBundleBtn.disabled = false;
-        exportSupportBundleBtn.textContent = '🆘 Export Support Bundle';
+        exportSupportBundleBtn.textContent = 'Export Support Bundle';
       }
     };
   }
@@ -2875,41 +1929,6 @@ window.attachExplainSummary = attachExplainSummary;
     }, 3000);
   }
 
-  // ---------- Visibility Panel ----------
-  async function refreshVisibility() {
-    if (!visibilityBadge) return;
-    try {
-      const resp = await fetch(`${API_BASE}/visibility`);
-      if (resp.ok) {
-        const data = await resp.json();
-        const health = data.overall_health || 'unknown';
-        
-        let bgClass = 'bg-emerald-700/70';
-        if (health === 'degraded') bgClass = 'bg-amber-600/70';
-        else if (health === 'unhealthy') bgClass = 'bg-rose-700/70';
-        else if (health === 'unknown') bgClass = 'bg-slate-600/70';
-        
-        visibilityBadge.className = `text-xs px-2 py-0.5 rounded ${bgClass}`;
-        visibilityBadge.textContent = `visibility: ${health}`;
-        
-        if (data.degraded_reasons && data.degraded_reasons.length > 0) {
-          visibilityBadge.title = data.degraded_reasons.join('; ');
-        }
-      }
-    } catch { /* ignore */ }
-  }
-
-  // ---------- Initialize ----------
-  async function initWorkflow() {
-    await loadFocusWindow();
-    await loadCheckpoints();
-    await loadDisambiguators();
-    await refreshVisibility();
-  }
-  
-  // Poll visibility every 10 seconds
-  setInterval(refreshVisibility, 10000);
-  
   // ---------- Run Metrics Panel ----------
   const metricsEmpty = document.getElementById('metricsEmpty');
   const metricsContent = document.getElementById('metricsContent');
@@ -2940,7 +1959,7 @@ window.attachExplainSummary = attachExplainSummary;
   
   function setVerdict(el, pass, label) {
     if (!el) return;
-    const icon = pass ? '✅' : '❌';
+    const icon = pass ? 'PASS' : 'FAIL';
     const color = pass ? 'text-emerald-400' : 'text-rose-400';
     el.innerHTML = `<span class="w-4">${icon}</span><span class="${color}">${label}</span>`;
   }
@@ -3004,9 +2023,9 @@ window.attachExplainSummary = attachExplainSummary;
         const text = await file.text();
         const data = JSON.parse(text);
         renderMetrics(data);
-        showToast(`✅ Loaded metrics: ${file.name}`, 'success');
+        showToast(`Loaded metrics: ${file.name}`, 'success');
       } catch (err) {
-        showToast(`❌ Failed to parse metrics file: ${err.message}`, 'error');
+        showToast(`Failed to parse metrics file: ${err.message}`, 'error');
       }
     };
   }
@@ -3018,10 +2037,12 @@ window.attachExplainSummary = attachExplainSummary;
         // Try /api/eval/metrics endpoint first
         let resp = await fetch('/api/eval/metrics');
         if (resp.ok) {
-          const data = await resp.json();
+          const body = await resp.json();
+          // edr-server wraps the metrics file as { success, data }
+          const data = body && body.success && body.data ? body.data : body;
           if (data && (data.run_id || data.runId || data.timestamp)) {
             renderMetrics(data);
-            showToast('✅ Metrics refreshed from server', 'success');
+            showToast('Metrics refreshed from server', 'success');
             return;
           }
         }
@@ -3037,13 +2058,13 @@ window.attachExplainSummary = attachExplainSummary;
               playbooks_hit: stats.data.by_playbook ? Object.keys(stats.data.by_playbook).length : 0,
               status: 'live'
             });
-            showToast('✅ Live stats refreshed', 'success');
+            showToast('Live stats refreshed', 'success');
             return;
           }
         }
-        showToast('ℹ️ No metrics available - run eval_windows.ps1 first', 'info');
+        showToast('No metrics available - run eval_windows.ps1 first', 'info');
       } catch (err) {
-        showToast(`❌ Failed to refresh metrics: ${err.message}`, 'error');
+        showToast(`Failed to refresh metrics: ${err.message}`, 'error');
       }
     };
   }
@@ -3159,223 +2180,25 @@ window.attachExplainSummary = attachExplainSummary;
   }
   
   // ============================================================================
-  // IMPORT CASES FUNCTIONALITY
+  // IMPORTED CASES (read only)
   // ============================================================================
-  
-  // Import state
+  // The desktop app imports evidence folders and zip files and writes a
+  // manifest.json per case. The server lists those manifests
+  // (GET /api/import/cases) and returns one case (GET /api/import/cases/:id/manifest).
+
   let importedCases = [];
   let selectedCaseId = null;
   let selectedCase = null;
-  
-  // DOM elements for import
-  const importDropZone = document.getElementById('importDropZone');
-  const importFilePicker = document.getElementById('importFilePicker');
-  const importFolderPicker = document.getElementById('importFolderPicker');
-  const importFolderBtn = document.getElementById('importFolderBtn');
-  const importProgress = document.getElementById('importProgress');
-  const importProgressBar = document.getElementById('importProgressBar');
-  const importProgressPercent = document.getElementById('importProgressPercent');
-  const importProgressStatus = document.getElementById('importProgressStatus');
+
   const casesList = document.getElementById('casesList');
   const caseHeader = document.getElementById('caseHeader');
-  const caseTabs = document.getElementById('caseTabs');
   const caseEmptyState = document.getElementById('caseEmptyState');
-  
-  // Case detail elements
   const caseTitle = document.getElementById('caseTitle');
   const caseFileCount = document.getElementById('caseFileCount');
   const caseEventCount = document.getElementById('caseEventCount');
-  const caseSignalCount = document.getElementById('caseSignalCount');
-  const caseTimeRange = document.getElementById('caseTimeRange');
-  
-  // Case views
-  const caseTimelineView = document.getElementById('caseTimelineView');
-  const caseSignalsView = document.getElementById('caseSignalsView');
-  const caseEntitiesView = document.getElementById('caseEntitiesView');
+  const caseImportedAt = document.getElementById('caseImportedAt');
   const caseManifestView = document.getElementById('caseManifestView');
-  const caseNarrativeView = document.getElementById('caseNarrativeView');
-  
-  // Case sub-tabs
-  const caseTabTimeline = document.getElementById('caseTabTimeline');
-  const caseTabSignals = document.getElementById('caseTabSignals');
-  const caseTabEntities = document.getElementById('caseTabEntities');
-  const caseTabManifest = document.getElementById('caseTabManifest');
-  const caseTabNarrative = document.getElementById('caseTabNarrative');
-  
-  // Drag and drop handlers
-  if (importDropZone) {
-    importDropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      importDropZone.classList.add('border-violet-500', 'bg-violet-500/10');
-    });
-    
-    importDropZone.addEventListener('dragleave', (e) => {
-      e.preventDefault();
-      importDropZone.classList.remove('border-violet-500', 'bg-violet-500/10');
-    });
-    
-    importDropZone.addEventListener('drop', async (e) => {
-      e.preventDefault();
-      importDropZone.classList.remove('border-violet-500', 'bg-violet-500/10');
-      
-      const items = e.dataTransfer.items;
-      if (items && items.length > 0) {
-        // Check for folder
-        const item = items[0];
-        if (item.webkitGetAsEntry) {
-          const entry = item.webkitGetAsEntry();
-          if (entry && entry.isDirectory) {
-            await importFolder(entry);
-            return;
-          }
-        }
-        
-        // Handle files
-        const files = e.dataTransfer.files;
-        if (files.length > 0) {
-          await importFiles(files);
-        }
-      }
-    });
-  }
-  
-  // File picker handlers
-  if (importFilePicker) {
-    importFilePicker.addEventListener('change', async (e) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-        await importFiles(files);
-      }
-      importFilePicker.value = '';
-    });
-  }
-  
-  if (importFolderBtn && importFolderPicker) {
-    importFolderBtn.addEventListener('click', () => {
-      importFolderPicker.click();
-    });
-    
-    importFolderPicker.addEventListener('change', async (e) => {
-      const files = e.target.files;
-      if (files && files.length > 0) {
-        await importFiles(files);
-      }
-      importFolderPicker.value = '';
-    });
-  }
-  
-  // Import files function
-  async function importFiles(files) {
-    showImportProgress();
-    updateImportProgress(10, 'Preparing files...');
-    
-    try {
-      // Create FormData with files
-      const formData = new FormData();
-      for (let i = 0; i < files.length; i++) {
-        formData.append('files', files[i]);
-      }
-      
-      updateImportProgress(30, 'Uploading files...');
-      
-      const response = await fetch('/api/import/bundle', {
-        method: 'POST',
-        body: formData
-      });
-      
-      updateImportProgress(60, 'Processing...');
-      
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(error.error || 'Import failed');
-      }
-      
-      const result = await response.json();
-      
-      updateImportProgress(80, 'Analyzing events...');
-      
-      // Add to cases list
-      importedCases.unshift(result);
-      
-      updateImportProgress(100, 'Complete!');
-      
-      setTimeout(() => {
-        hideImportProgress();
-        renderCasesList();
-        selectCase(result.bundle_id);
-        showToast('Import successful', `${result.files_count} files, ${result.events_count} events`);
-      }, 500);
-      
-    } catch (err) {
-      hideImportProgress();
-      showToast('Import failed', err.message, 'error');
-      console.error('Import error:', err);
-    }
-  }
-  
-  // Import folder (from drag-drop DirectoryEntry)
-  async function importFolder(entry) {
-    showImportProgress();
-    updateImportProgress(10, 'Reading folder...');
-    
-    try {
-      const files = [];
-      await readDirectoryRecursive(entry, files);
-      
-      if (files.length === 0) {
-        throw new Error('No files found in folder');
-      }
-      
-      updateImportProgress(20, `Found ${files.length} files...`);
-      await importFiles(files);
-      
-    } catch (err) {
-      hideImportProgress();
-      showToast('Import failed', err.message, 'error');
-      console.error('Folder import error:', err);
-    }
-  }
-  
-  // Recursively read directory entries
-  async function readDirectoryRecursive(entry, files, path = '') {
-    return new Promise((resolve, reject) => {
-      if (entry.isFile) {
-        entry.file(file => {
-          // Add path info
-          file.relativePath = path + file.name;
-          files.push(file);
-          resolve();
-        }, reject);
-      } else if (entry.isDirectory) {
-        const reader = entry.createReader();
-        reader.readEntries(async (entries) => {
-          for (const e of entries) {
-            await readDirectoryRecursive(e, files, path + entry.name + '/');
-          }
-          resolve();
-        }, reject);
-      } else {
-        resolve();
-      }
-    });
-  }
-  
-  // Progress UI functions
-  function showImportProgress() {
-    if (importProgress) importProgress.classList.remove('hidden');
-  }
-  
-  function hideImportProgress() {
-    if (importProgress) importProgress.classList.add('hidden');
-  }
-  
-  function updateImportProgress(percent, status) {
-    if (importProgressBar) importProgressBar.style.width = `${percent}%`;
-    if (importProgressPercent) importProgressPercent.textContent = `${percent}%`;
-    if (importProgressStatus) importProgressStatus.textContent = status;
-  }
-  
-  // Load imported cases from server
+
   async function loadImportedCases() {
     try {
       const response = await fetch('/api/import/cases');
@@ -3387,28 +2210,23 @@ window.attachExplainSummary = attachExplainSummary;
       console.error('Failed to load cases:', err);
     }
   }
-  
-  // Render cases list
+
   function renderCasesList() {
     if (!casesList) return;
-    
+
     if (importedCases.length === 0) {
       casesList.innerHTML = `
         <div class="p-4 text-center text-xs text-slate-500">
-          No cases imported yet.<br/>
-          Import a bundle to get started.
+          No cases imported yet.
         </div>
       `;
       return;
     }
-    
+
     casesList.innerHTML = importedCases.map(c => `
-      <div class="case-item p-3 border-b border-slate-700 hover:bg-slate-800/50 cursor-pointer ${c.bundle_id === selectedCaseId ? 'bg-slate-800' : ''}" 
-           data-case-id="${c.bundle_id}">
-        <div class="flex items-center justify-between mb-1">
-          <div class="font-medium text-sm text-slate-200 truncate">${c.name || c.bundle_id}</div>
-          <div class="text-xs px-1.5 py-0.5 rounded ${c.signals_count > 0 ? 'bg-amber-700' : 'bg-slate-700'}">${c.signals_count || 0}</div>
-        </div>
+      <div class="case-item p-3 border-b border-slate-700 hover:bg-slate-800/50 cursor-pointer ${c.bundle_id === selectedCaseId ? 'bg-slate-800' : ''}"
+           data-case-id="${escapeHtml(c.bundle_id)}">
+        <div class="font-medium text-sm text-slate-200 truncate">${escapeHtml(c.name || c.bundle_id)}</div>
         <div class="flex items-center gap-2 text-xs text-slate-400">
           <span>${c.files_count || 0} files</span>
           <span>•</span>
@@ -3417,419 +2235,79 @@ window.attachExplainSummary = attachExplainSummary;
         <div class="text-xs text-slate-500 mt-1">${c.imported_at ? new Date(c.imported_at).toLocaleString() : '--'}</div>
       </div>
     `).join('');
-    
-    // Add click handlers
+
     casesList.querySelectorAll('.case-item').forEach(item => {
-      item.addEventListener('click', () => {
-        selectCase(item.dataset.caseId);
-      });
+      item.addEventListener('click', () => selectCase(item.dataset.caseId));
     });
   }
-  
-  // Select a case
+
   async function selectCase(caseId) {
     selectedCaseId = caseId;
-    selectedCase = importedCases.find(c => c.bundle_id === caseId);
-    
-    if (!selectedCase) {
-      // Try to fetch from server
-      try {
-        const response = await fetch(`/api/import/cases/${caseId}`);
-        if (response.ok) {
-          selectedCase = await response.json();
-        }
-      } catch (err) {
-        console.error('Failed to load case:', err);
-      }
-    }
-    
+    selectedCase = importedCases.find(c => c.bundle_id === caseId) || null;
     renderCasesList();
     renderCaseHeader();
-    showCaseTab('timeline');
+    await loadCaseManifest();
   }
-  
-  // Render case header
+
   function renderCaseHeader() {
     if (!selectedCase) {
       if (caseHeader) caseHeader.classList.add('hidden');
-      if (caseTabs) caseTabs.classList.add('hidden');
+      if (caseManifestView) caseManifestView.classList.add('hidden');
       if (caseEmptyState) caseEmptyState.classList.remove('hidden');
       return;
     }
-    
+
     if (caseHeader) caseHeader.classList.remove('hidden');
-    if (caseTabs) caseTabs.classList.remove('hidden');
+    if (caseManifestView) caseManifestView.classList.remove('hidden');
     if (caseEmptyState) caseEmptyState.classList.add('hidden');
-    
+
     if (caseTitle) caseTitle.textContent = `Case: ${selectedCase.name || selectedCase.bundle_id}`;
     if (caseFileCount) caseFileCount.textContent = `${selectedCase.files_count || 0} files`;
     if (caseEventCount) caseEventCount.textContent = `${selectedCase.events_count || 0} events`;
-    if (caseSignalCount) caseSignalCount.textContent = `${selectedCase.signals_count || 0} signals`;
-    if (caseTimeRange) caseTimeRange.textContent = selectedCase.time_range || '--';
+    if (caseImportedAt) caseImportedAt.textContent = selectedCase.imported_at ? new Date(selectedCase.imported_at).toLocaleString() : '--';
   }
-  
-  // Show case sub-tab
-  function showCaseTab(tab) {
-    // Hide all views
-    [caseTimelineView, caseSignalsView, caseEntitiesView, caseManifestView, caseNarrativeView].forEach(v => {
-      if (v) v.classList.add('hidden');
-    });
-    
-    // Update tab styles
-    [caseTabTimeline, caseTabSignals, caseTabEntities, caseTabManifest, caseTabNarrative].forEach(t => {
-      if (t) t.className = 'px-3 py-1 rounded bg-slate-800 text-slate-200';
-    });
-    
-    // Show selected view
-    switch (tab) {
-      case 'timeline':
-        if (caseTimelineView) caseTimelineView.classList.remove('hidden');
-        if (caseTabTimeline) caseTabTimeline.className = 'px-3 py-1 rounded bg-sky-600 text-white';
-        loadCaseTimeline();
-        break;
-      case 'signals':
-        if (caseSignalsView) caseSignalsView.classList.remove('hidden');
-        if (caseTabSignals) caseTabSignals.className = 'px-3 py-1 rounded bg-sky-600 text-white';
-        loadCaseSignals();
-        break;
-      case 'entities':
-        if (caseEntitiesView) caseEntitiesView.classList.remove('hidden');
-        if (caseTabEntities) caseTabEntities.className = 'px-3 py-1 rounded bg-sky-600 text-white';
-        loadCaseEntities();
-        break;
-      case 'manifest':
-        if (caseManifestView) caseManifestView.classList.remove('hidden');
-        if (caseTabManifest) caseTabManifest.className = 'px-3 py-1 rounded bg-sky-600 text-white';
-        loadCaseManifest();
-        break;
-      case 'narrative':
-        if (caseNarrativeView) caseNarrativeView.classList.remove('hidden');
-        if (caseTabNarrative) caseTabNarrative.className = 'px-3 py-1 rounded bg-sky-600 text-white';
-        break;
-    }
-  }
-  
-  // Tab click handlers
-  if (caseTabTimeline) caseTabTimeline.onclick = () => showCaseTab('timeline');
-  if (caseTabSignals) caseTabSignals.onclick = () => showCaseTab('signals');
-  if (caseTabEntities) caseTabEntities.onclick = () => showCaseTab('entities');
-  if (caseTabManifest) caseTabManifest.onclick = () => showCaseTab('manifest');
-  if (caseTabNarrative) caseTabNarrative.onclick = () => showCaseTab('narrative');
-  
-  // Load case timeline
-  async function loadCaseTimeline() {
-    if (!selectedCaseId) return;
-    const content = document.getElementById('timelineContent');
-    if (!content) return;
-    
-    content.innerHTML = '<div class="text-center text-xs text-slate-500 py-4">Loading timeline...</div>';
-    
-    try {
-      const response = await fetch(`/api/import/cases/${selectedCaseId}/timeline`);
-      if (!response.ok) throw new Error('Failed to load timeline');
-      
-      const events = await response.json();
-      
-      if (events.length === 0) {
-        content.innerHTML = '<div class="text-center text-xs text-slate-500 py-4">No events found</div>';
-        return;
-      }
-      
-      content.innerHTML = events.map(e => `
-        <div class="p-2 border-b border-slate-800 hover:bg-slate-800/50">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-500">${e.timestamp ? new Date(e.timestamp).toLocaleString() : '--'}</span>
-              <span class="text-xs px-1.5 py-0.5 rounded bg-slate-700">${e.event_type || 'event'}</span>
-            </div>
-            <div class="flex gap-1">
-              ${(e.tags || []).slice(0, 3).map(t => `<span class="text-xs px-1 rounded bg-violet-700/50">${t}</span>`).join('')}
-            </div>
-          </div>
-          <div class="text-xs text-slate-300 mt-1 truncate">${summarizeEvent(e)}</div>
-          <div class="text-xs text-slate-500 mt-1">
-            <span class="font-mono">${e.source_file || '--'}</span>
-            ${e.source_line ? `<span class="ml-1">:${e.source_line}</span>` : ''}
-          </div>
-        </div>
-      `).join('');
-      
-    } catch (err) {
-      content.innerHTML = `<div class="text-center text-xs text-rose-400 py-4">Error: ${err.message}</div>`;
-    }
-  }
-  
-  // Load case signals
-  async function loadCaseSignals() {
-    if (!selectedCaseId) return;
-    const content = document.getElementById('signalsContent');
-    if (!content) return;
-    
-    content.innerHTML = '<div class="text-center text-xs text-slate-500 py-4">Loading signals...</div>';
-    
-    try {
-      const response = await fetch(`/api/import/cases/${selectedCaseId}/signals`);
-      if (!response.ok) throw new Error('Failed to load signals');
-      
-      const signals = await response.json();
-      
-      if (signals.length === 0) {
-        content.innerHTML = '<div class="text-center text-xs text-slate-500 py-4">No signals generated</div>';
-        return;
-      }
-      
-      content.innerHTML = signals.map(s => `
-        <div class="p-3 border-b border-slate-700 hover:bg-slate-800/50">
-          <div class="flex items-center justify-between mb-1">
-            <div class="flex items-center gap-2">
-              <span class="text-xs px-1.5 py-0.5 rounded ${severityBadgeClass(s.severity)}">${s.severity || 'info'}</span>
-              <span class="font-medium text-sm text-slate-200">${s.title || s.playbook_id || 'Signal'}</span>
-            </div>
-            <span class="text-xs text-slate-500">${s.timestamp ? new Date(s.timestamp).toLocaleString() : '--'}</span>
-          </div>
-          <div class="text-xs text-slate-400 mb-2">${s.description || '--'}</div>
-          <div class="flex gap-1 flex-wrap">
-            ${(s.tags || []).map(t => `<span class="text-xs px-1 rounded bg-slate-700">${t}</span>`).join('')}
-          </div>
-          ${s.evidence_ptr ? `
-            <div class="text-xs text-slate-500 mt-2 font-mono">
-              Evidence: ${s.evidence_ptr.rel_path}${s.evidence_ptr.line_no ? `:${s.evidence_ptr.line_no}` : ''}
-            </div>
-          ` : ''}
-        </div>
-      `).join('');
-      
-    } catch (err) {
-      content.innerHTML = `<div class="text-center text-xs text-rose-400 py-4">Error: ${err.message}</div>`;
-    }
-  }
-  
-  // Load case entities
-  async function loadCaseEntities() {
-    if (!selectedCaseId) return;
-    
-    try {
-      const response = await fetch(`/api/import/cases/${selectedCaseId}/entities`);
-      if (!response.ok) throw new Error('Failed to load entities');
-      
-      const entities = await response.json();
-      
-      const domainsEl = document.getElementById('entitiesDomains');
-      const ipsEl = document.getElementById('entitiesIPs');
-      const urlsEl = document.getElementById('entitiesURLs');
-      const hashesEl = document.getElementById('entitiesHashes');
-      
-      if (domainsEl) {
-        domainsEl.innerHTML = (entities.domains || []).length > 0
-          ? entities.domains.map(d => `<div class="text-slate-200">${d}</div>`).join('')
-          : '<div class="text-slate-500">None</div>';
-      }
-      if (ipsEl) {
-        ipsEl.innerHTML = (entities.ips || []).length > 0
-          ? entities.ips.map(ip => `<div class="text-slate-200 font-mono">${ip}</div>`).join('')
-          : '<div class="text-slate-500">None</div>';
-      }
-      if (urlsEl) {
-        urlsEl.innerHTML = (entities.urls || []).length > 0
-          ? entities.urls.slice(0, 20).map(u => `<div class="text-slate-200 truncate" title="${u}">${u}</div>`).join('')
-          : '<div class="text-slate-500">None</div>';
-      }
-      if (hashesEl) {
-        hashesEl.innerHTML = (entities.hashes || []).length > 0
-          ? entities.hashes.map(h => `<div class="text-slate-200 font-mono text-xs">${h}</div>`).join('')
-          : '<div class="text-slate-500">None</div>';
-      }
-      
-    } catch (err) {
-      console.error('Failed to load entities:', err);
-    }
-  }
-  
-  // Load case manifest
+
   async function loadCaseManifest() {
     if (!selectedCaseId) return;
     const content = document.getElementById('manifestContent');
     if (!content) return;
-    
+
     try {
-      const response = await fetch(`/api/import/cases/${selectedCaseId}/manifest`);
+      const response = await fetch(`/api/import/cases/${encodeURIComponent(selectedCaseId)}/manifest`);
       if (!response.ok) throw new Error('Failed to load manifest');
-      
+
       const manifest = await response.json();
-      
+      const kindText = (k) => (typeof k === 'string' ? k : (k ? JSON.stringify(k) : '--'));
+
       content.innerHTML = (manifest.files || []).map(f => `
         <tr class="hover:bg-slate-800/50">
-          <td class="px-3 py-2 text-slate-200 truncate max-w-[200px]" title="${f.rel_path}">${f.rel_path}</td>
-          <td class="px-3 py-2 text-slate-400">${f.kind || '--'}</td>
-          <td class="px-3 py-2 text-slate-400">${formatBytes(f.size_bytes)}</td>
-          <td class="px-3 py-2 text-slate-500 font-mono truncate max-w-[100px]" title="${f.sha256}">${f.sha256?.substring(0, 16) || '--'}...</td>
+          <td class="px-3 py-2 text-slate-200 truncate max-w-[200px]" title="${escapeHtml(f.rel_path)}">${escapeHtml(f.rel_path)}</td>
+          <td class="px-3 py-2 text-slate-400">${escapeHtml(kindText(f.kind))}</td>
+          <td class="px-3 py-2 text-slate-400">${formatBytes(f.size_bytes ?? f.bytes)}</td>
+          <td class="px-3 py-2 text-slate-500 font-mono truncate max-w-[100px]" title="${escapeHtml(f.sha256)}">${escapeHtml((f.sha256 || '').substring(0, 16)) || '--'}</td>
           <td class="px-3 py-2">
-            <span class="px-1.5 py-0.5 rounded text-xs ${f.parsed ? 'bg-emerald-700' : 'bg-slate-700'}">${f.parsed ? '✓' : '-'}</span>
+            <span class="px-1.5 py-0.5 rounded text-xs ${f.parsed ? 'bg-emerald-700' : 'bg-slate-700'}">${f.parsed ? 'yes' : 'no'}</span>
           </td>
           <td class="px-3 py-2 text-slate-400">${f.events_extracted || 0}</td>
         </tr>
       `).join('');
-      
+
     } catch (err) {
-      content.innerHTML = `<tr><td colspan="6" class="text-center text-rose-400 py-4">Error: ${err.message}</td></tr>`;
+      content.innerHTML = `<tr><td colspan="6" class="text-center text-rose-400 py-4">Error: ${escapeHtml(err.message)}</td></tr>`;
     }
   }
-  
-  // Helper: summarize event
-  function summarizeEvent(e) {
-    const fields = e.fields || {};
-    if (fields.url) return fields.url;
-    if (fields.query) return `DNS: ${fields.query}`;
-    if (fields.domain) return fields.domain;
-    if (fields.method && fields.url) return `${fields.method} ${fields.url}`;
-    if (e.event_type === 'zeek_conn') {
-      return `${fields['id.orig_h'] || '--'} → ${fields['id.resp_h'] || '--'}:${fields['id.resp_p'] || '--'}`;
-    }
-    return e.event_type || 'Event';
-  }
-  
-  // Helper: severity badge class
-  function severityBadgeClass(sev) {
-    switch ((sev || '').toLowerCase()) {
-      case 'critical': return 'bg-rose-700';
-      case 'high': return 'bg-rose-600';
-      case 'medium': return 'bg-amber-600';
-      case 'low': return 'bg-emerald-700';
-      default: return 'bg-slate-700';
-    }
-  }
-  
-  // Helper: format bytes
+
   function formatBytes(bytes) {
     if (!bytes) return '0 B';
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
-  
-  // Refresh cases button
+
   const refreshCasesBtn = document.getElementById('refreshCasesBtn');
   if (refreshCasesBtn) {
     refreshCasesBtn.addEventListener('click', loadImportedCases);
-  }
-  
-  // Delete case button
-  const deleteCaseBtn = document.getElementById('deleteCaseBtn');
-  if (deleteCaseBtn) {
-    deleteCaseBtn.addEventListener('click', async () => {
-      if (!selectedCaseId) return;
-      if (!confirm('Delete this case? This cannot be undone.')) return;
-      
-      try {
-        const response = await fetch(`/api/import/cases/${selectedCaseId}`, { method: 'DELETE' });
-        if (response.ok) {
-          importedCases = importedCases.filter(c => c.bundle_id !== selectedCaseId);
-          selectedCaseId = null;
-          selectedCase = null;
-          renderCasesList();
-          renderCaseHeader();
-          showToast('Case deleted', 'success');
-        }
-      } catch (err) {
-        showToast('Delete failed', err.message, 'error');
-      }
-    });
-  }
-  
-  // Reprocess case button
-  const reprocessCaseBtn = document.getElementById('reprocessCaseBtn');
-  if (reprocessCaseBtn) {
-    reprocessCaseBtn.addEventListener('click', async () => {
-      if (!selectedCaseId) return;
-      
-      reprocessCaseBtn.disabled = true;
-      reprocessCaseBtn.textContent = 'Processing...';
-      
-      try {
-        const response = await fetch(`/api/import/cases/${selectedCaseId}/reprocess`, { method: 'POST' });
-        if (response.ok) {
-          const result = await response.json();
-          selectedCase = result;
-          renderCaseHeader();
-          showCaseTab('signals');
-          showToast('Reprocessed', `${result.signals_count} signals generated`);
-        }
-      } catch (err) {
-        showToast('Reprocess failed', err.message, 'error');
-      } finally {
-        reprocessCaseBtn.disabled = false;
-        reprocessCaseBtn.textContent = '🔄 Reprocess';
-      }
-    });
-  }
-  
-  // Export case button
-  const exportCaseBtn = document.getElementById('exportCaseBtn');
-  if (exportCaseBtn) {
-    exportCaseBtn.addEventListener('click', async () => {
-      if (!selectedCaseId) return;
-      
-      try {
-        const response = await fetch(`/api/import/cases/${selectedCaseId}/export`);
-        if (response.ok) {
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `case_${selectedCaseId}.zip`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          URL.revokeObjectURL(url);
-        }
-      } catch (err) {
-        showToast('Export failed', err.message, 'error');
-      }
-    });
-  }
-  
-  // Generate narrative button
-  const generateNarrativeBtn = document.getElementById('generateNarrativeBtn');
-  if (generateNarrativeBtn) {
-    generateNarrativeBtn.addEventListener('click', async () => {
-      if (!selectedCaseId) return;
-      
-      const narrativeContent = document.getElementById('narrativeContent');
-      if (narrativeContent) {
-        narrativeContent.innerHTML = '<div class="text-center text-slate-400 py-4">Generating narrative...</div>';
-      }
-      
-      try {
-        const response = await fetch(`/api/import/cases/${selectedCaseId}/narrative`, { method: 'POST' });
-        if (response.ok) {
-          const result = await response.json();
-          if (narrativeContent) {
-            narrativeContent.innerHTML = `
-              <h3 class="text-lg font-semibold mb-3">${result.title || 'Investigation Summary'}</h3>
-              <div class="text-slate-300 whitespace-pre-wrap">${result.narrative || 'No narrative generated.'}</div>
-              ${result.recommendations ? `
-                <h4 class="text-md font-medium mt-4 mb-2">Recommendations</h4>
-                <ul class="list-disc list-inside text-slate-400">
-                  ${result.recommendations.map(r => `<li>${r}</li>`).join('')}
-                </ul>
-              ` : ''}
-            `;
-          }
-        }
-      } catch (err) {
-        if (narrativeContent) {
-          narrativeContent.innerHTML = `<div class="text-center text-rose-400 py-4">Error: ${err.message}</div>`;
-        }
-      }
-    });
-  }
-  
-  // Initialize on load
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initWorkflow);
-  } else {
-    initWorkflow();
   }
 
   // ============================================================================
@@ -3911,7 +2389,7 @@ window.attachExplainSummary = attachExplainSummary;
           const reason = data.reason || 'No valid license with diff_mode entitlement';
           diffProBanner.innerHTML = `
             <div class="flex items-start gap-3">
-              <span class="text-2xl">🔒</span>
+              <span class="text-sm font-bold">LOCKED</span>
               <div class="flex-1">
                 <h4 class="font-medium text-amber-300">Pro License Required</h4>
                 <p class="text-sm text-amber-200/80 mt-1">${reason}</p>
@@ -3941,7 +2419,7 @@ window.attachExplainSummary = attachExplainSummary;
           const reason = data.reason || 'License is bound to a different machine';
           diffProBanner.innerHTML = `
             <div class="flex items-start gap-3">
-              <span class="text-2xl">🔄</span>
+              <span class="text-sm font-bold">ERROR</span>
               <div class="flex-1">
                 <h4 class="font-medium text-red-300">Machine Binding Error</h4>
                 <p class="text-sm text-red-200/80 mt-1">${reason}</p>
@@ -3950,7 +2428,7 @@ window.attachExplainSummary = attachExplainSummary;
                   <div class="mt-3 p-2 rounded bg-slate-900/50">
                     <div class="text-xs text-slate-400 mb-1">Your Installation ID:</div>
                     <code class="text-xs font-mono text-sky-300 select-all">${installId}</code>
-                    <button onclick="navigator.clipboard.writeText('${installId}')" class="ml-2 px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs" title="Copy">📋</button>
+                    <button onclick="navigator.clipboard.writeText('${installId}')" class="ml-2 px-1.5 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs" title="Copy">Copy</button>
                   </div>
                 ` : ''}
                 <button onclick="activateTab('license')" class="mt-3 px-3 py-1.5 rounded bg-red-600 hover:bg-red-500 text-sm font-medium">
@@ -4132,37 +2610,37 @@ window.attachExplainSummary = attachExplainSummary;
     // Update status badge
     switch (status) {
       case 'valid':
-        licenseStatusIcon.textContent = '✅';
+        licenseStatusIcon.textContent = '';
         licenseStatusText.textContent = 'License Valid';
         licenseStatusDetail.textContent = license?.edition ? `${license.edition.toUpperCase()} Edition` : 'Active';
         break;
       case 'not_installed':
-        licenseStatusIcon.textContent = '🔒';
+        licenseStatusIcon.textContent = '';
         licenseStatusText.textContent = 'No License Installed';
         licenseStatusDetail.textContent = 'Import a license to unlock Pro features';
         break;
       case 'expired':
-        licenseStatusIcon.textContent = '⏰';
+        licenseStatusIcon.textContent = '';
         licenseStatusText.textContent = 'License Expired';
         licenseStatusDetail.textContent = 'Please renew your license';
         break;
       case 'invalid':
-        licenseStatusIcon.textContent = '❌';
+        licenseStatusIcon.textContent = '';
         licenseStatusText.textContent = 'Invalid License';
         licenseStatusDetail.textContent = 'License verification failed';
         break;
       case 'wrong_installation':
-        licenseStatusIcon.textContent = '🔄';
+        licenseStatusIcon.textContent = '';
         licenseStatusText.textContent = 'Wrong Installation';
         licenseStatusDetail.textContent = 'License bound to different installation';
         break;
       case 'not_configured':
-        licenseStatusIcon.textContent = '⚙️';
+        licenseStatusIcon.textContent = '';
         licenseStatusText.textContent = 'Not Configured';
         licenseStatusDetail.textContent = 'Development build - license system not configured';
         break;
       default:
-        licenseStatusIcon.textContent = '❓';
+        licenseStatusIcon.textContent = '';
         licenseStatusText.textContent = 'Unknown Status';
         licenseStatusDetail.textContent = '';
     }
@@ -4171,9 +2649,9 @@ window.attachExplainSummary = attachExplainSummary;
     if (licenseDetailsCard) {
       if (status === 'valid' && license) {
         licenseDetailsCard.classList.remove('hidden');
-        if (licenseLicenseId) licenseLicenseId.textContent = license.license_id || '—';
-        if (licenseCustomer) licenseCustomer.textContent = license.customer || '—';
-        if (licenseEdition) licenseEdition.textContent = license.edition || '—';
+        if (licenseLicenseId) licenseLicenseId.textContent = license.license_id || '-';
+        if (licenseCustomer) licenseCustomer.textContent = license.customer || '-';
+        if (licenseEdition) licenseEdition.textContent = license.edition || '-';
         if (licenseExpires) {
           if (license.expires_at) {
             const expDate = new Date(license.expires_at);
@@ -4193,7 +2671,6 @@ window.attachExplainSummary = attachExplainSummary;
         licenseEntitlementsCard.classList.remove('hidden');
         licenseEntitlementsList.innerHTML = license.entitlements.map(ent => `
           <div class="flex items-center gap-2 text-emerald-400">
-            <span>✓</span>
             <span>${formatEntitlement(ent)}</span>
           </div>
         `).join('');
@@ -4205,13 +2682,13 @@ window.attachExplainSummary = attachExplainSummary;
     // Update feature status icons
     const entitlements = license?.entitlements || [];
     if (featureDiffStatus) {
-      featureDiffStatus.textContent = entitlements.includes('diff_mode') ? '✅' : '🔒';
+      featureDiffStatus.textContent = entitlements.includes('diff_mode') ? 'Enabled' : 'Locked';
     }
     if (featureReportsStatus) {
-      featureReportsStatus.textContent = entitlements.includes('pro_reports') ? '✅' : '🔒';
+      featureReportsStatus.textContent = entitlements.includes('pro_reports') ? 'Enabled' : 'Locked';
     }
     if (featureTeamStatus) {
-      featureTeamStatus.textContent = entitlements.includes('team_features') ? '✅' : '🔒';
+      featureTeamStatus.textContent = entitlements.includes('team_features') ? 'Enabled' : 'Locked';
     }
     
     // Update fingerprint/machine binding status
@@ -4228,7 +2705,7 @@ window.attachExplainSummary = attachExplainSummary;
     
     if (!fingerprint || !fingerprint.available) {
       // Fingerprint not available (likely dev mode)
-      fingerprintStatusIcon.textContent = '❓';
+      fingerprintStatusIcon.textContent = '';
       fingerprintStatusText.textContent = 'Not Available';
       fingerprintDetail.textContent = 'Machine binding not configured';
       return;
@@ -4238,13 +2715,13 @@ window.attachExplainSummary = attachExplainSummary;
     
     switch (status) {
       case 'bound':
-        fingerprintStatusIcon.textContent = '🔐';
+        fingerprintStatusIcon.textContent = '';
         fingerprintStatusText.textContent = 'Bound to this machine';
-        fingerprintDetail.textContent = `Fingerprint: ${fingerprint.value || '—'}`;
+        fingerprintDetail.textContent = `Fingerprint: ${fingerprint.value || '-'}`;
         if (fingerprintCard) fingerprintCard.classList.remove('border-red-500', 'border-amber-500');
         break;
       case 'mismatch':
-        fingerprintStatusIcon.textContent = '⚠️';
+        fingerprintStatusIcon.textContent = '';
         fingerprintStatusText.textContent = 'Machine Mismatch';
         fingerprintDetail.textContent = 'License was activated on a different machine. Please contact support.';
         if (fingerprintCard) {
@@ -4253,7 +2730,7 @@ window.attachExplainSummary = attachExplainSummary;
         }
         break;
       case 'unavailable':
-        fingerprintStatusIcon.textContent = '❓';
+        fingerprintStatusIcon.textContent = '';
         fingerprintStatusText.textContent = 'Cannot verify';
         fingerprintDetail.textContent = 'Unable to read machine fingerprint';
         if (fingerprintCard) {
@@ -4263,7 +2740,7 @@ window.attachExplainSummary = attachExplainSummary;
         break;
       case 'not_checked':
       default:
-        fingerprintStatusIcon.textContent = '⏳';
+        fingerprintStatusIcon.textContent = '';
         fingerprintStatusText.textContent = 'Not Checked';
         fingerprintDetail.textContent = 'No valid license to verify against';
         break;
@@ -4280,7 +2757,7 @@ window.attachExplainSummary = attachExplainSummary;
   }
 
   function renderLicenseError(message) {
-    if (licenseStatusIcon) licenseStatusIcon.textContent = '⚠️';
+    if (licenseStatusIcon) licenseStatusIcon.textContent = '';
     if (licenseStatusText) licenseStatusText.textContent = 'Error';
     if (licenseStatusDetail) licenseStatusDetail.textContent = message;
   }
@@ -4290,8 +2767,8 @@ window.attachExplainSummary = attachExplainSummary;
     copyInstallIdBtn.addEventListener('click', async () => {
       try {
         await navigator.clipboard.writeText(licenseInstallId.textContent);
-        copyInstallIdBtn.textContent = '✓';
-        setTimeout(() => { copyInstallIdBtn.textContent = '📋'; }, 1500);
+        copyInstallIdBtn.textContent = 'Copied';
+        setTimeout(() => { copyInstallIdBtn.textContent = 'Copy'; }, 1500);
       } catch (err) {
         console.error('Failed to copy:', err);
       }
@@ -4401,3 +2878,12 @@ window.attachExplainSummary = attachExplainSummary;
   // Update diff UI to handle 402 responses
   const originalRunDiffComparison = runDiffComparison;
   // Note: The runDiffComparison function already handles errors gracefully
+
+  // The tab switcher in the main module calls these when a tab opens. They are
+  // defined in this module, so expose them on window for it.
+  window.loadImportedCases = loadImportedCases;
+  window.loadRunsForCompare = loadRunsForCompare;
+  window.loadLicenseStatus = loadLicenseStatus;
+})();
+
+})();

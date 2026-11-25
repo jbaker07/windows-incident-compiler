@@ -14,7 +14,7 @@
   <dialog id="wizardModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-lg w-full backdrop:bg-slate-950/80">
     <div class="p-6">
       <div class="text-center mb-6">
-        <div class="text-3xl mb-2">🔬</div>
+        <div class="text-3xl mb-2"></div>
         <h2 class="text-xl font-semibold text-slate-100">Welcome to EDR Desktop</h2>
         <p class="text-sm text-slate-400 mt-1">Let's get you set up in under a minute</p>
       </div>
@@ -31,12 +31,12 @@
         <div class="text-sm font-medium text-slate-300 mb-3">Choose your workflow mode:</div>
         <div class="grid grid-cols-2 gap-3">
           <button id="modeDiscovery" type="button" class="p-4 rounded-lg border-2 border-slate-700 hover:border-sky-500 transition-colors text-left group">
-            <div class="text-lg mb-1">🔍</div>
+            <div class="text-lg mb-1"></div>
             <div class="font-medium text-slate-200 group-hover:text-sky-400">Discovery</div>
             <div class="text-xs text-slate-400">Explore telemetry, build hypotheses</div>
           </button>
           <button id="modeMission" type="button" class="p-4 rounded-lg border-2 border-slate-700 hover:border-emerald-500 transition-colors text-left group">
-            <div class="text-lg mb-1">🎯</div>
+            <div class="text-lg mb-1"></div>
             <div class="font-medium text-slate-200 group-hover:text-emerald-400">Mission</div>
             <div class="text-xs text-slate-400">Structured investigation workflow</div>
           </button>
@@ -109,7 +109,7 @@
     <div class="p-6">
       <div class="flex items-start justify-between mb-4">
         <div>
-          <div id="liveSuccessEmoji" class="text-3xl mb-2">🔍</div>
+          <div id="liveSuccessEmoji" class="text-3xl mb-2">...</div>
           <h2 id="liveSuccessTitle" class="text-xl font-semibold text-slate-100">Telemetry Check</h2>
           <p id="liveSuccessSubtitle" class="text-sm text-slate-400 mt-1">Checking if sensors are working...</p>
         </div>
@@ -119,7 +119,7 @@
       <!-- Verdict Summary -->
       <div id="liveSuccessVerdict" class="hidden p-4 rounded-lg mb-4">
         <div class="flex items-center gap-3">
-          <span id="verdictIcon" class="text-2xl">✅</span>
+          <span id="verdictIcon" class="text-2xl">PASS</span>
           <div>
             <div id="verdictTitle" class="font-medium"></div>
             <div id="verdictDesc" class="text-sm text-slate-400"></div>
@@ -141,7 +141,7 @@
 
       <!-- Probe Section -->
       <div id="probeSection" class="hidden border-t border-slate-700 pt-4 mt-4">
-        <h3 class="text-sm font-medium text-slate-300 mb-2">🧪 Run Harmless Probe</h3>
+        <h3 class="text-sm font-medium text-slate-300 mb-2">Run Harmless Probe</h3>
         <p class="text-xs text-slate-400 mb-3">
           Generate safe telemetry (echo command, temp file, localhost connect) to verify the full pipeline.
         </p>
@@ -187,7 +187,7 @@
   <div id="verificationBanner" class="hidden fixed top-0 left-0 right-0 bg-amber-700/90 text-amber-100 px-4 py-2 z-50">
     <div class="max-w-7xl mx-auto flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <span class="text-lg">⚠️</span>
+        <span class="text-sm font-bold">WARNING</span>
         <div>
           <span class="font-medium">Verification pack loaded (synthetic data)</span>
           <span class="text-amber-200 text-sm ml-2">Switch to Live mode to view real telemetry</span>
@@ -202,7 +202,7 @@
   <!-- ============ VERIFICATION DATA LOADED TOAST ============ -->
   <div id="verificationToast" class="fixed bottom-4 right-4 bg-amber-800/90 text-amber-100 px-4 py-3 rounded-lg shadow-lg transform translate-y-20 opacity-0 transition-all duration-300 z-50">
     <div class="flex items-center gap-3">
-      <span class="text-lg">🔬</span>
+      
       <div>
         <div class="font-medium text-sm">Verification pack loaded</div>
         <div class="text-xs text-amber-200">Synthetic data - explore the workflow</div>
@@ -235,9 +235,9 @@
   <div id="importedBundleBanner" class="hidden fixed top-0 left-0 right-0 bg-amber-600/95 text-amber-50 px-4 py-2 z-50 border-b-2 border-amber-500">
     <div class="max-w-7xl mx-auto flex items-center justify-between">
       <div class="flex items-center gap-3">
-        <span class="text-lg">📦</span>
+        
         <div>
-          <span class="font-bold">⚠️ IMPORTED BUNDLE</span>
+          <span class="font-bold">IMPORTED BUNDLE</span>
           <span class="text-amber-200 text-sm ml-2">This data is from an external source, not live telemetry</span>
           <span id="importedBundleInfo" class="text-amber-100 text-sm ml-2 font-medium"></span>
         </div>
@@ -257,18 +257,15 @@
       <div class="flex items-center gap-4 text-sm text-slate-400">
         <span id="statEvents">events: 0</span>
         <span id="statAlerts">alerts: 0</span>
-        <span id="statNodes">nodes: 0</span>
-        <span id="statEdges">edges: 0</span>
-        <span id="statDrops">bpf_drops: 0</span>
         <button id="exportBundleBtn" type="button" class="px-2 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-emerald-100 text-xs">
-          📤 Export Bundle
+          Export Bundle
         </button>
         <label class="px-2 py-1 rounded bg-violet-700 hover:bg-violet-600 text-violet-100 text-xs cursor-pointer">
-          📥 Import Bundle
+          Import Bundle
           <input id="importBundleInput" type="file" accept=".zip,.json" class="hidden" />
         </label>
         <button id="exportSupportBundleBtn" type="button" class="px-2 py-1 rounded bg-amber-700 hover:bg-amber-600 text-amber-100 text-xs">
-          🆘 Export Support Bundle
+          Export Support Bundle
         </button>
         <a class="underline decoration-sky-500/60 hover:decoration-sky-400" href="/ui/graph.html">Open Live Graph</a>
       </div>
@@ -277,7 +274,7 @@
     <!-- ============ ADMIN WARNING BANNER ============ -->
     <div id="adminWarningBanner" class="hidden bg-amber-700/90 text-amber-100 px-4 py-2 rounded-lg mb-4">
       <div class="flex items-center gap-3">
-        <span class="text-lg">⚠️</span>
+        <span class="text-sm font-bold">WARNING</span>
         <div>
           <span class="font-medium">Limited Telemetry Mode</span>
           <span class="text-amber-200 text-sm ml-2">Running without admin rights. Some Windows event channels unavailable.</span>
@@ -289,7 +286,7 @@
     <div id="runControlPanel" class="hidden bg-slate-900/80 border border-emerald-700/50 rounded-lg p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
         <div class="flex items-center gap-3">
-          <span id="runStatusIcon" class="text-2xl">⏹️</span>
+          <span id="runStatusIcon" class="text-2xl"></span>
           <div>
             <div id="runStatusText" class="font-semibold text-slate-100">Stack Stopped</div>
             <div id="runStatusSub" class="text-xs text-slate-400">Ready to start capture</div>
@@ -297,8 +294,8 @@
         </div>
         <div class="flex items-center gap-2">
           <span id="adminBadge" class="px-2 py-1 rounded text-xs bg-slate-700 text-slate-400">Checking...</span>
-          <button id="btnOpenTelemetry" onclick="window.__edrDesktop?.openTelemetryFolder()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">📂 Telemetry</button>
-          <button id="btnOpenLogs" onclick="window.__edrDesktop?.openLogsFolder()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">📋 Logs</button>
+          <button id="btnOpenTelemetry" onclick="window.__edrDesktop?.openTelemetryFolder()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">Telemetry</button>
+          <button id="btnOpenLogs" onclick="window.__edrDesktop?.openLogsFolder()" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">Logs</button>
         </div>
       </div>
       
@@ -338,22 +335,22 @@
       <!-- Control Buttons -->
       <div class="flex items-center gap-3">
         <button id="btnStartRun" onclick="window.__edrDesktop?.startRun()" class="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
-          <span>▶️</span> Start Run
+          Start Run
         </button>
         <button id="btnStopRun" onclick="window.__edrDesktop?.stopRun()" class="hidden flex-1 py-2.5 rounded-lg bg-red-600 hover:bg-red-500 font-semibold text-sm transition-colors flex items-center justify-center gap-2">
-          <span>⏹️</span> Stop Run
+          Stop Run
         </button>
         <button id="btnGenerateActivity" onclick="window.__edrDesktop?.openScenarioRunner()" class="px-4 py-2.5 rounded-lg bg-amber-700 hover:bg-amber-600 text-sm" title="Generate safe test activity to trigger playbook matches">
-          🧪 Scenarios
+          Scenarios
         </button>
         <button id="btnReadiness" onclick="window.__edrDesktop?.openReadinessCheck()" class="px-4 py-2.5 rounded-lg bg-sky-700 hover:bg-sky-600 text-sm" title="Check system telemetry readiness">
-          🔧 Readiness
+          Readiness
         </button>
         <button id="btnHistory" onclick="window.__edrDesktop?.openRunHistory()" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm" title="View run history">
-          📁 History
+          History
         </button>
         <button id="btnMetrics" onclick="window.__edrDesktop?.showMetrics()" class="px-4 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm">
-          📊 Metrics
+          Metrics
         </button>
       </div>
       
@@ -364,15 +361,12 @@
       <div id="activityStatusBox" class="hidden mt-3 p-3 rounded bg-amber-900/30 border border-amber-700 text-sm text-amber-200"></div>
     </div>
 
-    <!-- KPI row (app.js refreshKPIs fills this) -->
-    <div id="kpis" class="kpi-row mb-4"></div>
-
     <nav class="flex gap-2 text-sm mb-4">
       <button id="tabDash" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Dashboard</button>
-      <button id="tabImport" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">📦 Import Cases</button>
+      <button id="tabImport" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Import Cases</button>
       <button id="tabIntegrations" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Integrations</button>
-      <button id="tabCompare" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">🔀 Compare Runs</button>
-      <button id="tabLicense" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">🔑 License</button>
+      <button id="tabCompare" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Compare Runs</button>
+      <button id="tabLicense" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">License</button>
     </nav>
 
     <section id="screenDash">
@@ -387,6 +381,7 @@
                 <option value="low">low</option>
                 <option value="medium">medium</option>
                 <option value="high">high</option>
+                <option value="critical">critical</option>
               </select>
             </div>
           </div>
@@ -413,7 +408,7 @@
 
         <div id="incidents" class="rounded border border-slate-800 p-3 lg:col-span-3">
           <div class="flex items-center justify-between mb-2">
-            <div class="text-sm font-medium">Incidents (rollups)</div>
+            <div class="text-sm font-medium">Incidents (signals per host per hour)</div>
           </div>
           <p class="text-xs text-slate-400 mb-2">No incidents yet.</p>
           <ul id="incList" class="divide-y divide-slate-800"></ul>
@@ -422,7 +417,7 @@
         <!-- Signals Panel with Explain Button -->
         <div id="signalsPanel" class="rounded border border-emerald-700/50 bg-slate-900/50 p-3 lg:col-span-3">
           <div class="flex items-center justify-between mb-2">
-            <div class="text-sm font-medium text-emerald-400">🔔 Playbook Signals</div>
+            <div class="text-sm font-medium text-emerald-400">Playbook Signals</div>
             <button id="refreshSignalsBtn" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Refresh</button>
           </div>
           <p id="signalsEmpty" class="text-xs text-slate-400 mb-2">No signals yet. Run playbook-based detection to generate signals.</p>
@@ -476,7 +471,7 @@
 
             <!-- Limitations -->
             <div id="explainLimitations" class="hidden mb-4">
-              <h3 class="text-sm font-medium text-amber-400 mb-2">⚠️ Limitations</h3>
+              <h3 class="text-sm font-medium text-amber-400 mb-2">Limitations</h3>
               <ul id="explainLimitationsList" class="text-xs text-slate-400 list-disc list-inside"></ul>
             </div>
 
@@ -498,7 +493,7 @@
           <div class="p-6 max-h-[90vh] overflow-y-auto">
             <div class="flex items-start justify-between mb-4">
               <div>
-                <h2 id="narrativeModalTitle" class="text-xl font-semibold text-slate-100">📜 Signal Narrative</h2>
+                <h2 id="narrativeModalTitle" class="text-xl font-semibold text-slate-100">Signal Narrative</h2>
                 <p id="narrativeModalSubtitle" class="text-sm text-slate-400 mt-1">Evidence-cited explanation</p>
               </div>
               <div class="flex items-center gap-2">
@@ -510,25 +505,25 @@
             <!-- Narrative Sentences -->
             <div class="mb-6">
               <h3 class="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
-                <span>📋 Narrative</span>
-                <span id="narrativeValidation" class="text-xs px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400">✓ Valid</span>
+                <span>Narrative</span>
+                <span id="narrativeValidation" class="text-xs px-2 py-0.5 rounded bg-emerald-600/20 text-emerald-400">Valid</span>
               </h3>
               <div id="narrativeSentences" class="space-y-2"></div>
             </div>
 
             <!-- Top 3 Hypotheses Arbitration -->
             <div class="mb-6 p-4 rounded-lg bg-slate-800/50">
-              <h3 class="text-sm font-medium text-amber-400 mb-3">⚖️ Top 3 Hypotheses Arbitration</h3>
+              <h3 class="text-sm font-medium text-amber-400 mb-3">Top 3 Hypotheses Arbitration</h3>
               <div id="arbitrationSection" class="space-y-3">
                 <!-- Winner -->
                 <div class="p-3 rounded-lg border border-emerald-600/50 bg-emerald-900/20">
                   <div class="flex items-center justify-between mb-2">
                     <span class="font-medium text-emerald-400">#1 Winner</span>
-                    <span id="arbWinnerName" class="text-sm text-slate-200">—</span>
+                    <span id="arbWinnerName" class="text-sm text-slate-200">-</span>
                   </div>
                   <div class="text-xs text-slate-300 mb-2">
                     <span class="text-slate-400">Slots:</span>
-                    <span id="arbWinnerSlots">—</span>
+                    <span id="arbWinnerSlots">-</span>
                   </div>
                   <div class="text-xs">
                     <div class="text-emerald-400 mb-1">Why it won:</div>
@@ -539,11 +534,11 @@
                 <div id="arbRunnerUpSection" class="p-3 rounded-lg border border-slate-700 bg-slate-800/30">
                   <div class="flex items-center justify-between mb-2">
                     <span class="font-medium text-slate-400">#2 Runner Up</span>
-                    <span id="arbRunnerUpName" class="text-sm text-slate-300">—</span>
+                    <span id="arbRunnerUpName" class="text-sm text-slate-300">-</span>
                   </div>
                   <div class="text-xs text-slate-300 mb-2">
                     <span class="text-slate-400">Slots:</span>
-                    <span id="arbRunnerUpSlots">—</span>
+                    <span id="arbRunnerUpSlots">-</span>
                   </div>
                   <div class="text-xs">
                     <div class="text-rose-400 mb-1">Why it lost:</div>
@@ -554,7 +549,7 @@
                 <div id="arbThirdSection" class="hidden p-3 rounded-lg border border-slate-700/50 bg-slate-800/20">
                   <div class="flex items-center justify-between mb-2">
                     <span class="font-medium text-slate-500">#3</span>
-                    <span id="arbThirdName" class="text-sm text-slate-400">—</span>
+                    <span id="arbThirdName" class="text-sm text-slate-400">-</span>
                   </div>
                   <div class="text-xs">
                     <div class="text-rose-400/70 mb-1">Why it lost:</div>
@@ -567,7 +562,7 @@
             <!-- Disambiguation Questions -->
             <div id="disambiguationSection" class="mb-6 p-4 rounded-lg bg-slate-800/50">
               <h3 class="text-sm font-medium text-sky-400 mb-3 flex items-center gap-2">
-                <span>❓ Questions & Next Steps</span>
+                <span>Questions & Next Steps</span>
                 <span id="ambiguityScore" class="text-xs px-2 py-0.5 rounded bg-sky-600/20 text-sky-300">Low ambiguity</span>
               </h3>
               <div id="disambiguationQuestions" class="space-y-2 mb-4"></div>
@@ -578,16 +573,16 @@
             <!-- User Actions -->
             <div class="mb-4 flex flex-wrap gap-2">
               <button id="btnPinSentence" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
-                <span>📌</span> Pin Selected
+                Pin Selected
               </button>
               <button id="btnHideSentence" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
-                <span>👁️</span> Hide Selected
+                Hide Selected
               </button>
               <button id="btnVerifyEvidence" class="px-3 py-1.5 text-xs rounded bg-emerald-700 hover:bg-emerald-600 flex items-center gap-1">
-                <span>✓</span> Verify Evidence
+                Verify Evidence
               </button>
               <button id="btnExportNarrative" class="px-3 py-1.5 text-xs rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1">
-                <span>📤</span> Export JSON
+                Export JSON
               </button>
             </div>
 
@@ -599,96 +594,13 @@
 
         <!-- Evidence Receipt Tooltip (reusable) -->
         <div id="evidenceReceiptTooltip" class="hidden fixed z-50 p-3 max-w-md bg-slate-800 border border-slate-600 rounded-lg shadow-xl text-xs">
-          <div class="font-medium text-sky-400 mb-2">📄 Evidence Receipt</div>
+          <div class="font-medium text-sky-400 mb-2">Evidence Receipt</div>
           <div id="receiptContent" class="space-y-2"></div>
         </div>
 
-        <!-- Entity Filter Sidebar -->
-        <div id="entityFilterPanel" class="hidden rounded border border-cyan-700/50 bg-slate-900/50 p-3 lg:col-span-3">
-          <div class="flex items-center justify-between mb-2">
-            <div class="text-sm font-medium text-cyan-400">🔍 Filter by Entity</div>
-            <button id="btnClearEntityFilter" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Clear filter</button>
-          </div>
-          <div id="entityFilterActiveLabel" class="hidden text-xs text-cyan-300 mb-2 px-2 py-1 bg-cyan-900/30 rounded">
-            Filtering: <span id="entityFilterActiveValue" class="font-semibold"></span>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
-            <div>
-              <div class="text-xs font-medium text-slate-400 mb-1">Executables</div>
-              <ul id="entityListExecutable" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
-            </div>
-            <div>
-              <div class="text-xs font-medium text-slate-400 mb-1">Users</div>
-              <ul id="entityListUser" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
-            </div>
-            <div>
-              <div class="text-xs font-medium text-slate-400 mb-1">Processes</div>
-              <ul id="entityListProcess" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
-            </div>
-            <div>
-              <div class="text-xs font-medium text-slate-400 mb-1">Files</div>
-              <ul id="entityListFile" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
-            </div>
-            <div>
-              <div class="text-xs font-medium text-slate-400 mb-1">Sockets</div>
-              <ul id="entityListSocket" class="text-xs space-y-0.5 max-h-32 overflow-auto"></ul>
-            </div>
-          </div>
-        </div>
-        <!-- End Entity Filter Sidebar -->
-
-        <!-- Explain panel header hook; app.js can call attachExplainSummary(alertId) -->
-        <div class="rounded border border-slate-800 lg:col-span-3">
-          <div class="p-3 border-b border-slate-800 flex items-center justify-between">
-            <div class="text-sm font-medium">Explain</div>
-            <div id="explainHeader" class="text-xs"></div>
-          </div>
-          <!-- Why This Hypothesis Panel -->
-          <div id="whyHypothesisPanel" class="hidden p-3 border-b border-slate-800 bg-slate-900/40">
-            <div class="text-sm font-semibold text-cyan-400 mb-3">🤔 Why This Hypothesis?</div>
-            <div class="space-y-3">
-              <!-- Top 3 Hypotheses -->
-              <div>
-                <div class="text-xs font-medium text-slate-400 mb-2">Top Candidates</div>
-                <div id="top3HypothesesList" class="space-y-1 text-xs"></div>
-              </div>
-              <!-- Key Claims -->
-              <div>
-                <div class="text-xs font-medium text-slate-400 mb-2">Key Claims</div>
-                <div id="keyClaimsList" class="space-y-1 text-xs max-h-32 overflow-auto"></div>
-              </div>
-              <!-- Evidence Pointers -->
-              <div>
-                <div class="text-xs font-medium text-slate-400 mb-2">Evidence Pointers</div>
-                <div id="evidencePointersList" class="space-y-1 text-xs max-h-24 overflow-auto font-mono bg-slate-950/70 rounded p-1"></div>
-              </div>
-              <!-- Visibility State -->
-              <div>
-                <div class="text-xs font-medium text-slate-400 mb-1">Visibility</div>
-                <div id="visibilityStateSummary" class="text-xs text-slate-400"></div>
-              </div>
-            </div>
-          </div>
-          <!-- Optional containers you can populate later from app.js (entities/anomalies/recs) -->
-          <div class="p-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <div>
-              <div class="font-semibold mb-1 text-slate-300">Entities</div>
-              <pre id="explainEntities" class="bg-slate-900/70 border border-slate-800 rounded p-2 max-h-40 overflow-auto"></pre>
-            </div>
-            <div>
-              <div class="font-semibold mb-1 text-slate-300">Anomalies</div>
-              <ul id="explainAnoms" class="list-disc list-inside space-y-1 text-slate-300"></ul>
-            </div>
-            <div>
-              <div class="font-semibold mb-1 text-slate-300">Recommendations</div>
-              <ul id="explainRecs" class="list-disc list-inside space-y-1 text-slate-300"></ul>
-            </div>
-          </div>
-        </div>
-
-        <!-- >>> THIS BLOCK IS THE MARKER YOU'LL TEST FOR <<< -->
+        <!-- Playbook hits (live stream and recent list, from /playbooks/stream and /playbooks/hits) -->
         <div class="rounded border border-slate-800 p-3 lg:col-span-3">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <div class="text-sm font-medium mb-2">Playbooks (live stream)</div>
               <ul id="pb-feed" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
@@ -697,80 +609,15 @@
               <div class="text-sm font-medium mb-2">Recent hits</div>
               <ul id="pb-hits" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
             </div>
-            <div>
-              <div class="text-sm font-medium mb-2">Pending matches</div>
-              <ul id="pb-pending" class="text-xs space-y-1 max-h-64 overflow-auto pr-1"></ul>
-            </div>
           </div>
         </div>
-
-        <!-- ============ ANALYST WORKFLOW PANEL ============ -->
-        <div id="analystWorkflow" class="rounded border border-sky-700/50 bg-slate-900/50 p-3 lg:col-span-3">
-          <div class="flex items-center justify-between mb-3">
-            <div class="text-sm font-medium text-sky-400">🔬 Analyst Workflow</div>
-            <div id="visibilityBadge" class="text-xs px-2 py-0.5 rounded bg-emerald-700/70">visibility: ok</div>
-          </div>
-          
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <!-- Focus Window Control -->
-            <div class="border border-slate-700 rounded p-2">
-              <div class="text-xs font-medium text-slate-300 mb-2">Focus Window</div>
-              <div class="space-y-2 text-xs">
-                <div class="flex gap-1">
-                  <input id="focusFrom" type="datetime-local" class="flex-1 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs" />
-                </div>
-                <div class="flex gap-1">
-                  <input id="focusTo" type="datetime-local" class="flex-1 bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs" />
-                </div>
-                <button id="btnSetFocus" type="button" class="w-full px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs">Set Focus</button>
-                <div id="focusStatus" class="text-slate-400 text-[10px]">Default: last 1 hour</div>
-              </div>
-            </div>
-
-            <!-- Checkpoints -->
-            <div class="border border-slate-700 rounded p-2">
-              <div class="text-xs font-medium text-slate-300 mb-2">Checkpoints</div>
-              <div class="space-y-2 text-xs">
-                <input id="checkpointLabel" placeholder="checkpoint label" class="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs" />
-                <button id="btnCreateCheckpoint" type="button" class="w-full px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs">Create Checkpoint</button>
-                <select id="checkpointList" class="w-full bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs">
-                  <option value="">-- select checkpoint --</option>
-                </select>
-                <button id="btnRestoreCheckpoint" type="button" class="w-full px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-xs">Restore</button>
-              </div>
-            </div>
-
-            <!-- Diff View -->
-            <div class="border border-slate-700 rounded p-2">
-              <div class="text-xs font-medium text-slate-300 mb-2">Diff View</div>
-              <div class="space-y-2 text-xs">
-                <button id="btnShowDiff" type="button" class="w-full px-2 py-1 rounded bg-violet-600 hover:bg-violet-500 text-xs">Show Changes</button>
-                <div id="diffSummary" class="text-slate-400 text-[10px] max-h-20 overflow-auto">
-                  No diff loaded
-                </div>
-              </div>
-            </div>
-
-            <!-- Disambiguators -->
-            <div class="border border-slate-700 rounded p-2">
-              <div class="text-xs font-medium text-slate-300 mb-2">Disambiguators</div>
-              <div class="space-y-2 text-xs">
-                <select id="disambiguatorList" class="w-full bg-slate-800 border border-slate-700 rounded px-1 py-0.5 text-xs">
-                  <option value="">-- select action --</option>
-                </select>
-                <button id="btnApplyDisambiguator" type="button" class="w-full px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-xs">Apply Pivot</button>
-                <div id="disambiguatorResult" class="text-slate-400 text-[10px] max-h-16 overflow-auto"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <!-- ============ END ANALYST WORKFLOW PANEL ============ -->
 
         <!-- ============ CAPTURE CONTROL PANEL ============ -->
         <div id="captureControlPanel" class="rounded border border-amber-700/50 bg-slate-900/50 p-3 lg:col-span-3">
           <div class="flex items-center justify-between mb-3">
-            <div class="text-sm font-medium text-amber-400">⚙️ Capture Control</div>
+            <div class="text-sm font-medium text-amber-400">Capture Control</div>
             <div class="flex items-center gap-2">
+              <div id="visibilityBadge" class="text-xs px-2 py-0.5 rounded bg-emerald-700/70">visibility: ok</div>
               <div id="throttleBadge" class="text-xs px-2 py-0.5 rounded bg-emerald-700/70">throttling: ok</div>
               <div id="profileBadge" class="text-xs px-2 py-0.5 rounded bg-sky-700/70">profile: core</div>
             </div>
@@ -836,7 +683,7 @@
         <div id="throttleDegradedBanner" class="hidden rounded border border-rose-700/50 bg-rose-900/30 p-2 lg:col-span-3">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
-              <span class="text-rose-400">⚠️</span>
+              <span class="text-rose-400 font-bold">WARNING</span>
               <span class="text-sm text-rose-300">Visibility degraded due to throttling</span>
             </div>
             <span id="throttleDegradedDetail" class="text-xs text-rose-400">--</span>
@@ -846,10 +693,10 @@
         <!-- ============ RUN METRICS PANEL ============ -->
         <div id="runMetricsPanel" class="rounded border border-violet-700/50 bg-slate-900/50 p-3 lg:col-span-3">
           <div class="flex items-center justify-between mb-3">
-            <div class="text-sm font-medium text-violet-400">📊 Run Metrics</div>
+            <div class="text-sm font-medium text-violet-400">Run Metrics</div>
             <div class="flex items-center gap-2">
-              <button id="btnRefreshMetrics" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄 Refresh</button>
-              <button id="btnLoadMetricsFile" type="button" class="px-2 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-xs">📂 Load File</button>
+              <button id="btnRefreshMetrics" type="button" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Refresh</button>
+              <button id="btnLoadMetricsFile" type="button" class="px-2 py-0.5 rounded bg-violet-600 hover:bg-violet-500 text-xs">Load File</button>
               <input id="metricsFileInput" type="file" accept=".json" class="hidden" />
             </div>
           </div>
@@ -936,16 +783,16 @@
                 <div class="text-xs font-medium text-slate-300 mb-2">Verdict</div>
                 <div class="space-y-1 text-xs">
                   <div id="verdictTelemetry" class="flex items-center gap-1">
-                    <span class="w-4">⏳</span><span class="text-slate-400">Telemetry flowing</span>
+                    <span class="w-4">-</span><span class="text-slate-400">Telemetry flowing</span>
                   </div>
                   <div id="verdictDetections" class="flex items-center gap-1">
-                    <span class="w-4">⏳</span><span class="text-slate-400">Detections fired</span>
+                    <span class="w-4">-</span><span class="text-slate-400">Detections fired</span>
                   </div>
                   <div id="verdictExplain" class="flex items-center gap-1">
-                    <span class="w-4">⏳</span><span class="text-slate-400">Explanations valid</span>
+                    <span class="w-4">-</span><span class="text-slate-400">Explanations valid</span>
                   </div>
                   <div id="verdictNoFake" class="flex items-center gap-1">
-                    <span class="w-4">⏳</span><span class="text-slate-400">No fake detections</span>
+                    <span class="w-4">-</span><span class="text-slate-400">No fake detections</span>
                   </div>
                 </div>
               </div>
@@ -954,7 +801,7 @@
             <!-- Detailed Results -->
             <details class="border border-slate-700 rounded">
               <summary class="cursor-pointer text-xs font-medium text-slate-300 p-2 hover:bg-slate-800/50">
-                📋 Detailed Results
+                Detailed Results
               </summary>
               <div class="p-2 border-t border-slate-700 max-h-40 overflow-auto">
                 <pre id="metricsDetails" class="text-[10px] font-mono text-slate-400"></pre>
@@ -967,7 +814,7 @@
         <!-- ============ PIVOT/SEARCH CONTROLS ============ -->
         <div id="pivotSearchPanel" class="rounded border border-cyan-700/50 bg-slate-900/50 p-3 lg:col-span-3">
           <div class="flex items-center justify-between mb-3">
-            <div class="text-sm font-medium text-cyan-400">🔎 Pivot & Search</div>
+            <div class="text-sm font-medium text-cyan-400">Pivot & Search</div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1024,44 +871,22 @@
       <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <!-- Left Panel: Import Zone + Cases List -->
         <div class="lg:col-span-1 space-y-4">
-          <!-- Drag-Drop Import Zone -->
-          <div id="importDropZone" class="border-2 border-dashed border-slate-700 rounded-lg p-6 text-center hover:border-violet-500 hover:bg-violet-500/5 transition-colors cursor-pointer">
-            <div class="text-4xl mb-2">📦</div>
-            <div class="text-sm font-medium text-slate-200 mb-1">Import Evidence Bundle</div>
-            <div class="text-xs text-slate-400 mb-3">Drag & drop folder or zip file</div>
-            <div class="text-xs text-slate-500">Supported: HAR, Zeek logs, JSONL, JSON</div>
-            <label class="mt-3 inline-block px-4 py-2 rounded bg-violet-600 hover:bg-violet-500 text-white text-sm cursor-pointer">
-              Browse Files
-              <input id="importFilePicker" type="file" accept=".zip,.har,.json,.jsonl,.log" multiple class="hidden" />
-            </label>
-            <input id="importFolderPicker" type="file" webkitdirectory directory multiple class="hidden" />
-            <button id="importFolderBtn" type="button" class="ml-2 px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm">
-              Browse Folder
-            </button>
-          </div>
-
-          <!-- Import Progress (hidden by default) -->
-          <div id="importProgress" class="hidden border border-slate-700 rounded-lg p-4">
-            <div class="flex items-center justify-between mb-2">
-              <span class="text-sm font-medium text-slate-200">Importing...</span>
-              <span id="importProgressPercent" class="text-xs text-slate-400">0%</span>
-            </div>
-            <div class="w-full bg-slate-800 rounded-full h-2 mb-2">
-              <div id="importProgressBar" class="bg-violet-500 h-2 rounded-full" style="width: 0%"></div>
-            </div>
-            <div id="importProgressStatus" class="text-xs text-slate-400">Analyzing files...</div>
+          <!-- Imports are made by the desktop app, which writes a manifest per case -->
+          <div class="border border-slate-700 rounded-lg p-4 text-xs text-slate-400">
+            <div class="text-sm font-medium text-slate-200 mb-1">Imported Evidence</div>
+            Import folders or zip files with the desktop app. Each import writes a manifest,
+            and the cases it finds appear here.
           </div>
 
           <!-- Cases List -->
           <div class="border border-slate-700 rounded-lg">
             <div class="p-3 border-b border-slate-700 flex items-center justify-between">
-              <div class="text-sm font-medium text-slate-200">📁 Imported Cases</div>
-              <button id="refreshCasesBtn" type="button" class="text-xs text-slate-400 hover:text-slate-200">🔄</button>
+              <div class="text-sm font-medium text-slate-200">Imported Cases</div>
+              <button id="refreshCasesBtn" type="button" class="text-xs text-slate-400 hover:text-slate-200">Refresh</button>
             </div>
             <div id="casesList" class="max-h-[400px] overflow-y-auto">
               <div class="p-4 text-center text-xs text-slate-500">
-                No cases imported yet.<br/>
-                Import a bundle to get started.
+                No cases imported yet.
               </div>
             </div>
           </div>
@@ -1079,107 +904,24 @@
                   <span>•</span>
                   <span id="caseEventCount">0 events</span>
                   <span>•</span>
-                  <span id="caseSignalCount">0 signals</span>
-                  <span>•</span>
-                  <span id="caseTimeRange">--</span>
+                  <span id="caseImportedAt">--</span>
                 </div>
-              </div>
-              <div class="flex items-center gap-2">
-                <button id="reprocessCaseBtn" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-sm">
-                  🔄 Reprocess
-                </button>
-                <button id="exportCaseBtn" type="button" class="px-3 py-1 rounded bg-sky-600 hover:bg-sky-500 text-sm">
-                  📤 Export
-                </button>
-                <button id="deleteCaseBtn" type="button" class="px-3 py-1 rounded bg-red-600/50 hover:bg-red-600 text-sm">
-                  🗑️ Delete
-                </button>
               </div>
             </div>
           </div>
 
-          <!-- Sub-tabs for case details -->
-          <div id="caseTabs" class="hidden flex gap-2 text-sm mb-4">
-            <button id="caseTabTimeline" type="button" class="px-3 py-1 rounded bg-sky-600 text-white">Timeline</button>
-            <button id="caseTabSignals" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Signals</button>
-            <button id="caseTabEntities" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Entities</button>
-            <button id="caseTabManifest" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Manifest</button>
-            <button id="caseTabNarrative" type="button" class="px-3 py-1 rounded bg-slate-800 text-slate-200">Narrative</button>
-          </div>
 
           <!-- Empty State -->
           <div id="caseEmptyState" class="border border-slate-700 rounded-lg p-8 text-center">
-            <div class="text-4xl mb-3">🔍</div>
+            <div class="text-4xl mb-3"></div>
             <div class="text-lg font-medium text-slate-200 mb-2">No Case Selected</div>
-            <div class="text-sm text-slate-400">Import a bundle or select a case from the list to view details.</div>
-          </div>
-
-          <!-- Timeline View -->
-          <div id="caseTimelineView" class="hidden border border-slate-700 rounded-lg">
-            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
-              <div class="text-sm font-medium text-slate-200">📅 Event Timeline</div>
-              <div class="flex items-center gap-2">
-                <select id="timelineFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
-                  <option value="">All events</option>
-                  <option value="http">HTTP</option>
-                  <option value="dns">DNS</option>
-                  <option value="network">Network</option>
-                  <option value="file">File</option>
-                </select>
-                <input id="timelineSearch" type="text" placeholder="Search..." class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs w-32" />
-              </div>
-            </div>
-            <div id="timelineContent" class="max-h-[500px] overflow-y-auto p-2">
-              <div class="text-center text-xs text-slate-500 py-4">Loading timeline...</div>
-            </div>
-          </div>
-
-          <!-- Signals View -->
-          <div id="caseSignalsView" class="hidden border border-slate-700 rounded-lg">
-            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
-              <div class="text-sm font-medium text-slate-200">⚡ Generated Signals</div>
-              <select id="signalSeverityFilter" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs">
-                <option value="">All severities</option>
-                <option value="critical">Critical</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-            <div id="signalsContent" class="max-h-[500px] overflow-y-auto">
-              <div class="text-center text-xs text-slate-500 py-4">Loading signals...</div>
-            </div>
-          </div>
-
-          <!-- Entities View -->
-          <div id="caseEntitiesView" class="hidden border border-slate-700 rounded-lg">
-            <div class="p-3 border-b border-slate-700">
-              <div class="text-sm font-medium text-slate-200">🔗 Extracted Entities</div>
-            </div>
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4">
-              <div class="border border-slate-700 rounded p-3">
-                <div class="text-xs text-slate-400 mb-2">🌐 Domains</div>
-                <div id="entitiesDomains" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
-              </div>
-              <div class="border border-slate-700 rounded p-3">
-                <div class="text-xs text-slate-400 mb-2">📍 IP Addresses</div>
-                <div id="entitiesIPs" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
-              </div>
-              <div class="border border-slate-700 rounded p-3">
-                <div class="text-xs text-slate-400 mb-2">🔗 URLs</div>
-                <div id="entitiesURLs" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
-              </div>
-              <div class="border border-slate-700 rounded p-3">
-                <div class="text-xs text-slate-400 mb-2">#️⃣ Hashes</div>
-                <div id="entitiesHashes" class="text-xs space-y-1 max-h-40 overflow-y-auto">--</div>
-              </div>
-            </div>
+            <div class="text-sm text-slate-400">Select a case from the list to view its manifest.</div>
           </div>
 
           <!-- Manifest View -->
           <div id="caseManifestView" class="hidden border border-slate-700 rounded-lg">
             <div class="p-3 border-b border-slate-700">
-              <div class="text-sm font-medium text-slate-200">📋 Import Manifest</div>
+              <div class="text-sm font-medium text-slate-200">Import Manifest</div>
             </div>
             <div class="overflow-auto max-h-[500px]">
               <table class="w-full text-xs">
@@ -1198,20 +940,6 @@
             </div>
           </div>
 
-          <!-- Narrative View -->
-          <div id="caseNarrativeView" class="hidden border border-slate-700 rounded-lg">
-            <div class="p-3 border-b border-slate-700 flex items-center justify-between">
-              <div class="text-sm font-medium text-slate-200">📝 Investigation Narrative</div>
-              <button id="generateNarrativeBtn" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs">
-                ✨ Generate
-              </button>
-            </div>
-            <div id="narrativeContent" class="p-4 prose prose-invert prose-sm max-w-none">
-              <div class="text-center text-xs text-slate-500">
-                Click "Generate" to create an investigation narrative from the signals and evidence.
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>
@@ -1227,8 +955,7 @@
             <option value="ingest">Ingest</option>
             <option value="both">Both</option>
           </select>
-          <button id="btnRefreshIntegrations" type="button" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄 Refresh</button>
-          <button id="btnAdd" type="button" class="px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500">+ Add Integration</button>
+          <button id="btnRefreshIntegrations" type="button" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">Refresh</button>
         </div>
       </div>
 
@@ -1262,13 +989,13 @@
       <!-- Capabilities Matrix -->
       <div class="rounded border border-slate-800 mb-4">
         <div class="p-3 border-b border-slate-800 flex items-center justify-between">
-          <div class="text-sm font-medium">📊 Capabilities Matrix</div>
+          <div class="text-sm font-medium">Capabilities Matrix</div>
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1 text-xs text-slate-400">
               <input id="showCollectors" type="checkbox" checked class="rounded bg-slate-800 border-slate-600" />
               Show Collectors
             </label>
-            <button id="btnRefreshCapabilities" type="button" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">🔄</button>
+            <button id="btnRefreshCapabilities" type="button" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-xs">Refresh</button>
           </div>
         </div>
         <div class="p-3 overflow-auto max-h-[400px]">
@@ -1285,19 +1012,11 @@
       <!-- Join Key Support Matrix -->
       <div class="rounded border border-slate-800 mb-4">
         <div class="p-3 border-b border-slate-800">
-          <div class="text-sm font-medium">🔗 Join Key Support</div>
+          <div class="text-sm font-medium">Join Key Support</div>
         </div>
         <div class="p-3 overflow-auto max-h-[250px]">
           <div id="joinKeyMatrix" class="text-xs">Loading...</div>
         </div>
-      </div>
-
-      <!-- Legacy Integration Tiles (for backwards compatibility) -->
-      <div class="rounded border border-slate-800 mb-4">
-        <div class="p-3 border-b border-slate-800">
-          <div class="text-sm font-medium">Active Integrations</div>
-        </div>
-        <div id="tiles" class="grid grid-cols-1 md:grid-cols-3 gap-3 p-3"></div>
       </div>
 
       <!-- Sample Event Inspector Modal -->
@@ -1311,20 +1030,6 @@
         </div>
       </dialog>
 
-      <dialog id="addDlg" class="bg-slate-950 text-slate-100 p-4 rounded max-w-xl w-full">
-        <form method="dialog">
-          <h3 class="text-base font-semibold mb-2">Add Integration</h3>
-          <div class="mb-2">
-            <label class="block text-sm">Vendor</label>
-            <select id="vendorSel" class="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1"></select>
-          </div>
-          <div id="credFields" class="space-y-2"></div>
-          <menu class="flex gap-2 justify-end mt-4">
-            <button value="cancel" class="px-3 py-1 rounded bg-slate-800">Cancel</button>
-            <button id="saveIntegration" value="default" class="px-3 py-1 rounded bg-sky-600">Save</button>
-          </menu>
-        </form>
-      </dialog>
     </section>
 
     <!-- ============ COMPARE RUNS SECTION (Pro Feature) ============ -->
@@ -1333,7 +1038,7 @@
         <!-- Run Selection Panel -->
         <div class="lg:col-span-1 space-y-4">
           <div class="rounded border border-violet-700/50 bg-slate-900/50 p-4">
-            <h3 class="text-sm font-medium text-violet-300 mb-3">🔀 Compare Runs</h3>
+            <h3 class="text-sm font-medium text-violet-300 mb-3">Compare Runs</h3>
             <div class="space-y-3">
               <div>
                 <label class="block text-xs text-slate-400 mb-1">Left (Baseline)</label>
@@ -1382,7 +1087,7 @@
           <!-- Pro Feature Banner (shown in core build) -->
           <div id="diffProBanner" class="hidden rounded border border-amber-700/50 bg-amber-900/20 p-4 mb-4">
             <div class="flex items-center gap-3">
-              <span class="text-2xl">⭐</span>
+              <span class="text-sm font-bold text-amber-300">PRO</span>
               <div>
                 <h4 class="font-medium text-amber-300">Pro Feature</h4>
                 <p class="text-sm text-amber-200/80">Compare Runs requires a Pro license. Upgrade to unlock signal diff analysis.</p>
@@ -1400,7 +1105,7 @@
           
           <!-- Empty State -->
           <div id="diffEmpty" class="rounded border border-slate-700 bg-slate-900/30 p-8 text-center">
-            <div class="text-4xl mb-3">🔀</div>
+            <div class="text-4xl mb-3"></div>
             <h4 class="text-base font-medium text-slate-300 mb-2">Compare Detection Runs</h4>
             <p class="text-sm text-slate-400">Select two runs to compare and see what signals were added, removed, or changed.</p>
           </div>
@@ -1410,7 +1115,7 @@
             <!-- Added Signals -->
             <div id="diffAddedSection" class="rounded border border-emerald-700/50 bg-slate-900/50 p-4">
               <h4 class="text-sm font-medium text-emerald-400 mb-3 flex items-center gap-2">
-                <span>➕</span> Added Signals <span id="diffAddedBadge" class="px-1.5 py-0.5 rounded bg-emerald-700/50 text-xs">0</span>
+                Added Signals <span id="diffAddedBadge" class="px-1.5 py-0.5 rounded bg-emerald-700/50 text-xs">0</span>
               </h4>
               <div id="diffAddedList" class="space-y-2 max-h-[200px] overflow-auto"></div>
             </div>
@@ -1418,7 +1123,7 @@
             <!-- Removed Signals -->
             <div id="diffRemovedSection" class="rounded border border-rose-700/50 bg-slate-900/50 p-4">
               <h4 class="text-sm font-medium text-rose-400 mb-3 flex items-center gap-2">
-                <span>➖</span> Removed Signals <span id="diffRemovedBadge" class="px-1.5 py-0.5 rounded bg-rose-700/50 text-xs">0</span>
+                Removed Signals <span id="diffRemovedBadge" class="px-1.5 py-0.5 rounded bg-rose-700/50 text-xs">0</span>
               </h4>
               <div id="diffRemovedList" class="space-y-2 max-h-[200px] overflow-auto"></div>
             </div>
@@ -1426,7 +1131,7 @@
             <!-- Changed Signals -->
             <div id="diffChangedSection" class="rounded border border-amber-700/50 bg-slate-900/50 p-4">
               <h4 class="text-sm font-medium text-amber-400 mb-3 flex items-center gap-2">
-                <span>📝</span> Changed Signals <span id="diffChangedBadge" class="px-1.5 py-0.5 rounded bg-amber-700/50 text-xs">0</span>
+                Changed Signals <span id="diffChangedBadge" class="px-1.5 py-0.5 rounded bg-amber-700/50 text-xs">0</span>
               </h4>
               <div id="diffChangedList" class="space-y-2 max-h-[300px] overflow-auto"></div>
             </div>
@@ -1442,13 +1147,13 @@
         <div class="rounded border border-slate-700 bg-slate-900/50">
           <div class="p-4 border-b border-slate-700">
             <h3 class="text-lg font-medium text-slate-100 flex items-center gap-2">
-              🔑 License Status
+              License Status
             </h3>
           </div>
           <div class="p-4 space-y-4">
             <!-- Status Badge -->
             <div id="licenseStatusBadge" class="flex items-center gap-3 p-3 rounded bg-slate-800">
-              <div id="licenseStatusIcon" class="text-2xl">⏳</div>
+              <div id="licenseStatusIcon" class="text-2xl"></div>
               <div>
                 <div id="licenseStatusText" class="font-medium text-slate-200">Checking...</div>
                 <div id="licenseStatusDetail" class="text-sm text-slate-400"></div>
@@ -1461,19 +1166,19 @@
               <div class="space-y-2 text-sm">
                 <div class="flex justify-between">
                   <span class="text-slate-400">License ID</span>
-                  <span id="licenseLicenseId" class="text-slate-200 font-mono text-xs">—</span>
+                  <span id="licenseLicenseId" class="text-slate-200 font-mono text-xs">-</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-slate-400">Customer</span>
-                  <span id="licenseCustomer" class="text-slate-200">—</span>
+                  <span id="licenseCustomer" class="text-slate-200">-</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-slate-400">Edition</span>
-                  <span id="licenseEdition" class="text-emerald-400 font-medium">—</span>
+                  <span id="licenseEdition" class="text-emerald-400 font-medium">-</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-slate-400">Expires</span>
-                  <span id="licenseExpires" class="text-slate-200">—</span>
+                  <span id="licenseExpires" class="text-slate-200">-</span>
                 </div>
               </div>
             </div>
@@ -1491,7 +1196,7 @@
               <h4 class="text-sm font-medium text-slate-300 mb-2">Installation ID</h4>
               <div class="flex items-center gap-2">
                 <code id="licenseInstallId" class="flex-1 text-xs font-mono bg-slate-900 px-2 py-1.5 rounded text-sky-300 select-all">Loading...</code>
-                <button id="copyInstallIdBtn" class="px-2 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs" title="Copy to clipboard">📋</button>
+                <button id="copyInstallIdBtn" class="px-2 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-xs" title="Copy to clipboard">Copy</button>
               </div>
               <p class="text-xs text-slate-500 mt-2">This ID is required when purchasing or activating a license.</p>
             </div>
@@ -1500,7 +1205,7 @@
             <div id="fingerprintCard" class="rounded border border-slate-700 bg-slate-800/50 p-4">
               <h4 class="text-sm font-medium text-slate-300 mb-2">Machine Binding</h4>
               <div class="flex items-center gap-2">
-                <span id="fingerprintStatusIcon" class="text-lg">⏳</span>
+                <span id="fingerprintStatusIcon" class="text-lg"></span>
                 <span id="fingerprintStatusText" class="text-sm text-slate-300">Checking...</span>
               </div>
               <p id="fingerprintDetail" class="text-xs text-slate-500 mt-2"></p>
@@ -1512,7 +1217,7 @@
         <div class="rounded border border-slate-700 bg-slate-900/50">
           <div class="p-4 border-b border-slate-700">
             <h3 class="text-lg font-medium text-slate-100 flex items-center gap-2">
-              📥 Import License
+              Import License
             </h3>
           </div>
           <div class="p-4 space-y-4">
@@ -1522,14 +1227,14 @@
             
             <!-- File Import Area -->
             <div id="licenseDropZone" class="border-2 border-dashed border-slate-600 rounded-lg p-6 text-center hover:border-sky-500 transition-colors cursor-pointer">
-              <div class="text-3xl mb-2">📄</div>
+              <div class="text-3xl mb-2"></div>
               <div class="text-sm text-slate-300 mb-1">Drop license.json here</div>
               <div class="text-xs text-slate-500">or click to browse</div>
               <input type="file" id="licenseFileInput" accept=".json" class="hidden" />
             </div>
             
             <!-- Or paste JSON -->
-            <div class="text-center text-xs text-slate-500">— or paste license content —</div>
+            <div class="text-center text-xs text-slate-500">- or paste license content -</div>
             
             <textarea id="licensePasteArea" class="w-full h-32 bg-slate-900 border border-slate-700 rounded p-3 text-xs font-mono text-slate-300" placeholder='{"license_id": "...", "signature": "..."}'></textarea>
             
@@ -1545,25 +1250,25 @@
       
       <!-- Pro Features Overview -->
       <div class="mt-6 rounded border border-slate-700 bg-slate-900/50 p-4">
-        <h3 class="text-lg font-medium text-slate-100 mb-4">⭐ Pro Features</h3>
+        <h3 class="text-lg font-medium text-slate-100 mb-4">Pro Features</h3>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
             <div class="flex items-center gap-2 mb-2">
-              <span id="featureDiffStatus" class="text-lg">🔒</span>
+              <span id="featureDiffStatus" class="text-xs">Locked</span>
               <span class="font-medium text-slate-200">Diff Mode</span>
             </div>
             <p class="text-xs text-slate-400">Compare signal snapshots between runs to identify new, removed, or changed detections.</p>
           </div>
           <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
             <div class="flex items-center gap-2 mb-2">
-              <span id="featureReportsStatus" class="text-lg">🔒</span>
+              <span id="featureReportsStatus" class="text-xs">Locked</span>
               <span class="font-medium text-slate-200">Pro Reports</span>
             </div>
             <p class="text-xs text-slate-400">Generate enhanced PDF reports with executive summaries and detailed analysis.</p>
           </div>
           <div class="rounded border border-slate-700 bg-slate-800/50 p-4">
             <div class="flex items-center gap-2 mb-2">
-              <span id="featureTeamStatus" class="text-lg">🔒</span>
+              <span id="featureTeamStatus" class="text-xs">Locked</span>
               <span class="font-medium text-slate-200">Team Features</span>
             </div>
             <p class="text-xs text-slate-400">Collaborate with team members, share cases, and sync findings (coming soon).</p>
@@ -1968,15 +1673,15 @@
         
         // Update header
         if (verdict === 'healthy') {
-          emojiEl.textContent = '✅';
+          emojiEl.textContent = 'OK';
           titleEl.textContent = 'Telemetry Working';
           subtitleEl.textContent = 'Sensors are detecting activity';
         } else if (verdict === 'degraded') {
-          emojiEl.textContent = '⚠️';
+          emojiEl.textContent = 'WARN';
           titleEl.textContent = 'Telemetry Degraded';
           subtitleEl.textContent = 'Some streams have issues';
         } else {
-          emojiEl.textContent = '🚫';
+          emojiEl.textContent = 'BLOCKED';
           titleEl.textContent = 'No Telemetry Detected';
           subtitleEl.textContent = 'Let\'s fix this';
         }
@@ -1985,19 +1690,19 @@
         verdictSection.classList.remove('hidden');
         if (verdict === 'healthy') {
           verdictSection.className = 'p-4 rounded-lg mb-4 bg-emerald-900/30 border border-emerald-700';
-          verdictIcon.textContent = '✅';
+          verdictIcon.textContent = 'PASS';
           verdictTitle.textContent = 'All Systems Healthy';
           verdictTitle.className = 'font-medium text-emerald-400';
           verdictDesc.textContent = `Capture profile: ${diag.app_state.capture_profile}`;
         } else if (verdict === 'degraded') {
           verdictSection.className = 'p-4 rounded-lg mb-4 bg-amber-900/30 border border-amber-700';
-          verdictIcon.textContent = '⚠️';
+          verdictIcon.textContent = 'WARN';
           verdictTitle.textContent = 'Visibility Degraded';
           verdictTitle.className = 'font-medium text-amber-400';
           verdictDesc.textContent = 'Some streams have issues but core telemetry is flowing';
         } else {
           verdictSection.className = 'p-4 rounded-lg mb-4 bg-red-900/30 border border-red-700';
-          verdictIcon.textContent = '🚫';
+          verdictIcon.textContent = 'BLOCKED';
           verdictTitle.textContent = 'Telemetry Blocked';
           verdictTitle.className = 'font-medium text-red-400';
           verdictDesc.textContent = 'No events detected - run the probe to diagnose';
@@ -2015,11 +1720,11 @@
             }[issue.severity] || 'text-slate-400';
             
             const severityIcon = {
-              'critical': '🚨',
-              'error': '❌',
-              'warning': '⚠️',
-              'info': 'ℹ️'
-            }[issue.severity] || 'ℹ️';
+              'critical': 'CRITICAL',
+              'error': 'ERROR',
+              'warning': 'WARN',
+              'info': 'INFO'
+            }[issue.severity] || 'INFO';
             
             return `
               <div class="p-2 rounded bg-slate-800/50 text-xs">
@@ -2041,7 +1746,7 @@
         if (diag.streams && diag.streams.length > 0) {
           streamDetails.classList.remove('hidden');
           streamsList.innerHTML = diag.streams.map(stream => {
-            const statusIcon = stream.event_count > 0 ? '✅' : (stream.enabled ? '⏳' : '⏸️');
+            const statusIcon = stream.event_count > 0 ? 'OK' : (stream.enabled ? 'waiting' : 'off');
             const statusClass = stream.event_count > 0 ? 'text-emerald-400' : (stream.enabled ? 'text-amber-400' : 'text-slate-500');
             const criticalBadge = stream.is_critical ? '<span class="ml-1 px-1 py-0.5 rounded bg-red-900/50 text-red-400 text-[10px]">critical</span>' : '';
             
@@ -2147,18 +1852,18 @@
           probeResult.classList.remove('hidden');
           if (result.success && result.probe.success) {
             probeResultContent.innerHTML = `
-              <div class="text-emerald-400 font-medium mb-2">✅ Probe Completed Successfully</div>
+              <div class="text-emerald-400 font-medium mb-2">Probe Completed Successfully</div>
               <div class="text-slate-300 mb-2">Actions performed:</div>
               <ul class="space-y-1">
                 ${result.probe.actions_attempted.map(a => `
                   <li class="flex items-center gap-2">
-                    <span>${a.success ? '✅' : '❌'}</span>
+                    <span>${a.success ? 'OK' : 'FAIL'}</span>
                     <span>${a.description}</span>
                   </li>
                 `).join('')}
               </ul>
               <div class="mt-2 text-slate-400">Expected streams: ${result.probe.matched_streams.join(', ')}</div>
-              <div class="mt-2 text-amber-400">⏳ Wait a few seconds, then run self-check again to verify events appeared.</div>
+              <div class="mt-2 text-amber-400">Wait a few seconds, then run self-check again to verify events appeared.</div>
             `;
             probeStatus.textContent = 'Probe completed! Wait 2-3 seconds for events to appear.';
             
@@ -2170,7 +1875,7 @@
             }, 3000);
           } else {
             probeResultContent.innerHTML = `
-              <div class="text-red-400 font-medium mb-2">❌ Probe Failed</div>
+              <div class="text-red-400 font-medium mb-2">Probe Failed</div>
               <div class="text-slate-300">${result.probe?.failure_reasons?.join(', ') || 'Unknown error'}</div>
             `;
             probeStatus.textContent = 'Probe failed - check error details';
@@ -2178,7 +1883,7 @@
         } catch (e) {
           probeResult.classList.remove('hidden');
           probeResultContent.innerHTML = `
-            <div class="text-red-400 font-medium mb-2">❌ Probe Error</div>
+            <div class="text-red-400 font-medium mb-2">Probe Error</div>
             <div class="text-slate-300">${e.message}</div>
           `;
           probeStatus.textContent = 'Error running probe';
@@ -2330,16 +2035,17 @@
               console.log('Bundle exported:', filename, { redact, includeEvidence, includeRecompute });
             } else {
               const error = await response.json();
-            console.error('Export failed:', error);
-            alert('Export failed: ' + (error.error || 'Unknown error'));
+              console.error('Export failed:', error);
+              alert('Export failed: ' + (error.error || 'Unknown error'));
+            }
+          } catch (e) {
+            console.error('Export error:', e);
+            alert('Export failed: ' + e.message);
+          } finally {
+            exportBtn.disabled = false;
+            exportBtn.textContent = 'Export Bundle';
           }
-        } catch (e) {
-          console.error('Export error:', e);
-          alert('Export failed: ' + e.message);
-        } finally {
-          exportBtn.disabled = false;
-          exportBtn.textContent = '📤 Export Bundle';
-        }
+        });
       });
       
       // Import bundle handler
@@ -2367,7 +2073,7 @@
               window.onBundleImported(result);
             }
             
-            const recomputeMsg = result.has_recompute ? '\n✓ Recompute verification available' : '';
+            const recomputeMsg = result.has_recompute ? '\nRecompute verification available' : '';
             alert(`Bundle imported successfully!\n${result.hypothesis_count} hypotheses, ${result.timeline_entry_count} timeline entries\nNamespace: ${result.namespace}${recomputeMsg}`);
           } else {
             const error = await response.json();
@@ -2651,7 +2357,7 @@
             throttleDegradedBanner.classList.remove('hidden');
             throttleDegradedBanner.className = 'rounded border-2 border-rose-500 bg-rose-900/50 p-2 lg:col-span-3 animate-pulse';
             if (throttleDegradedDetail) {
-              throttleDegradedDetail.innerHTML = '<strong>⚠️ CRITICAL:</strong> Tier-0 stream throttled; conclusions may be incomplete.';
+              throttleDegradedDetail.innerHTML = '<strong>CRITICAL:</strong> Tier-0 stream throttled; conclusions may be incomplete.';
             }
           } else if (degraded) {
             // Degraded but not critical
@@ -2667,7 +2373,7 @@
         
         if (degradedReasons) {
           if (criticalGap || tier0Throttled) {
-            degradedReasons.innerHTML = '<div class="text-rose-400 font-bold">⚠️ CRITICAL GAP: Tier-0 throttled</div>' +
+            degradedReasons.innerHTML = '<div class="text-rose-400 font-bold">CRITICAL GAP: Tier-0 throttled</div>' +
               reasons.map(r => `<div class="text-rose-400">${r}</div>`).join('');
           } else if (reasons.length > 0) {
             degradedReasons.innerHTML = reasons.map(r => `<div class="text-rose-400">${r}</div>`).join('');
@@ -2761,7 +2467,7 @@
   <dialog id="metricsModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
     <div class="p-6">
       <div class="flex items-start justify-between mb-4">
-        <h2 class="text-xl font-semibold text-slate-100">📊 Run Metrics</h2>
+        <h2 class="text-xl font-semibold text-slate-100">Run Metrics</h2>
         <button id="closeMetricsModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
       </div>
       <div id="metricsContent" class="space-y-4">
@@ -2779,7 +2485,7 @@
     <div class="p-6">
       <div class="flex items-start justify-between mb-4">
         <div>
-          <h2 class="text-xl font-semibold text-slate-100">🔧 System Readiness</h2>
+          <h2 class="text-xl font-semibold text-slate-100">System Readiness</h2>
           <p class="text-sm text-slate-400 mt-1">Check your system's telemetry capabilities</p>
         </div>
         <button id="closeReadinessModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
@@ -2788,7 +2494,7 @@
       <!-- Overall Readiness Status -->
       <div id="readinessOverall" class="p-4 rounded-lg mb-4 bg-slate-800">
         <div class="flex items-center gap-3">
-          <span id="readinessIcon" class="text-3xl">⏳</span>
+          <span id="readinessIcon" class="text-3xl"></span>
           <div>
             <div id="readinessLevel" class="font-medium text-lg">Checking...</div>
             <div id="readinessDesc" class="text-sm text-slate-400">Analyzing system capabilities</div>
@@ -2800,35 +2506,35 @@
       <div class="space-y-3 mb-4">
         <div id="checkAdmin" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
           <div class="flex items-center gap-2">
-            <span id="checkAdminIcon" class="text-lg">⏳</span>
+            <span id="checkAdminIcon" class="text-lg"></span>
             <span>Administrator privileges</span>
           </div>
           <span id="checkAdminStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
         </div>
         <div id="checkSecurityLog" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
           <div class="flex items-center gap-2">
-            <span id="checkSecurityLogIcon" class="text-lg">⏳</span>
+            <span id="checkSecurityLogIcon" class="text-lg"></span>
             <span>Security Event Log access</span>
           </div>
           <span id="checkSecurityLogStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
         </div>
         <div id="checkSysmon" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
           <div class="flex items-center gap-2">
-            <span id="checkSysmonIcon" class="text-lg">⏳</span>
+            <span id="checkSysmonIcon" class="text-lg"></span>
             <span>Sysmon installed</span>
           </div>
           <span id="checkSysmonStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
         </div>
         <div id="checkCmdLine" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
           <div class="flex items-center gap-2">
-            <span id="checkCmdLineIcon" class="text-lg">⏳</span>
+            <span id="checkCmdLineIcon" class="text-lg"></span>
             <span>Command-line logging</span>
           </div>
           <span id="checkCmdLineStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
         </div>
         <div id="checkPsLogging" class="flex items-center justify-between p-3 rounded bg-slate-800/50">
           <div class="flex items-center gap-2">
-            <span id="checkPsLoggingIcon" class="text-lg">⏳</span>
+            <span id="checkPsLoggingIcon" class="text-lg"></span>
             <span>PowerShell script block logging</span>
           </div>
           <span id="checkPsLoggingStatus" class="text-xs px-2 py-0.5 rounded bg-slate-700">checking</span>
@@ -2837,7 +2543,7 @@
 
       <!-- Playbook Capability Mapping -->
       <div id="playbookCapabilitySection" class="border-t border-slate-700 pt-4 mb-4">
-        <h3 class="text-sm font-medium text-slate-300 mb-3">📋 Playbook Capability Map (30 Playbooks)</h3>
+        <h3 class="text-sm font-medium text-slate-300 mb-3">Playbook Capability Map (30 Playbooks)</h3>
         <div class="text-xs text-slate-400 mb-2">Shows which playbooks can fire based on current capabilities</div>
         <div id="playbookCapabilityList" class="space-y-2 max-h-64 overflow-auto pr-2">
           <!-- Populated dynamically -->
@@ -2846,7 +2552,7 @@
 
       <!-- Health Gate Diagnosis -->
       <div id="gatesDiagnosisSection" class="hidden border-t border-slate-700 pt-4 mb-4">
-        <h3 class="text-sm font-medium text-slate-300 mb-3">🚦 Health Gate Diagnosis</h3>
+        <h3 class="text-sm font-medium text-slate-300 mb-3">Health Gate Diagnosis</h3>
         <div id="gatesDiagnosisList" class="space-y-2 text-xs">
           <!-- Populated dynamically when gates fail -->
         </div>
@@ -2859,7 +2565,7 @@
       </div>
 
       <div class="flex justify-between mt-4 pt-4 border-t border-slate-800">
-        <button id="btnRefreshReadiness" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">🔄 Refresh</button>
+        <button id="btnRefreshReadiness" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Refresh</button>
         <button id="readinessDoneBtn" class="px-4 py-2 rounded bg-sky-600 hover:bg-sky-500 text-sm">Done</button>
       </div>
     </div>
@@ -2870,7 +2576,7 @@
     <div class="p-6">
       <div class="flex items-start justify-between mb-4">
         <div>
-          <h2 class="text-xl font-semibold text-slate-100">📁 Run History</h2>
+          <h2 class="text-xl font-semibold text-slate-100">Run History</h2>
           <p class="text-sm text-slate-400 mt-1">Previous runs and their metrics</p>
         </div>
         <button id="closeHistoryModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
@@ -2906,7 +2612,7 @@
     <div class="p-6">
       <div class="flex items-start justify-between mb-4">
         <div>
-          <h2 class="text-xl font-semibold text-slate-100">🧪 Scenario Runner</h2>
+          <h2 class="text-xl font-semibold text-slate-100">Scenario Runner</h2>
           <p class="text-sm text-slate-400 mt-1">Generate safe test activity for detection testing</p>
         </div>
         <button id="closeScenarioModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
@@ -2943,7 +2649,7 @@
       </div>
 
       <div class="flex justify-between mt-4 pt-4 border-t border-slate-800">
-        <button id="btnRunScenarios" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">▶️ Run Selected Scenarios</button>
+        <button id="btnRunScenarios" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">Run Selected Scenarios</button>
         <button id="scenarioDoneBtn" class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-sm">Close</button>
       </div>
     </div>
@@ -2953,7 +2659,7 @@
   <dialog id="e2eCheckModal" class="bg-slate-900 text-slate-100 p-0 rounded-xl max-w-2xl w-full backdrop:bg-slate-950/80">
     <div class="p-6">
       <div class="flex items-start justify-between mb-4">
-        <h2 class="text-xl font-semibold text-slate-100">🔍 E2E Self Check</h2>
+        <h2 class="text-xl font-semibold text-slate-100">E2E Self Check</h2>
         <button id="closeE2EModal" type="button" class="text-slate-500 hover:text-slate-300 text-xl">&times;</button>
       </div>
       <div id="e2eCheckContent" class="space-y-3">
@@ -3001,49 +2707,54 @@
       // Playbook capability requirements (which capabilities each playbook needs)
       // Updated to include all 30 playbooks in the Detection Engineer Pack
       const PLAYBOOK_CAPABILITIES = {
-        // === EXECUTION FAMILY ===
-        'signal_lolbin_abuse': { name: 'LOLBin Abuse', family: 'execution', requires: ['admin', 'security_log'], optional: ['cmdline'] },
-        'signal_encoded_powershell': { name: 'Encoded PowerShell', family: 'execution', requires: ['ps_logging'], optional: ['cmdline'] },
-        'signal_certutil_abuse': { name: 'Certutil Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
-        'signal_mshta_abuse': { name: 'MSHTA Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
-        'signal_rundll32_abuse': { name: 'Rundll32 Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
-        'signal_regsvr32_abuse': { name: 'Regsvr32 Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
-        'signal_wmic_abuse': { name: 'WMIC Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline'] },
-        'signal_bitsadmin_abuse': { name: 'BITSAdmin Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline'] },
-        'signal_powershell_download': { name: 'PowerShell Download', family: 'execution', requires: ['ps_logging'], optional: ['cmdline'] },
-        'signal_wscript_cscript_abuse': { name: 'WScript/CScript Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        // Families match the family field in playbooks/windows/*.yaml (ATT&CK v20.1 tactics)
+        // === EXECUTION ===
+        'signal_encoded_powershell': { name: 'Encoded PowerShell', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
         'signal_office_child_process': { name: 'Office Child Process', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
-        
-        // === PERSISTENCE FAMILY ===
-        'signal_persistence_windows': { name: 'Windows Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+        'signal_wmic_abuse': { name: 'WMIC Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline'] },
+        'signal_wscript_cscript_abuse': { name: 'WScript/CScript Abuse', family: 'execution', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+
+        // === COMMAND AND CONTROL ===
+        'signal_bitsadmin_abuse': { name: 'BITSAdmin Abuse', family: 'command_and_control', requires: ['admin'], optional: ['cmdline'] },
+        'signal_certutil_abuse': { name: 'Certutil Abuse', family: 'command_and_control', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_powershell_download': { name: 'PowerShell Download', family: 'command_and_control', requires: ['admin'], optional: ['cmdline', 'sysmon', 'ps_logging'] },
+
+        // === PERSISTENCE ===
+        'signal_group_membership_change': { name: 'Group Membership Change', family: 'persistence', requires: ['admin', 'security_log'], optional: [] },
+        'signal_persistence_windows': { name: 'Autostart Persistence', family: 'persistence', requires: ['sysmon'], optional: [] },
+        'signal_registry_persistence': { name: 'Registry Persistence', family: 'persistence', requires: ['admin'], optional: ['sysmon'] },
+        'signal_sc_abuse': { name: 'SC Command Abuse', family: 'persistence', requires: ['admin', 'security_log'], optional: ['cmdline'] },
+        'signal_schtasks_abuse': { name: 'Schtasks Abuse', family: 'persistence', requires: ['admin', 'security_log'], optional: ['cmdline'] },
         'signal_service_persistence': { name: 'Service Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: [] },
         'signal_task_persistence': { name: 'Task Persistence', family: 'persistence', requires: ['admin', 'security_log'], optional: [] },
-        'signal_registry_persistence': { name: 'Registry Persistence', family: 'persistence', requires: ['admin'], optional: ['sysmon'] },
-        'signal_schtasks_abuse': { name: 'Schtasks Abuse', family: 'persistence', requires: ['admin', 'security_log'], optional: ['cmdline'] },
-        'signal_sc_abuse': { name: 'SC Command Abuse', family: 'persistence', requires: ['admin', 'security_log'], optional: ['cmdline'] },
-        
-        // === IDENTITY/AUTH FAMILY ===
-        'signal_logon_anomaly': { name: 'Logon Anomaly', family: 'identity', requires: ['admin', 'security_log'], optional: [] },
-        'signal_group_membership_change': { name: 'Group Membership Change', family: 'identity', requires: ['admin', 'security_log'], optional: [] },
-        'signal_lateral_movement_detection': { name: 'Lateral Movement', family: 'identity', requires: ['admin', 'security_log'], optional: ['sysmon'] },
-        
-        // === DISCOVERY FAMILY ===
+
+        // === CREDENTIAL ACCESS ===
+        'signal_credential_access': { name: 'Credential Access', family: 'credential_access', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+        'signal_logon_anomaly': { name: 'Logon Anomaly', family: 'credential_access', requires: ['admin', 'security_log'], optional: [] },
+
+        // === DISCOVERY ===
         'signal_discovery_burst': { name: 'Discovery Burst', family: 'discovery', requires: [], optional: ['cmdline'] },
         'signal_net_command_abuse': { name: 'Net Command Abuse', family: 'discovery', requires: [], optional: ['cmdline'] },
-        
-        // === DEFENSE EVASION FAMILY ===
-        'signal_defense_evasion': { name: 'Defense Evasion', family: 'defense_evasion', requires: ['admin'], optional: ['sysmon', 'ps_logging'] },
-        'signal_log_tampering': { name: 'Log Tampering', family: 'defense_evasion', requires: ['admin', 'security_log'], optional: [] },
-        'signal_log_tamper_detection': { name: 'Log Tamper Detection', family: 'defense_evasion', requires: ['admin', 'security_log'], optional: [] },
-        'signal_dll_side_loading': { name: 'DLL Side-Loading', family: 'defense_evasion', requires: ['sysmon'], optional: [] },
-        'signal_process_injection': { name: 'Process Injection', family: 'defense_evasion', requires: ['sysmon'], optional: [] },
-        'signal_security_tool_disable': { name: 'Security Tool Disable', family: 'defense_evasion', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
-        
-        // === CREDENTIAL ACCESS FAMILY ===
-        'signal_credential_access': { name: 'Credential Access', family: 'credential_access', requires: ['admin', 'security_log'], optional: ['sysmon'] },
-        
-        // === COLLECTION FAMILY ===
-        'signal_file_staging': { name: 'File Staging', family: 'collection', requires: ['sysmon'], optional: [] },
+
+        // === LATERAL MOVEMENT ===
+        'signal_lateral_movement_detection': { name: 'Lateral Movement', family: 'lateral_movement', requires: ['admin', 'security_log'], optional: ['sysmon'] },
+
+        // === STEALTH ===
+        'signal_dll_side_loading': { name: 'DLL Side-Loading', family: 'stealth', requires: ['sysmon'], optional: [] },
+        'signal_lolbin_abuse': { name: 'LOLBin Abuse', family: 'stealth', requires: ['admin', 'security_log'], optional: ['cmdline'] },
+        'signal_mshta_abuse': { name: 'MSHTA Abuse', family: 'stealth', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_process_injection': { name: 'Process Injection', family: 'stealth', requires: ['sysmon'], optional: [] },
+        'signal_regsvr32_abuse': { name: 'Regsvr32 Abuse', family: 'stealth', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+        'signal_rundll32_abuse': { name: 'Rundll32 Abuse', family: 'stealth', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+
+        // === DEFENSE IMPAIRMENT ===
+        'signal_defense_evasion': { name: 'Defense Impairment', family: 'defense_impairment', requires: ['admin', 'security_log'], optional: ['cmdline', 'sysmon'] },
+        'signal_log_tamper_detection': { name: 'Event Log Clearing', family: 'defense_impairment', requires: ['admin', 'security_log'], optional: [] },
+        'signal_log_tampering': { name: 'Event Logging Disabled', family: 'defense_impairment', requires: ['admin', 'security_log'], optional: [] },
+        'signal_security_tool_disable': { name: 'Security Tool Disable', family: 'defense_impairment', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
+
+        // === COLLECTION ===
+        'signal_file_staging': { name: 'File Staging', family: 'collection', requires: ['admin'], optional: ['cmdline', 'sysmon'] },
       };
 
       async function refreshReadinessCheck() {
@@ -3058,10 +2769,10 @@
           const descEl = document.getElementById('readinessDesc');
           
           const levelMap = {
-            'Full': { icon: '✅', color: 'bg-emerald-700', desc: 'All telemetry sources available' },
-            'Good': { icon: '👍', color: 'bg-sky-700', desc: 'Basic telemetry available, some enhancements missing' },
-            'Limited': { icon: '⚠️', color: 'bg-amber-700', desc: 'Limited telemetry, consider running as admin' },
-            'Blocked': { icon: '❌', color: 'bg-red-700', desc: 'Cannot capture meaningful telemetry' },
+            'Full': { icon: '', color: 'bg-emerald-700', desc: 'All telemetry sources available' },
+            'Good': { icon: '', color: 'bg-sky-700', desc: 'Basic telemetry available, some enhancements missing' },
+            'Limited': { icon: '', color: 'bg-amber-700', desc: 'Limited telemetry, consider running as admin' },
+            'Blocked': { icon: '', color: 'bg-red-700', desc: 'Cannot capture meaningful telemetry' },
           };
           
           const level = readiness.overall_readiness || 'Limited';
@@ -3137,13 +2848,15 @@
         
         // Family display names and colors
         const familyMeta = {
-          execution: { name: '⚡ Execution', color: 'text-sky-400' },
-          persistence: { name: '🔒 Persistence', color: 'text-amber-400' },
-          identity: { name: '👤 Identity', color: 'text-purple-400' },
-          discovery: { name: '🔍 Discovery', color: 'text-emerald-400' },
-          defense_evasion: { name: '🛡️ Defense Evasion', color: 'text-red-400' },
-          credential_access: { name: '🔑 Credential Access', color: 'text-orange-400' },
-          collection: { name: '📦 Collection', color: 'text-cyan-400' },
+          execution: { name: 'Execution', color: 'text-sky-400' },
+          command_and_control: { name: 'Command and Control', color: 'text-indigo-400' },
+          persistence: { name: 'Persistence', color: 'text-amber-400' },
+          credential_access: { name: 'Credential Access', color: 'text-orange-400' },
+          discovery: { name: 'Discovery', color: 'text-emerald-400' },
+          lateral_movement: { name: 'Lateral Movement', color: 'text-purple-400' },
+          stealth: { name: 'Stealth', color: 'text-rose-400' },
+          defense_impairment: { name: 'Defense Impairment', color: 'text-red-400' },
+          collection: { name: 'Collection', color: 'text-cyan-400' },
         };
         
         // Build summary row
@@ -3166,7 +2879,7 @@
           
           const playbooksHtml = playbooks.map(pb => {
             const color = pb.requiredMet ? 'border-emerald-700/50 bg-emerald-900/20' : 'border-red-700/50 bg-red-900/20';
-            const icon = pb.requiredMet ? '✅' : '❌';
+            const icon = pb.requiredMet ? 'OK' : 'Missing';
             const tooltip = pb.missingRequired.length > 0 ? `Missing: ${pb.missingRequired.join(', ')}` : 'All requirements met';
             
             return `
@@ -3197,11 +2910,11 @@
         const statusEl = document.getElementById(`check${name}Status`);
         
         if (passed) {
-          iconEl.textContent = '✅';
+          iconEl.textContent = '';
           statusEl.textContent = 'OK';
           statusEl.className = 'text-xs px-2 py-0.5 rounded bg-emerald-700';
         } else {
-          iconEl.textContent = '❌';
+          iconEl.textContent = '';
           statusEl.textContent = 'Missing';
           statusEl.className = 'text-xs px-2 py-0.5 rounded bg-red-700';
         }
@@ -3241,10 +2954,10 @@
               <td class="py-2 px-2">${run.duration_minutes}m</td>
               <td class="py-2 px-2">${run.segments_count}</td>
               <td class="py-2 px-2 ${run.signals_count > 0 ? 'text-emerald-400' : ''}">${run.signals_count}</td>
-              <td class="py-2 px-2">${run.is_admin ? '✅' : '❌'}</td>
+              <td class="py-2 px-2">${run.is_admin ? 'Yes' : 'No'}</td>
               <td class="py-2 px-2">
-                <button onclick="openRunFolder('${run.run_id}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs mr-1">📂</button>
-                <button onclick="viewRunMetrics('${run.run_id}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">📊</button>
+                <button onclick="openRunFolder('${run.run_id}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs mr-1">Open</button>
+                <button onclick="viewRunMetrics('${run.run_id}')" class="px-2 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-xs">Metrics</button>
               </td>
             </tr>
           `).join('');
@@ -3367,7 +3080,7 @@
         
         for (const scenario of scenarios) {
           try {
-            resultsContent.innerHTML += `<div class="text-sky-400 mt-2">▶ Running ${scenario.name}...</div>`;
+            resultsContent.innerHTML += `<div class="text-sky-400 mt-2">Running ${scenario.name}...</div>`;
             
             // Use the new run_scenario command from backend
             const stepResults = await invoke('run_scenario', { scenarioId: scenario.id });
@@ -3376,10 +3089,10 @@
             scenarioResults.push({ scenario, success: allSuccess, stepResults });
             
             if (allSuccess) {
-              resultsContent.innerHTML += `<div class="text-emerald-400">✓ ${scenario.name} - all ${stepResults.length} steps completed</div>`;
+              resultsContent.innerHTML += `<div class="text-emerald-400">Done: ${scenario.name} - all ${stepResults.length} steps completed</div>`;
             } else {
               const failed = stepResults.filter(r => !r.success);
-              resultsContent.innerHTML += `<div class="text-amber-400">⚠ ${scenario.name} - ${failed.length}/${stepResults.length} steps had issues</div>`;
+              resultsContent.innerHTML += `<div class="text-amber-400">Partial: ${scenario.name} - ${failed.length}/${stepResults.length} steps had issues</div>`;
             }
             
             // Show expected outcomes
@@ -3389,7 +3102,7 @@
             
           } catch (e) {
             scenarioResults.push({ scenario, success: false, error: e });
-            resultsContent.innerHTML += `<div class="text-red-400">✗ ${scenario.name} failed: ${e}</div>`;
+            resultsContent.innerHTML += `<div class="text-red-400">${scenario.name} failed: ${e}</div>`;
           }
         }
         
@@ -3399,7 +3112,7 @@
             Done: ${successCount}/${scenarios.length} scenarios succeeded
           </div>
           <div class="text-amber-400 text-xs mt-1">
-            ⏳ Wait for playbooks to process these events, then check Signals panel or view Metrics for gate validation.
+            Wait for playbooks to process these events, then check Signals panel or view Metrics for gate validation.
           </div>
         `;
       }
@@ -3417,8 +3130,7 @@
             'FAIL': 'bg-red-700 text-red-100',
             'NO_DATA': 'bg-slate-700 text-slate-300'
           };
-          const icons = { 'PASS': '✅', 'PARTIAL': '⚠️', 'FAIL': '❌', 'NO_DATA': '⏸️' };
-          return `<span class="px-2 py-1 rounded text-xs ${colors[status] || colors['NO_DATA']}">${icons[status] || '?'} ${status}</span>`;
+          return `<span class="px-2 py-1 rounded text-xs ${colors[status] || colors['NO_DATA']}">${status}</span>`;
         };
         
         // Build health gates section if available (Metrics v3)
@@ -3426,7 +3138,7 @@
         const gatesSection = hasGates ? `
           <div class="border-t border-slate-700 pt-4">
             <div class="text-sm font-medium mb-3 flex items-center gap-2">
-              <span>🚦 Health Gates</span>
+              <span>Health Gates</span>
               ${metrics.gates?.overall_healthy 
                 ? '<span class="text-emerald-400 text-xs">All gates passing</span>'
                 : '<span class="text-red-400 text-xs">Issues detected</span>'}
@@ -3495,7 +3207,7 @@
         // Build rates section if available (Metrics v3)
         const ratesSection = metrics.rates ? `
           <div class="border-t border-slate-700 pt-4">
-            <div class="text-sm font-medium mb-2">📈 Quality Rates</div>
+            <div class="text-sm font-medium mb-2">Quality Rates</div>
             <div class="grid grid-cols-3 gap-2 text-xs">
               <div class="p-2 rounded bg-slate-800">
                 <div class="text-slate-400">Explain Valid</div>
@@ -3517,7 +3229,7 @@
         const breakdownsSection = metrics.breakdowns ? `
           <div class="border-t border-slate-700 pt-4">
             <details>
-              <summary class="cursor-pointer text-sm font-medium mb-2">📊 Detailed Breakdowns</summary>
+              <summary class="cursor-pointer text-sm font-medium mb-2">Detailed Breakdowns</summary>
               <div class="grid grid-cols-2 gap-4 mt-3">
                 ${metrics.breakdowns?.events_by_channel ? `
                 <div>
@@ -3622,9 +3334,9 @@
           <div class="border-t border-slate-700 pt-4">
             <div class="text-sm font-medium mb-2">Legacy Validation</div>
             <div class="flex flex-wrap gap-2">
-              <span class="px-2 py-1 rounded text-xs ${metrics.validation.has_signals ? 'bg-emerald-700' : 'bg-red-700'}">${metrics.validation.has_signals ? '✓ Has Signals' : '✗ No Signals'}</span>
-              <span class="px-2 py-1 rounded text-xs ${metrics.validation.has_segments ? 'bg-emerald-700' : 'bg-amber-700'}">${metrics.validation.has_segments ? '✓ Has Segments' : '⚠ No Segments'}</span>
-              <span class="px-2 py-1 rounded text-xs ${metrics.validation.pipeline_working ? 'bg-emerald-700' : 'bg-red-700'}">${metrics.validation.pipeline_working ? '✓ Pipeline OK' : '✗ Pipeline Issue'}</span>
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.has_signals ? 'bg-emerald-700' : 'bg-red-700'}">${metrics.validation.has_signals ? 'Has Signals' : 'No Signals'}</span>
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.has_segments ? 'bg-emerald-700' : 'bg-amber-700'}">${metrics.validation.has_segments ? 'Has Segments' : 'No Segments'}</span>
+              <span class="px-2 py-1 rounded text-xs ${metrics.validation.pipeline_working ? 'bg-emerald-700' : 'bg-red-700'}">${metrics.validation.pipeline_working ? 'Pipeline OK' : 'Pipeline Issue'}</span>
             </div>
           </div>
           ` : ''}
@@ -3753,10 +3465,10 @@
         
         // Update admin badge
         if (status.is_admin) {
-          adminBadge.textContent = '🔓 Admin';
+          adminBadge.textContent = 'Admin';
           adminBadge.className = 'px-2 py-1 rounded text-xs bg-emerald-700';
         } else {
-          adminBadge.textContent = '🔒 Limited';
+          adminBadge.textContent = 'Limited';
           adminBadge.className = 'px-2 py-1 rounded text-xs bg-amber-700';
         }
         
@@ -3765,7 +3477,7 @@
         document.getElementById('runSignals').textContent = status.signals_count || '--';
         
         if (status.running) {
-          statusIcon.textContent = '▶️';
+          statusIcon.textContent = '';
           statusText.textContent = `Running: ${status.run_id || 'active'}`;
           statusSub.textContent = status.run_dir ? `Output: ${status.run_dir}` : 'Capturing telemetry...';
           
@@ -3779,7 +3491,7 @@
             document.getElementById('runRemaining').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
           }
         } else {
-          statusIcon.textContent = '⏹️';
+          statusIcon.textContent = '';
           statusText.textContent = 'Stack Stopped';
           statusSub.textContent = 'Ready to start capture';
           document.getElementById('runRemaining').textContent = '--';
