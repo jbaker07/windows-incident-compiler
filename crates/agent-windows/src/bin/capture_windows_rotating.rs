@@ -1,5 +1,10 @@
 //! capture_windows_rotating binary entry point
 //! Windows Event Log capture with rotating segments
+//!
+//! Stops on Ctrl-C, or when the file `capture.stop` appears in the telemetry
+//! root. Both write the buffered events before exit. Killing the process
+//! loses at most the last second of polled events, and those are read again
+//! on the next start because the read position is saved only after a write.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -69,11 +74,23 @@ fn main() {
         })
         .expect("Failed to set Ctrl-C handler");
 
-        eprintln!("Beginning Windows Event Log capture loop (Ctrl-C to stop)...");
+        // A stop request left over from an earlier run must not stop this one.
+        let stop_file = telemetry_root.join("capture.stop");
+        let _ = std::fs::remove_file(&stop_file);
+
+        eprintln!(
+            "Beginning Windows Event Log capture loop (Ctrl-C or create {} to stop)...",
+            stop_file.display()
+        );
         let _ = std::io::stderr().flush();
 
         // Main capture loop
         while !shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+            if stop_file.exists() {
+                eprintln!("[capture_windows_rotating] Stop file found");
+                let _ = std::fs::remove_file(&stop_file);
+                break;
+            }
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 capture.poll_and_write()
             })) {
@@ -88,6 +105,9 @@ fn main() {
             std::thread::sleep(Duration::from_millis(100));
         }
 
+        if let Err(e) = capture.flush() {
+            eprintln!("[capture] final flush error: {:?}", e);
+        }
         eprintln!("[capture_windows_rotating] Capture stopped");
     }
 

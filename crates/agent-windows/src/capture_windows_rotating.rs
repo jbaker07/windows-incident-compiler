@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CaptureHeartbeat {
@@ -81,14 +81,30 @@ pub struct HeartbeatMetrics {
 pub struct WindowsCaptureConfig {
     pub root_dir: PathBuf,       // segments directory (telemetry_root/segments)
     pub telemetry_root: PathBuf, // parent directory for index.json
+    /// Most records in one segment. A full buffer is written at once.
     pub segment_rotation_records: u64,
+    /// Longest time polled events wait in memory before they are written.
+    pub flush_interval: Duration,
     pub heartbeat_interval_secs: u64,
 }
 
+/// Captures the Windows event logs into segment files.
+///
+/// Each write creates a new segment `segments/evtx_NNNNNN.jsonl` and lists it
+/// in `index.json`. A segment is never changed after it is written, which is
+/// what edr-locald expects: it reads each listed segment once. The WEVTAPI
+/// read position is saved only after the segment holding those events is on
+/// disk, so a crash re-reads events instead of losing them.
 pub struct WindowsEventCapture {
     config: WindowsCaptureConfig,
+    /// Number of the next segment to write.
     segment_count: u64,
+    /// Records written by this process.
     event_count: u64,
+    reader: crate::wevt_reader::WevtReader,
+    /// Polled events not written yet.
+    pending: Vec<Event>,
+    last_flush: Instant,
     collector: crate::sensors::EvtxCollector,
     metrics: BTreeMap<String, HeartbeatMetrics>,
     // Attack surface event counters
@@ -125,15 +141,24 @@ impl WindowsEventCapture {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| segments_dir.clone());
 
+        // Continue the numbering of an earlier run so its segments are kept.
+        let segment_count = next_segment_seq(&telemetry_root, &segments_dir);
+        let reader = crate::wevt_reader::WevtReader::new()
+            .with_bookmark_file(telemetry_root.join("wevt_bookmarks.json"));
+
         Self {
             config: WindowsCaptureConfig {
                 root_dir: segments_dir,
                 telemetry_root,
                 segment_rotation_records: 10000,
+                flush_interval: Duration::from_secs(1),
                 heartbeat_interval_secs: 5,
             },
-            segment_count: 0,
+            segment_count,
             event_count: 0,
+            reader,
+            pending: Vec::new(),
+            last_flush: Instant::now(),
             collector: crate::sensors::EvtxCollector::new(),
             metrics: BTreeMap::new(),
             proc_exec_count: 0,
@@ -158,113 +183,15 @@ impl WindowsEventCapture {
         }
     }
 
-    /// Create capture with mock JSONL events
-    pub fn with_mock_events(segments_dir: PathBuf, fixture_path: &Path) -> anyhow::Result<Self> {
-        fs::create_dir_all(&segments_dir)?;
-
-        // Derive telemetry_root as parent of segments directory
-        let telemetry_root = segments_dir
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| segments_dir.clone());
-
-        eprintln!(
-            "[capture_windows] Mock mode: reading JSONL events from {:?}",
-            fixture_path
-        );
-
-        // Load events from JSONL fixture
-        let content = std::fs::read_to_string(fixture_path)?;
-        let mut events: Vec<Event> = Vec::new();
-        let mut skipped = 0usize;
-        for line in content.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            match serde_json::from_str::<Event>(line) {
-                Ok(evt) => events.push(evt),
-                Err(_) => skipped += 1,
-            }
-        }
-        eprintln!(
-            "[capture_windows] Mock loaded {} events (skipped {})",
-            events.len(),
-            skipped
-        );
-
-        // Write segment with mock events
-        let segment_id = "windows_000000";
-        let segment_path = segments_dir.join(format!("{}.jsonl", segment_id));
-        let events_count = events.len();
-
-        let mut segment_content = String::new();
-        for evt in &events {
-            if let Ok(json_str) = serde_json::to_string(&evt) {
-                segment_content.push_str(&json_str);
-                segment_content.push('\n');
-            }
-        }
-
-        fs::write(&segment_path, segment_content)?;
-
-        // Write heartbeat
-        let heartbeat = serde_json::json!({
-            "ts": Utc::now(),
-            "transport": "mock",
-            "events_read_total": events_count,
-            "parse_failed_total": skipped,
-            "status": "complete"
-        });
-        fs::write(
-            segments_dir.join("heartbeat.json"),
-            serde_json::to_string(&heartbeat)?,
-        )?;
-
-        eprintln!("[capture_windows] Mock capture complete");
-
-        Ok(Self {
-            config: WindowsCaptureConfig {
-                root_dir: segments_dir,
-                telemetry_root,
-                segment_rotation_records: 10000,
-                heartbeat_interval_secs: 5,
-            },
-            segment_count: 1,
-            event_count: events.len() as u64,
-            collector: crate::sensors::EvtxCollector::new(),
-            metrics: BTreeMap::new(),
-            proc_exec_count: 0,
-            priv_escalation_count: 0,
-            proc_access_count: 0,
-            asr_block_count: 0,
-            wmi_persistence_count: 0,
-            persistence_service_count: 0,
-            persistence_task_count: 0,
-            log_clear_count: 0,
-            remote_logon_rdp_count: 0,
-            remote_winrm_count: 0,
-            decode_failed_count: 0,
-            cred_access_count: 0,
-            discovery_exec_count: 0,
-            archive_tool_exec_count: 0,
-            staging_write_count: 0,
-            net_connect_prim_count: 0,
-            persistence_change_count: 0,
-            defense_evasion_count: 0,
-            script_exec_count: 0,
-        })
-    }
-
-    /// Poll all enabled event log sources and write segments
-    /// CRITICAL: Derives primitives → dedup → EvidencePtr assignment → write
+    /// Poll all enabled event log sources and buffer the events. Writes a
+    /// segment when the buffer is full or `flush_interval` has passed.
+    /// Order: derive primitives, dedup, then EvidencePtr assignment in `flush`.
     pub fn poll_and_write(&mut self) -> anyhow::Result<()> {
         let host = crate::host::HostCtx::new();
-        let segment_id = format!("evtx_{:06}", self.segment_count);
-        let segment_path = self.config.root_dir.join(format!("{}.jsonl", segment_id));
 
         // Call unified collector that handles all sources + gating
         // Returns events with None evidence_ptr
-        let mut all_events = crate::sensors::collect::collect_all(&host);
+        let mut all_events = crate::sensors::collect::collect_all_with(&mut self.reader, &host);
 
         // STEP 1: Derive canonical primitives from base events (process, network, file)
         let mut derived_events = Vec::new();
@@ -353,10 +280,35 @@ impl WindowsEventCapture {
             }
         }
 
-        // STEP 4: ASSIGN EvidencePtr HERE ONLY - uses segment state
-        let all_events = self.assign_evidence_ptrs_with_state(all_events, self.segment_count);
+        self.pending.extend(all_events);
+        let full = self.pending.len() as u64 >= self.config.segment_rotation_records;
+        let due =
+            !self.pending.is_empty() && self.last_flush.elapsed() >= self.config.flush_interval;
+        if full || due {
+            self.flush()?;
+        }
 
-        // STEP 5: Validate canonical primitives contract
+        Ok(())
+    }
+
+    /// Write the buffered events as a new segment, list it in index.json and
+    /// then save the WEVTAPI read position. Does nothing when the buffer is
+    /// empty. Call before exit so no polled event is left behind.
+    pub fn flush(&mut self) -> anyhow::Result<()> {
+        self.last_flush = Instant::now();
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+
+        let seq = self.segment_count;
+        let segment_id = format!("evtx_{:06}", seq);
+        let segment_path = self.config.root_dir.join(format!("{}.jsonl", segment_id));
+
+        // EvidencePtr is assigned here only: segment number plus line number
+        let events = std::mem::take(&mut self.pending);
+        let all_events = self.assign_evidence_ptrs_with_state(events, seq);
+
+        // Validate canonical primitives contract
         for event in &all_events {
             if event.tags.contains(&"credential_access".to_string())
                 || event.tags.contains(&"discovery".to_string())
@@ -378,53 +330,75 @@ impl WindowsEventCapture {
             }
         }
 
-        // Write segment if events present
-        if !all_events.is_empty() {
-            let mut segment_file = fs::File::create(&segment_path)?;
+        let mut segment_data = Vec::new();
+        for evt in &all_events {
+            if let Ok(json_str) = serde_json::to_string(evt) {
+                segment_data.extend_from_slice(json_str.as_bytes());
+                segment_data.push(b'\n');
+            }
+        }
+        {
             use std::io::Write;
-            for evt in &all_events {
-                if let Ok(json_str) = serde_json::to_string(evt) {
-                    writeln!(segment_file, "{}", json_str)?;
-                }
-            }
+            let mut segment_file = fs::File::create(&segment_path)?;
+            segment_file.write_all(&segment_data)?;
             segment_file.sync_all()?;
-
-            // Compute segment hash
-            let segment_data = fs::read(&segment_path).unwrap_or_default();
-            let sha256_segment = {
-                let mut hasher = Sha256::new();
-                hasher.update(&segment_data);
-                format!("{:x}", hasher.finalize())
-            };
-
-            // Update index.json at telemetry_root level
-            let index_path = self.config.telemetry_root.join("index.json");
-            let ts_now = Utc::now().timestamp_millis() as u64;
-            if let Err(e) = update_index_atomic(
-                &index_path,
-                &segment_id,
-                format!("segments/{}.jsonl", segment_id), // relative to telemetry_root
-                ts_now,
-                ts_now,
-                all_events.len() as u32,
-                segment_data.len() as u64,
-                sha256_segment,
-            ) {
-                eprintln!(
-                    "[capture_windows] WARNING: Failed to update index.json: {}",
-                    e
-                );
-            }
         }
 
+        let sha256_segment = {
+            let mut hasher = Sha256::new();
+            hasher.update(&segment_data);
+            format!("{:x}", hasher.finalize())
+        };
+        let ts_first = all_events.iter().map(|e| e.ts_ms).min().unwrap_or(0).max(0) as u64;
+        let ts_last = all_events.iter().map(|e| e.ts_ms).max().unwrap_or(0).max(0) as u64;
+
+        // Update index.json at telemetry_root level
+        let index_path = self.config.telemetry_root.join("index.json");
+        if let Err(e) = update_index_atomic(
+            &index_path,
+            &segment_id,
+            format!("segments/{}.jsonl", segment_id), // relative to telemetry_root
+            ts_first,
+            ts_last,
+            all_events.len() as u32,
+            segment_data.len() as u64,
+            sha256_segment,
+        ) {
+            eprintln!(
+                "[capture_windows] WARNING: Failed to update index.json: {}",
+                e
+            );
+        }
+
+        self.segment_count += 1;
         self.event_count += all_events.len() as u64;
-
-        // Rotate if needed
-        if self.event_count >= self.config.segment_rotation_records {
-            self.rotate_segment()?;
+        let state_path = self.config.telemetry_root.join(CAPTURE_STATE_FILE);
+        let state_tmp = state_path.with_extension("json.tmp");
+        let state = serde_json::json!({ "next_segment": self.segment_count });
+        if fs::write(&state_tmp, state.to_string()).is_ok() {
+            let _ = fs::rename(&state_tmp, &state_path);
         }
+        eprintln!(
+            "[capture_windows] Wrote {} ({} records, {} total)",
+            segment_id,
+            all_events.len(),
+            self.event_count
+        );
 
+        // The events are on disk, so the read position can move past them.
+        self.reader.commit_bookmarks();
         Ok(())
+    }
+
+    /// Queue events for the next segment. Used by tests and by callers that
+    /// produce events themselves.
+    pub fn queue_events(&mut self, events: Vec<Event>) {
+        self.pending.extend(events);
+    }
+
+    /// Number of the next segment to write.
+    pub fn next_segment(&self) -> u64 {
+        self.segment_count
     }
 
     /// Assign EvidencePtr to events using capture writer state (segment seq + record counter)
@@ -494,12 +468,6 @@ impl WindowsEventCapture {
             self.write_heartbeat()?;
             thread::sleep(Duration::from_millis(100));
         }
-    }
-
-    fn rotate_segment(&mut self) -> anyhow::Result<()> {
-        self.segment_count += 1;
-        self.event_count = 0;
-        Ok(())
     }
 
     /// Write heartbeat with attack surface counters and primitive counters
@@ -659,6 +627,46 @@ fn generate_dedup_key(event: &Event) -> String {
     format!("{}:{}:{}:{}", kind, ts, pid, discriminator)
 }
 
+/// File in the telemetry root that keeps the next segment number. It outlives
+/// a cleanup that deletes the segments and index.json, so a new segment never
+/// takes the path of one edr-locald has already read.
+const CAPTURE_STATE_FILE: &str = "capture_state.json";
+
+/// Number for the next segment: one past the highest `evtx_NNNNNN` segment
+/// listed in index.json or present in the segments directory, and at least
+/// the number saved in capture_state.json.
+fn next_segment_seq(telemetry_root: &Path, segments_dir: &Path) -> u64 {
+    fn seq_of(name: &str) -> Option<u64> {
+        name.strip_prefix("evtx_")?
+            .trim_end_matches(".jsonl")
+            .parse()
+            .ok()
+    }
+
+    let mut next = fs::read_to_string(telemetry_root.join(CAPTURE_STATE_FILE))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| v.get("next_segment").and_then(|n| n.as_u64()))
+        .unwrap_or(0);
+    if let Ok(text) = fs::read_to_string(telemetry_root.join("index.json")) {
+        if let Ok(index) = serde_json::from_str::<SegmentIndex>(&text) {
+            for seg in &index.segments {
+                if let Some(n) = seq_of(&seg.segment_id) {
+                    next = next.max(n + 1);
+                }
+            }
+        }
+    }
+    if let Ok(entries) = fs::read_dir(segments_dir) {
+        for entry in entries.flatten() {
+            if let Some(n) = entry.file_name().to_str().and_then(seq_of) {
+                next = next.max(n + 1);
+            }
+        }
+    }
+    next
+}
+
 /// Atomically update index.json with new segment metadata
 #[allow(clippy::too_many_arguments)]
 fn update_index_atomic(
@@ -758,10 +766,90 @@ fn update_index_atomic(
 mod tests {
     use super::*;
 
+    fn temp_root(name: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("edr_capture_{}_{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("segments")).unwrap();
+        root
+    }
+
+    fn event(ts_ms: i64, channel: &str) -> Event {
+        let mut fields = BTreeMap::new();
+        fields.insert("windows.channel".to_string(), serde_json::json!(channel));
+        fields.insert("windows.event_id".to_string(), serde_json::json!(4688));
+        Event {
+            ts_ms,
+            host: "WS01".to_string(),
+            proc_key: None,
+            file_key: None,
+            identity_key: None,
+            evidence_ptr: None,
+            fields,
+            tags: vec!["windows".to_string()],
+        }
+    }
+
     #[test]
     fn test_capture_new() {
-        let tmpdir = std::env::temp_dir();
-        let capture = WindowsEventCapture::new(tmpdir);
-        assert_eq!(capture.segment_count, 0);
+        let root = temp_root("new");
+        let capture = WindowsEventCapture::new(root.join("segments"));
+        assert_eq!(capture.next_segment(), 0);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn test_each_flush_writes_a_new_segment() {
+        let root = temp_root("flush");
+        let mut capture = WindowsEventCapture::new(root.join("segments"));
+
+        capture.flush().unwrap();
+        assert_eq!(capture.next_segment(), 0, "empty flush writes nothing");
+
+        capture.queue_events(vec![event(1_000, "Security"), event(2_000, "System")]);
+        capture.flush().unwrap();
+        capture.queue_events(vec![event(3_000, "Security")]);
+        capture.flush().unwrap();
+
+        let first = fs::read_to_string(root.join("segments/evtx_000000.jsonl")).unwrap();
+        let second = fs::read_to_string(root.join("segments/evtx_000001.jsonl")).unwrap();
+        assert_eq!(first.lines().count(), 2, "first segment kept its records");
+        assert_eq!(second.lines().count(), 1);
+
+        // Evidence pointers name the segment and the line in it
+        let rec: Event = serde_json::from_str(first.lines().nth(1).unwrap()).unwrap();
+        let ptr = rec.evidence_ptr.unwrap();
+        assert_eq!(
+            (ptr.stream_id.as_str(), ptr.segment_id, ptr.record_index),
+            ("System", 0, 1)
+        );
+        let rec: Event = serde_json::from_str(second.lines().next().unwrap()).unwrap();
+        assert_eq!(rec.evidence_ptr.unwrap().segment_id, 1);
+
+        let index: SegmentIndex =
+            serde_json::from_str(&fs::read_to_string(root.join("index.json")).unwrap()).unwrap();
+        let listed: Vec<_> = index
+            .segments
+            .iter()
+            .map(|s| (s.rel_path.as_str(), s.records, s.ts_first, s.ts_last))
+            .collect();
+        assert_eq!(
+            listed,
+            vec![
+                ("segments/evtx_000000.jsonl", 2, 1_000, 2_000),
+                ("segments/evtx_000001.jsonl", 1, 3_000, 3_000)
+            ]
+        );
+
+        // A restarted capture continues the numbering instead of overwriting
+        let restarted = WindowsEventCapture::new(root.join("segments"));
+        assert_eq!(restarted.next_segment(), 2);
+
+        // Also after a cleanup that deletes the segments and the index
+        fs::remove_file(root.join("index.json")).unwrap();
+        fs::remove_dir_all(root.join("segments")).unwrap();
+        let after_cleanup = WindowsEventCapture::new(root.join("segments"));
+        assert_eq!(after_cleanup.next_segment(), 2);
+        let _ = fs::remove_dir_all(&root);
     }
 }

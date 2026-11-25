@@ -13,6 +13,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet, VecDeque};
+use std::path::PathBuf;
 
 /// Event record - source_record_id is metadata only, never for EvidencePtr
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +145,15 @@ pub struct WevtReader {
     /// Windows WEVTAPI render context (created once, reused for efficiency)
     #[cfg(target_os = "windows")]
     render_context: std::sync::Mutex<Option<std::ffi::c_void>>,
+    /// Bookmarks saved on disk, one per channel. Only `commit_bookmarks`
+    /// writes to it, so a crash before a segment is written re-reads those
+    /// events on the next start instead of losing them.
+    bookmarks: crate::wevt_bookmarks::WevtBookmarkManager,
+    /// Read position per channel (bookmark XML, last record ID) that has not
+    /// been committed yet. The next poll resumes from here.
+    pending_positions: BTreeMap<String, (String, Option<u64>)>,
+    /// Channels that could not be opened, so the error is logged once.
+    missing_channels: HashSet<String>,
 }
 
 impl Default for WevtReader {
@@ -202,6 +212,40 @@ impl WevtReader {
             dedup: std::sync::Mutex::new(dedup),
             #[cfg(target_os = "windows")]
             render_context: std::sync::Mutex::new(None),
+            bookmarks: crate::wevt_bookmarks::WevtBookmarkManager::new(PathBuf::from(
+                "wevt_bookmarks.json",
+            )),
+            pending_positions: BTreeMap::new(),
+            missing_channels: HashSet::new(),
+        }
+    }
+
+    /// Keep bookmarks in `path` instead of `wevt_bookmarks.json` in the
+    /// working directory. The capture agent puts them in the telemetry root.
+    pub fn with_bookmark_file(mut self, path: PathBuf) -> Self {
+        self.bookmarks = crate::wevt_bookmarks::WevtBookmarkManager::new(path);
+        self
+    }
+
+    /// Read position to resume `channel` from: the uncommitted position if
+    /// there is one, else the saved bookmark. Empty XML means the start of
+    /// the channel.
+    fn resume_position(&self, channel: &str) -> (String, Option<u64>) {
+        if let Some(pos) = self.pending_positions.get(channel) {
+            return pos.clone();
+        }
+        let last_record_id = self
+            .bookmarks
+            .get_stats(channel)
+            .and_then(|(_, _, record_id)| record_id);
+        (self.bookmarks.get_bookmark_xml(channel), last_record_id)
+    }
+
+    /// Save the read positions reached so far. Call after the events read up
+    /// to that point are safely written.
+    pub fn commit_bookmarks(&mut self) {
+        for (channel, (xml, last_record_id)) in std::mem::take(&mut self.pending_positions) {
+            self.bookmarks.set_bookmark(&channel, &xml, last_record_id);
         }
     }
 
@@ -290,6 +334,79 @@ impl WevtReader {
     }
 }
 
+/// Text of the first `<tag>` element, which may carry attributes, as in
+/// `<EventID Qualifiers='16384'>7045</EventID>` (classic providers such as
+/// the Service Control Manager write it that way).
+pub(crate) fn extract_xml_field(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{}", tag);
+    let end_tag = format!("</{}>", tag);
+    let mut from = 0;
+    while let Some(rel) = xml[from..].find(&open) {
+        let pos = from + rel;
+        let after = pos + open.len();
+        match xml[after..].chars().next() {
+            Some('>') | Some('/') | Some(' ') | Some('\t') | Some('\r') | Some('\n') => {
+                let gt = after + xml[after..].find('>')?;
+                if xml[..gt].ends_with('/') {
+                    return Some(String::new()); // <Tag/> or <Tag attr='x'/>
+                }
+                let value_start = gt + 1;
+                let value_end = value_start + xml[value_start..].find(&end_tag)?;
+                return Some(xml[value_start..value_end].trim().to_string());
+            }
+            _ => from = after, // a longer tag name such as <EventIDx>
+        }
+    }
+    None
+}
+
+/// Value of `attr` on the first `<tag ...>` element, quoted with ' or ".
+pub(crate) fn extract_xml_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
+    let tag_start = format!("<{}", tag);
+    let pos = xml.find(&tag_start)?;
+    let end = xml[pos..].find('>')?;
+    let tag_content = &xml[pos..pos + end];
+    for quote in ['\'', '"'] {
+        let pattern = format!(" {}={}", attr, quote);
+        if let Some(attr_pos) = tag_content.find(&pattern) {
+            let value_start = attr_pos + pattern.len();
+            if let Some(value_end) = tag_content[value_start..].find(quote) {
+                return Some(tag_content[value_start..value_start + value_end].to_string());
+            }
+        }
+    }
+    None
+}
+
+/// System fields of a rendered event: provider, event ID, time, computer and
+/// record ID.
+pub(crate) fn extract_fields_from_xml(
+    xml: &str,
+) -> (String, u32, DateTime<Utc>, String, Option<u64>) {
+    // <Provider Name='Microsoft-Windows-Kernel-General'/>
+    let provider =
+        extract_xml_attr(xml, "Provider", "Name").unwrap_or_else(|| "Unknown".to_string());
+
+    // <EventID>16</EventID> or <EventID Qualifiers='0'>16</EventID>
+    let event_id = extract_xml_field(xml, "EventID")
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+
+    // <Computer>DESKTOP-ABC123</Computer>
+    let computer = extract_xml_field(xml, "Computer").unwrap_or_else(|| "Unknown".to_string());
+
+    // <EventRecordID>12345</EventRecordID>
+    let record_id = extract_xml_field(xml, "EventRecordID").and_then(|s| s.parse::<u64>().ok());
+
+    // <TimeCreated SystemTime='2025-01-15T10:30:45.123456789Z'/>
+    let timestamp = extract_xml_attr(xml, "TimeCreated", "SystemTime")
+        .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(Utc::now);
+
+    (provider, event_id, timestamp, computer, record_id)
+}
+
 #[cfg(target_os = "windows")]
 mod imp {
     use super::*;
@@ -341,72 +458,6 @@ mod imp {
         std::ffi::OsString::from_wide(v)
             .into_string()
             .unwrap_or_else(|_| String::new())
-    }
-
-    /// Extract XML field value by tag name (lightweight parser)
-    fn extract_xml_field(xml: &str, tag: &str) -> Option<String> {
-        let start_tag = format!("<{}>", tag);
-        let end_tag = format!("</{}>", tag);
-
-        if let Some(start_pos) = xml.find(&start_tag) {
-            let value_start = start_pos + start_tag.len();
-            if let Some(end_pos) = xml[value_start..].find(&end_tag) {
-                return Some(xml[value_start..value_start + end_pos].trim().to_string());
-            }
-        }
-        None
-    }
-
-    /// Extract XML attribute value (e.g., Name='...' from Provider tag)
-    fn extract_xml_attr(xml: &str, tag: &str, attr: &str) -> Option<String> {
-        // Find the tag opening
-        let tag_start = format!("<{}", tag);
-        if let Some(pos) = xml.find(&tag_start) {
-            // Find the end of this tag
-            if let Some(end) = xml[pos..].find('>') {
-                let tag_content = &xml[pos..pos + end];
-                // Look for attribute pattern: attr='value' or attr="value"
-                let patterns = [format!("{}='", attr), format!("{}=\"", attr)];
-                for pattern in &patterns {
-                    if let Some(attr_pos) = tag_content.find(pattern) {
-                        let value_start = attr_pos + pattern.len();
-                        let quote_char = if pattern.ends_with("'") { '\'' } else { '"' };
-                        if let Some(value_end) = tag_content[value_start..].find(quote_char) {
-                            return Some(
-                                tag_content[value_start..value_start + value_end].to_string(),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Extract event fields from XML string (reliable fallback)
-    fn extract_fields_from_xml(xml: &str) -> (String, u32, DateTime<Utc>, String, Option<u64>) {
-        // Provider Name attribute: <Provider Name='Microsoft-Windows-Kernel-General'/>
-        let provider =
-            extract_xml_attr(xml, "Provider", "Name").unwrap_or_else(|| "Unknown".to_string());
-
-        // EventID: <EventID>16</EventID> or <EventID Qualifiers='0'>16</EventID>
-        let event_id = extract_xml_field(xml, "EventID")
-            .and_then(|s| s.parse::<u32>().ok())
-            .unwrap_or(0);
-
-        // Computer: <Computer>DESKTOP-ABC123</Computer>
-        let computer = extract_xml_field(xml, "Computer").unwrap_or_else(|| "Unknown".to_string());
-
-        // EventRecordID: <EventRecordID>12345</EventRecordID>
-        let record_id = extract_xml_field(xml, "EventRecordID").and_then(|s| s.parse::<u64>().ok());
-
-        // TimeCreated: <TimeCreated SystemTime='2025-01-15T10:30:45.123456789Z'/>
-        let timestamp = extract_xml_attr(xml, "TimeCreated", "SystemTime")
-            .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(Utc::now);
-
-        (provider, event_id, timestamp, computer, record_id)
     }
 
     /// Render event as XML string
@@ -706,10 +757,12 @@ mod imp {
             // The config store uses short names like "Sysmon" but channels use full names
             // like "Microsoft-Windows-Sysmon/Operational"
 
-            // Load bookmark if resuming
-            let bookmark_mgr =
-                crate::wevt_bookmarks::WevtBookmarkManager::new("wevt_bookmarks.json".into());
-            let bookmark_xml = bookmark_mgr.get_bookmark_xml(&channel_cfg.name);
+            // Resume from the last read position. The record the bookmark
+            // points at was already captured, so its ID counts as seen.
+            let (bookmark_xml, resume_record_id) = reader.resume_position(&channel_cfg.name);
+            if let Some(rid) = resume_record_id {
+                let _ = reader.is_duplicate(&channel_cfg.name, rid);
+            }
 
             // Convert channel name to wide string for WEVTAPI
             let channel_wide = to_wide(&channel_cfg.name);
@@ -724,39 +777,54 @@ mod imp {
                 ) {
                     Ok(h) => h,
                     Err(e) => {
-                        eprintln!(
-                            "[wevt] ERROR: EvtQuery failed for channel {}: {:?}",
-                            &channel_cfg.name, e
-                        );
-                        if let Ok(mut s) = reader.stats.lock() {
-                            s.render_failed_total += 1;
+                        // A channel that is not installed (Sysmon on a host
+                        // without it) fails on every poll, so log it once.
+                        if reader.missing_channels.insert(channel_cfg.name.clone()) {
+                            eprintln!(
+                                "[wevt] Channel {} cannot be opened, skipping it: {:?}",
+                                channel_cfg.name, e
+                            );
+                            if let Ok(mut s) = reader.stats.lock() {
+                                s.render_failed_total += 1;
+                            }
                         }
                         continue;
                     }
                 };
 
                 if query_handle.is_invalid() {
-                    eprintln!(
-                        "[wevt] ERROR: Invalid query handle for channel {}",
-                        &channel_cfg.name
-                    );
-                    if let Ok(mut s) = reader.stats.lock() {
-                        s.render_failed_total += 1;
+                    if reader.missing_channels.insert(channel_cfg.name.clone()) {
+                        eprintln!(
+                            "[wevt] Invalid query handle for channel {}, skipping it",
+                            channel_cfg.name
+                        );
+                        if let Ok(mut s) = reader.stats.lock() {
+                            s.render_failed_total += 1;
+                        }
                     }
                     continue;
                 }
 
-                // Create/resume bookmark if configured
+                // Bookmark that follows the read position. A new, empty one
+                // when the channel has none yet, so the position is kept from
+                // the first poll on.
                 let mut bookmark_handle: EVT_HANDLE = EVT_HANDLE::default();
-                if channel_cfg.use_bookmarks && !bookmark_xml.is_empty() {
-                    let bookmark_wide = to_wide(&bookmark_xml);
-                    if let Ok(bh) = EvtCreateBookmark(windows::core::PCWSTR(bookmark_wide.as_ptr()))
-                    {
+                if channel_cfg.use_bookmarks {
+                    let created = if bookmark_xml.is_empty() {
+                        EvtCreateBookmark(windows::core::PCWSTR::null())
+                    } else {
+                        let bookmark_wide = to_wide(&bookmark_xml);
+                        EvtCreateBookmark(windows::core::PCWSTR(bookmark_wide.as_ptr()))
+                    };
+                    if let Ok(bh) = created {
                         bookmark_handle = bh;
                     }
 
-                    if !bookmark_handle.is_invalid() {
-                        // Seek to bookmark position
+                    if !bookmark_xml.is_empty() && !bookmark_handle.is_invalid() {
+                        // Seek to the bookmarked record. If it is gone (log
+                        // cleared) the query stays at the oldest record, and
+                        // the dedup set drops the bookmarked record if it is
+                        // returned again.
                         let _seek_result = EvtSeek(
                             query_handle,
                             0,
@@ -764,7 +832,6 @@ mod imp {
                             0,
                             EvtSeekRelativeToBookmark.0,
                         );
-                        // Ignore seek errors; we'll just start from current position
                     }
                 }
 
@@ -778,7 +845,7 @@ mod imp {
                     if events_this_batch >= channel_cfg.max_records_per_poll {
                         eprintln!(
                             "[wevt] INFO: Channel {} budget hit (max_records_per_poll={})",
-                            &channel_cfg.name, channel_cfg.max_records_per_poll
+                            channel_cfg.name, channel_cfg.max_records_per_poll
                         );
                         break;
                     }
@@ -800,7 +867,7 @@ mod imp {
                         let err = windows::Win32::Foundation::GetLastError();
                         if err.0 != 0 && err.0 != 259 {
                             // 259 = ERROR_NO_MORE_ITEMS, not a real error
-                            eprintln!("[wevt] EvtNext error for {}: {:?}", &channel_cfg.name, err);
+                            eprintln!("[wevt] EvtNext error for {}: {:?}", channel_cfg.name, err);
                         }
                         break;
                     }
@@ -876,7 +943,8 @@ mod imp {
                     }
                 }
 
-                // Persist final bookmark state
+                // Keep the new read position in memory. It is saved to disk
+                // by commit_bookmarks once the events are written.
                 if !bookmark_handle.is_invalid() && events_this_batch > 0 {
                     // Render bookmark to XML
                     let mut bm_buffer = vec![0u16; 4096];
@@ -894,10 +962,13 @@ mod imp {
                     .is_ok()
                     {
                         let bm_len = (bm_used / 2).saturating_sub(1) as usize;
-                        let bm_xml = String::from_utf16_lossy(&bm_buffer[..bm_len]).to_owned();
-                        bookmark_mgr.set_bookmark(&channel_cfg.name, &bm_xml, Some(last_record_id));
+                        let bm_xml = String::from_utf16_lossy(&bm_buffer[..bm_len]);
+                        reader
+                            .pending_positions
+                            .insert(channel_cfg.name.clone(), (bm_xml, Some(last_record_id)));
                     }
-
+                }
+                if !bookmark_handle.is_invalid() {
                     let _ = EvtClose(bookmark_handle);
                 }
 
@@ -908,10 +979,12 @@ mod imp {
         // Close render context
         let _ = unsafe { EvtClose(render_ctx) };
 
-        eprintln!(
-            "[wevt] poll_windows returning {} records",
-            all_records.len()
-        );
+        if !all_records.is_empty() {
+            eprintln!(
+                "[wevt] poll_windows returning {} records",
+                all_records.len()
+            );
+        }
         Ok(all_records)
     }
 }
@@ -922,5 +995,92 @@ mod imp {
 
     pub fn poll_windows(_reader: &mut WevtReader) -> Result<Vec<WevtRecord>, String> {
         Err("WEVTAPI not available: requires Windows platform".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Layouts as EvtRender(EvtRenderEventXml) returns them on Windows
+    const SCM_7045: &str = "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System>\
+        <Provider Name='Service Control Manager' Guid='{555908d1-a6d7-4695-8e1e-26931d2012f4}' EventSourceName='Service Control Manager'/>\
+        <EventID Qualifiers='16384'>7045</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode>\
+        <Keywords>0x8080000000000000</Keywords><TimeCreated SystemTime='2026-11-23T10:00:05.1234567Z'/>\
+        <EventRecordID>812</EventRecordID><Correlation/><Execution ProcessID='812' ThreadID='4410'/>\
+        <Channel>System</Channel><Computer>fv-az100-200</Computer><Security UserID='S-1-5-21-1-2-3-500'/></System>\
+        <EventData><Data Name='ServiceName'>EdrEvalSvc</Data><Data Name='ImagePath'>C:\\Users\\Public\\edr_eval_svc.exe</Data></EventData></Event>";
+
+    const SEC_4688: &str = "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System>\
+        <Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/>\
+        <EventID>4688</EventID><Version>2</Version><TimeCreated SystemTime='2026-11-23T10:00:01.5000000Z'/>\
+        <EventRecordID>101</EventRecordID><Channel>Security</Channel><Computer>fv-az100-200</Computer><Security/></System>\
+        <EventData><Data Name='NewProcessName'>C:\\Windows\\System32\\whoami.exe</Data></EventData></Event>";
+
+    #[test]
+    fn event_id_with_qualifiers_is_read() {
+        let (provider, event_id, ts, computer, record_id) = extract_fields_from_xml(SCM_7045);
+        assert_eq!(provider, "Service Control Manager");
+        assert_eq!(event_id, 7045);
+        assert_eq!(computer, "fv-az100-200");
+        assert_eq!(record_id, Some(812));
+        assert_eq!(ts.timestamp_millis(), 1_795_428_005_123);
+    }
+
+    #[test]
+    fn security_event_fields_are_read() {
+        let (provider, event_id, ts, computer, record_id) = extract_fields_from_xml(SEC_4688);
+        assert_eq!(provider, "Microsoft-Windows-Security-Auditing");
+        assert_eq!(event_id, 4688);
+        assert_eq!(computer, "fv-az100-200");
+        assert_eq!(record_id, Some(101));
+        assert_eq!(ts.timestamp_millis(), 1_795_428_001_500);
+    }
+
+    #[test]
+    fn xml_field_edge_cases() {
+        assert_eq!(
+            extract_xml_field("<A><EventIDx>1</EventIDx></A>", "EventID"),
+            None
+        );
+        assert_eq!(
+            extract_xml_field("<Correlation/>", "Correlation"),
+            Some(String::new())
+        );
+        assert_eq!(
+            extract_xml_field("<EventIDx>1</EventIDx><EventID>7</EventID>", "EventID"),
+            Some("7".to_string())
+        );
+        assert_eq!(
+            extract_xml_attr("<Provider Name=\"P\"/>", "Provider", "Name"),
+            Some("P".to_string())
+        );
+        assert_eq!(
+            extract_xml_attr("<Provider Guid='{x}'/>", "Provider", "Name"),
+            None
+        );
+    }
+
+    #[test]
+    fn event_keeps_the_rendered_xml() {
+        let (provider, event_id, timestamp, computer, record_id) =
+            extract_fields_from_xml(SCM_7045);
+        let record = WevtRecord {
+            channel: "System".to_string(),
+            provider,
+            event_id,
+            timestamp,
+            computer,
+            xml: SCM_7045.to_string(),
+            source_record_id: record_id,
+            xml_truncated: false,
+            xml_required_bytes: None,
+        };
+        let event = record.to_event();
+        assert_eq!(event.fields["windows.event_id"], 7045);
+        assert_eq!(event.fields["windows.channel"], "System");
+        assert_eq!(event.fields["windows.xml"], SCM_7045);
+        assert_eq!(event.host, "fv-az100-200");
+        assert!(event.evidence_ptr.is_none());
     }
 }

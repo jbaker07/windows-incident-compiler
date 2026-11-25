@@ -4,13 +4,21 @@
 use crate::host::HostCtx;
 use edr_core::Event;
 
-/// Collect events from all Windows sources with per-module gating
-/// Also tracks bookmarks for cursor position resumption
+/// Collect events from all Windows sources with per-module gating, using a
+/// reader that lives only for this call. Long running callers such as the
+/// capture agent use `collect_all_with` so the read position carries over.
 pub fn collect_all(host: &HostCtx) -> Vec<Event> {
+    let mut reader = crate::wevt_reader::WevtReader::new();
+    collect_all_with(&mut reader, host)
+}
+
+/// Collect events from all Windows sources with per-module gating. `reader`
+/// keeps the per-channel read position and dedup state between calls.
+pub fn collect_all_with(reader: &mut crate::wevt_reader::WevtReader, host: &HostCtx) -> Vec<Event> {
     let mut events = Vec::new();
 
     // EVTX-based sources (always try, but gated by config)
-    events.extend(collect_evtx_events(host));
+    events.extend(collect_evtx_events(reader, host));
 
     // Monitor-based sources (all gated)
     events.extend(collect_monitors(host));
@@ -21,7 +29,8 @@ pub fn collect_all(host: &HostCtx) -> Vec<Event> {
 }
 
 /// Collect EVTX events using real WEVTAPI reader
-fn collect_evtx_events(_host: &HostCtx) -> Vec<Event> {
+#[cfg_attr(not(target_os = "windows"), allow(unused_variables))]
+fn collect_evtx_events(reader: &mut crate::wevt_reader::WevtReader, _host: &HostCtx) -> Vec<Event> {
     // `mut` is required on Windows (the WEVTAPI block below pushes/extends);
     // on other targets the collection stays empty, so the binding looks immutable.
     #[allow(unused_mut)]
@@ -29,18 +38,10 @@ fn collect_evtx_events(_host: &HostCtx) -> Vec<Event> {
 
     #[cfg(target_os = "windows")]
     {
-        eprintln!("[collect_evtx] Starting WEVTAPI collection");
-
-        // Create reader with default channels (Security, System, Sysmon enabled by default)
-        let mut reader = crate::wevt_reader::WevtReader::new();
-
         // Poll WEVTAPI - returns Vec<WevtRecord> with NO EvidencePtr
         match reader.poll() {
             Ok(wevt_records) => {
-                eprintln!(
-                    "[collect_evtx] Polled {} events from WEVTAPI",
-                    wevt_records.len()
-                );
+                let polled = wevt_records.len();
 
                 // Convert WevtRecord to core::Event with metadata but WITHOUT EvidencePtr
                 // Metadata includes: windows.channel, windows.source_record_id (for dedup/debug)
@@ -60,19 +61,21 @@ fn collect_evtx_events(_host: &HostCtx) -> Vec<Event> {
                     events.push(event);
                 }
 
-                // Log stats
-                let stats = reader.stats();
-                eprintln!(
-                    "[collect_evtx] Stats: {} events read, {} render failed",
-                    stats.events_read_total, stats.render_failed_total
-                );
+                if polled > 0 {
+                    let stats = reader.stats();
+                    eprintln!(
+                        "[collect_evtx] Polled {} records ({} events after normalizing), totals: {} read, {} render failed",
+                        polled,
+                        events.len(),
+                        stats.events_read_total,
+                        stats.render_failed_total
+                    );
+                }
             }
             Err(e) => {
                 eprintln!("[collect_evtx] WEVTAPI error: {}", e);
             }
         }
-
-        eprintln!("[collect_evtx] Returning {} total events", events.len());
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -140,5 +143,5 @@ pub fn should_collect_module_pub(module: &str) -> bool {
 }
 
 fn sort_events(events: &mut [Event]) {
-    events.sort_by(|a, b| a.ts_ms.cmp(&b.ts_ms));
+    events.sort_by_key(|a| a.ts_ms);
 }
