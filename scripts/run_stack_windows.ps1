@@ -576,7 +576,7 @@ try {
             $cargoVersion = (cargo --version 2>&1) -replace 'cargo ', ''
             $rustVersion = (rustc --version 2>&1) -replace 'rustc ', ''
             
-            $metrics = @{
+            $metricsArtifact = @{
                 run_id = $RunId
                 timestamp = (Get-Date -Format "o")
                 host = $env:COMPUTERNAME
@@ -623,13 +623,13 @@ try {
             
             # Add warnings
             if ($sigCount -eq 0) {
-                $metrics.warnings += "No signals detected - check Windows audit policy"
+                $metricsArtifact.warnings += "No signals detected - check Windows audit policy"
             }
             if (-not $isAdmin) {
-                $metrics.warnings += "Not running as admin - capture may be limited"
+                $metricsArtifact.warnings += "Not running as admin - capture may be limited"
             }
             
-            $metrics | ConvertTo-Json -Depth 10 | Out-File -FilePath $metricsPath -Encoding utf8
+            $metricsArtifact | ConvertTo-Json -Depth 10 | Out-File -FilePath $metricsPath -Encoding utf8
             Write-Host "  Written: $metricsPath"
             $checkResults["metrics_path"] = $metricsPath
         }
