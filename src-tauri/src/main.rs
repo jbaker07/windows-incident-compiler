@@ -506,6 +506,13 @@ async fn run_scenario(
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
+    // Gate C checks that the playbooks this scenario expects actually fired
+    state
+        .inner
+        .write()
+        .await
+        .record_scenario_expectations(&scenario.expectations.playbooks);
+
     Ok(results)
 }
 

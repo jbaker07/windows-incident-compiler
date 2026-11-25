@@ -36,12 +36,12 @@ impl GateStatus {
         }
     }
 
-    pub fn emoji(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
-            GateStatus::Pass => "✅",
-            GateStatus::Partial => "⚠️",
-            GateStatus::Fail => "❌",
-            GateStatus::NoData => "⬜",
+            GateStatus::Pass => "PASS",
+            GateStatus::Partial => "PARTIAL",
+            GateStatus::Fail => "FAIL",
+            GateStatus::NoData => "NO DATA",
         }
     }
 
@@ -486,6 +486,26 @@ impl GroundedExtractionGate {
 // GATE C: DETECTION - Read from DB + verify API consistency
 // ============================================================================
 
+/// Gate C judges detection against what the run expected to see.
+///
+/// The expected set is the union of `expectations.playbooks` from every
+/// scenario run during this run. Expected playbooks that edr-locald did not
+/// load (deselected in the picker) cannot fire, so they are left out and named
+/// in the diagnosis.
+///
+/// | Situation | Status |
+/// |-----------|--------|
+/// | no facts and no signals | NO_DATA |
+/// | DB and API disagree | PARTIAL |
+/// | expectations exist, every expected playbook fired | PASS |
+/// | expectations exist, some fired | PARTIAL |
+/// | expectations exist, none fired | FAIL |
+/// | no expectations, at least one signal | PASS |
+/// | no expectations, no signals | NO_DATA (nothing to judge) |
+///
+/// A quiet host with only benign activity should produce no signals, so "no
+/// signals" alone is not a failure. The match rate (playbooks that fired over
+/// playbooks loaded) is reported as coverage and does not change the status.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroundedDetectionGate {
     pub status: GateStatus,
@@ -497,9 +517,173 @@ pub struct GroundedDetectionGate {
     pub playbooks_matched: u32,
     pub playbooks_loaded: u32,
     pub match_rate: f64,
+    pub expected_playbooks: Vec<String>,
+    pub expected_fired: Vec<String>,
+    pub expected_missing: Vec<String>,
+    pub expected_not_loaded: Vec<String>,
     pub db_api_consistent: bool,
     pub diagnosis: Option<String>,
     pub how_computed: String,
+}
+
+/// Outcome of the Gate C rules, kept separate from I/O so it can be tested.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DetectionDecision {
+    pub status: GateStatus,
+    pub diagnosis: String,
+    pub expected: Vec<String>,
+    pub fired: Vec<String>,
+    pub missing: Vec<String>,
+    pub not_loaded: Vec<String>,
+}
+
+/// Apply the Gate C rules described on `GroundedDetectionGate`.
+///
+/// `loaded` is the list of playbook ids edr-locald loaded, when known. When it
+/// is None every expected playbook is assumed to be loaded.
+pub fn decide_detection_status(
+    facts_count: u32,
+    signals_count: u32,
+    signals_by_playbook: &HashMap<String, u32>,
+    expected_playbooks: &[String],
+    loaded: Option<&[String]>,
+    db_api_consistent: bool,
+) -> DetectionDecision {
+    let mut expected: Vec<String> = expected_playbooks.to_vec();
+    expected.sort();
+    expected.dedup();
+
+    let (expected, not_loaded): (Vec<String>, Vec<String>) = match loaded {
+        Some(ids) => expected.into_iter().partition(|e| ids.contains(e)),
+        None => (expected, Vec::new()),
+    };
+    let fired: Vec<String> = expected
+        .iter()
+        .filter(|e| signals_by_playbook.get(*e).copied().unwrap_or(0) > 0)
+        .cloned()
+        .collect();
+    let missing: Vec<String> = expected
+        .iter()
+        .filter(|e| !fired.contains(e))
+        .cloned()
+        .collect();
+
+    let not_loaded_note = if not_loaded.is_empty() {
+        String::new()
+    } else {
+        format!(" Not loaded, so not checked: {}.", not_loaded.join(", "))
+    };
+
+    let (status, diagnosis) = if facts_count == 0 && signals_count == 0 {
+        (
+            GateStatus::NoData,
+            "No facts to detect signals from.".to_string(),
+        )
+    } else if !db_api_consistent {
+        (
+            GateStatus::Partial,
+            "Signal counts in the database and the API disagree.".to_string(),
+        )
+    } else if !expected.is_empty() {
+        if missing.is_empty() {
+            (
+                GateStatus::Pass,
+                format!(
+                    "All {} expected playbooks fired ({} signals).{}",
+                    expected.len(),
+                    signals_count,
+                    not_loaded_note
+                ),
+            )
+        } else if fired.is_empty() {
+            (
+                GateStatus::Fail,
+                format!(
+                    "None of the expected playbooks fired: {}.{}",
+                    missing.join(", "),
+                    not_loaded_note
+                ),
+            )
+        } else {
+            (
+                GateStatus::Partial,
+                format!(
+                    "{} of {} expected playbooks fired. Missing: {}.{}",
+                    fired.len(),
+                    expected.len(),
+                    missing.join(", "),
+                    not_loaded_note
+                ),
+            )
+        }
+    } else if signals_count > 0 {
+        (
+            GateStatus::Pass,
+            format!(
+                "{} signals from {} playbooks. No scenario in this run expected a specific playbook.{}",
+                signals_count,
+                signals_by_playbook.len(),
+                not_loaded_note
+            ),
+        )
+    } else {
+        (
+            GateStatus::NoData,
+            format!(
+                "No signals, and no scenario in this run expected one. Run a scenario that expects a detection (for example Discovery Burst) to test this gate.{}",
+                not_loaded_note
+            ),
+        )
+    };
+
+    DetectionDecision {
+        status,
+        diagnosis,
+        expected,
+        fired,
+        missing,
+        not_loaded,
+    }
+}
+
+/// Playbook id of a signal row or API object. edr-locald writes
+/// `signal_type = "playbook:<id>"` and `metadata.playbook_id`. Older rows may
+/// carry a top level `playbook_id`.
+pub fn playbook_id_of(signal: &serde_json::Value) -> Option<String> {
+    if let Some(id) = signal.get("playbook_id").and_then(|v| v.as_str()) {
+        return Some(id.to_string());
+    }
+    let metadata = signal.get("metadata").map(|m| match m {
+        // The API returns metadata as an object, the database stores text
+        serde_json::Value::String(text) => serde_json::from_str(text).unwrap_or_default(),
+        other => other.clone(),
+    });
+    if let Some(id) = metadata
+        .as_ref()
+        .and_then(|m| m.get("playbook_id"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(id.to_string());
+    }
+    signal
+        .get("signal_type")
+        .and_then(|v| v.as_str())
+        .and_then(|t| t.strip_prefix("playbook:"))
+        .map(|id| id.to_string())
+}
+
+/// Ids edr-locald loaded for this run, from the playbooks_loaded.json it
+/// writes into the run directory.
+pub fn read_loaded_playbook_ids(run_dir: &Path) -> Option<Vec<String>> {
+    let text = fs::read_to_string(run_dir.join("playbooks_loaded.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let ids = value
+        .get("loaded")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+        .collect();
+    Some(ids)
 }
 
 impl GroundedDetectionGate {
@@ -511,6 +695,7 @@ impl GroundedDetectionGate {
         api_base_url: &str,
         facts_count: u32,
         playbooks_loaded: u32,
+        expected_playbooks: &[String],
     ) -> Self {
         let workbench_db = run_dir.join("workbench.db");
         let analysis_db = run_dir.join("analysis.db");
@@ -519,10 +704,10 @@ impl GroundedDetectionGate {
         // Get signals from DB
         let (signals_from_db, by_playbook_db, by_severity_db, db_source) = if workbench_db.exists()
         {
-            let (count, by_pb, by_sev) = Self::read_signals_from_sqlite(&workbench_db).await;
+            let (count, by_pb, by_sev) = Self::read_signals_from_sqlite(&workbench_db);
             (count, by_pb, by_sev, "workbench.db".to_string())
         } else if analysis_db.exists() {
-            let (count, by_pb, by_sev) = Self::read_signals_from_sqlite(&analysis_db).await;
+            let (count, by_pb, by_sev) = Self::read_signals_from_sqlite(&analysis_db);
             (count, by_pb, by_sev, "analysis.db".to_string())
         } else if signals_jsonl.exists() {
             let (count, by_pb, by_sev) = Self::read_signals_from_jsonl(&signals_jsonl);
@@ -535,17 +720,37 @@ impl GroundedDetectionGate {
         let (signals_from_api, by_playbook_api, by_severity_api) =
             Self::fetch_signals_from_api(api_base_url).await;
 
+        Self::from_counts(
+            facts_count,
+            playbooks_loaded,
+            expected_playbooks,
+            read_loaded_playbook_ids(run_dir).as_deref(),
+            (signals_from_db, by_playbook_db, by_severity_db, db_source),
+            (signals_from_api, by_playbook_api, by_severity_api),
+            api_base_url,
+        )
+    }
+
+    /// Combine the database and API readings into the gate result.
+    #[allow(clippy::type_complexity)]
+    fn from_counts(
+        facts_count: u32,
+        playbooks_loaded: u32,
+        expected_playbooks: &[String],
+        loaded_ids: Option<&[String]>,
+        db: (u32, HashMap<String, u32>, HashMap<String, u32>, String),
+        api: (u32, HashMap<String, u32>, HashMap<String, u32>),
+        api_base_url: &str,
+    ) -> Self {
+        let (signals_from_db, by_playbook_db, by_severity_db, db_source) = db;
+        let (signals_from_api, by_playbook_api, by_severity_api) = api;
+
         // Use the larger count as authoritative (API may have more recent data)
         let signals_count = signals_from_db.max(signals_from_api);
-        let signals_by_playbook = if signals_from_api >= signals_from_db {
-            by_playbook_api
+        let (signals_by_playbook, signals_by_severity) = if signals_from_api >= signals_from_db {
+            (by_playbook_api, by_severity_api)
         } else {
-            by_playbook_db
-        };
-        let signals_by_severity = if signals_from_api >= signals_from_db {
-            by_severity_api
-        } else {
-            by_severity_db
+            (by_playbook_db, by_severity_db)
         };
 
         let playbooks_matched = signals_by_playbook.len() as u32;
@@ -563,59 +768,30 @@ impl GroundedDetectionGate {
             diff <= 5 || (diff as f64 / signals_count.max(1) as f64) < 0.1
         };
 
-        // Status per spec:
-        // PASS: ≥1 signal AND ≥50% playbooks matched AND DB/API consistent
-        // PARTIAL: ≥1 signal but low match rate
-        // FAIL: 0 signals when facts exist
-        // NO_DATA: 0 signals and 0 facts
-        let (status, diagnosis) = if facts_count == 0 && signals_count == 0 {
-            (
-                GateStatus::NoData,
-                Some("No facts to detect signals from".to_string()),
-            )
-        } else if signals_count == 0 {
-            (
-                GateStatus::Fail,
-                Some(format!("No signals detected from {} facts", facts_count)),
-            )
-        } else if signals_count >= 1 && match_rate >= 50.0 && db_api_consistent {
-            (
-                GateStatus::Pass,
-                Some(format!(
-                    "{} signals from {} playbooks ({:.0}% match rate)",
-                    signals_count, playbooks_matched, match_rate
-                )),
-            )
-        } else if signals_count >= 1 {
-            let mut issues = vec![];
-            if match_rate < 50.0 {
-                issues.push(format!("{:.0}% match rate", match_rate));
-            }
-            if !db_api_consistent {
-                issues.push(format!(
-                    "DB({}) != API({})",
-                    signals_from_db, signals_from_api
-                ));
-            }
-            (
-                GateStatus::Partial,
-                Some(format!(
-                    "{} signals but: {}",
-                    signals_count,
-                    issues.join(", ")
-                )),
-            )
-        } else {
-            (GateStatus::Fail, Some("No signals".to_string()))
-        };
+        let decision = decide_detection_status(
+            facts_count,
+            signals_count,
+            &signals_by_playbook,
+            expected_playbooks,
+            loaded_ids,
+            db_api_consistent,
+        );
 
         let how_computed = format!(
-            "DB source: {} ({} signals) | API: {}/api/signals ({} signals) | Consistent: {}",
-            db_source, signals_from_db, api_base_url, signals_from_api, db_api_consistent
+            "DB source: {} ({} signals) | API: {}/api/signals ({} signals) | Consistent: {} | Expected playbooks: {} | Coverage: {} of {} loaded playbooks fired ({:.0}%)",
+            db_source,
+            signals_from_db,
+            api_base_url,
+            signals_from_api,
+            db_api_consistent,
+            if decision.expected.is_empty() { "none".to_string() } else { decision.expected.join(", ") },
+            playbooks_matched,
+            playbooks_loaded,
+            match_rate
         );
 
         Self {
-            status,
+            status: decision.status,
             signals_count,
             signals_from_db,
             signals_from_api,
@@ -624,18 +800,66 @@ impl GroundedDetectionGate {
             playbooks_matched,
             playbooks_loaded,
             match_rate,
+            expected_playbooks: decision.expected,
+            expected_fired: decision.fired,
+            expected_missing: decision.missing,
+            expected_not_loaded: decision.not_loaded,
             db_api_consistent,
-            diagnosis,
+            diagnosis: Some(decision.diagnosis),
             how_computed,
         }
     }
 
-    async fn read_signals_from_sqlite(
-        _db_path: &Path,
+    /// Count signals in the SQLite database edr-locald writes (workbench.db).
+    ///
+    /// Reads the `signals` table (signal_type, severity, metadata) and returns
+    /// the row count, rows per playbook id and rows per severity. The database
+    /// is opened read only so a running edr-locald is never blocked. A missing
+    /// file or table counts as zero signals.
+    pub fn read_signals_from_sqlite(
+        db_path: &Path,
     ) -> (u32, HashMap<String, u32>, HashMap<String, u32>) {
-        // TODO: Implement SQLite query
-        // SELECT playbook_id, severity, COUNT(*) FROM signals GROUP BY playbook_id, severity
-        (0, HashMap::new(), HashMap::new())
+        let mut by_playbook: HashMap<String, u32> = HashMap::new();
+        let mut by_severity: HashMap<String, u32> = HashMap::new();
+
+        let conn = match rusqlite::Connection::open_with_flags(
+            db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ) {
+            Ok(c) => c,
+            Err(_) => return (0, by_playbook, by_severity),
+        };
+        let _ = conn.busy_timeout(Duration::from_secs(2));
+
+        let mut stmt = match conn.prepare("SELECT signal_type, severity, metadata FROM signals") {
+            Ok(s) => s,
+            Err(_) => return (0, by_playbook, by_severity),
+        };
+        let rows = match stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        }) {
+            Ok(r) => r,
+            Err(_) => return (0, by_playbook, by_severity),
+        };
+
+        let mut count = 0u32;
+        for (signal_type, severity, metadata) in rows.flatten() {
+            count += 1;
+            let row = serde_json::json!({
+                "signal_type": signal_type,
+                "metadata": metadata.unwrap_or_default(),
+            });
+            if let Some(id) = playbook_id_of(&row) {
+                *by_playbook.entry(id).or_insert(0) += 1;
+            }
+            *by_severity.entry(severity).or_insert(0) += 1;
+        }
+
+        (count, by_playbook, by_severity)
     }
 
     fn read_signals_from_jsonl(path: &Path) -> (u32, HashMap<String, u32>, HashMap<String, u32>) {
@@ -648,8 +872,8 @@ impl GroundedDetectionGate {
             for line in reader.lines().map_while(Result::ok) {
                 count += 1;
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&line) {
-                    if let Some(pb) = parsed.get("playbook_id").and_then(|v| v.as_str()) {
-                        *by_playbook.entry(pb.to_string()).or_insert(0) += 1;
+                    if let Some(pb) = playbook_id_of(&parsed) {
+                        *by_playbook.entry(pb).or_insert(0) += 1;
                     }
                     if let Some(sev) = parsed.get("severity").and_then(|v| v.as_str()) {
                         *by_severity.entry(sev.to_string()).or_insert(0) += 1;
@@ -686,8 +910,8 @@ impl GroundedDetectionGate {
                 let mut by_severity: HashMap<String, u32> = HashMap::new();
 
                 for signal in &signals {
-                    if let Some(pb) = signal.get("playbook_id").and_then(|v| v.as_str()) {
-                        *by_playbook.entry(pb.to_string()).or_insert(0) += 1;
+                    if let Some(pb) = playbook_id_of(signal) {
+                        *by_playbook.entry(pb).or_insert(0) += 1;
                     }
                     if let Some(sev) = signal.get("severity").and_then(|v| v.as_str()) {
                         *by_severity.entry(sev.to_string()).or_insert(0) += 1;
@@ -1061,6 +1285,7 @@ impl GroundedHealthGates {
         api_base_url: &str,
         elapsed_seconds: u64,
         playbooks_loaded: u32,
+        expected_playbooks: &[String],
     ) -> Self {
         // Gate A: Telemetry from disk
         let telemetry = GroundedTelemetryGate::evaluate_from_disk(run_dir, elapsed_seconds);
@@ -1079,6 +1304,7 @@ impl GroundedHealthGates {
             api_base_url,
             extraction.facts_count,
             playbooks_loaded,
+            expected_playbooks,
         )
         .await;
 
@@ -1195,6 +1421,10 @@ impl GroundedHealthGates {
                     "playbooks_matched": self.detection.playbooks_matched,
                     "playbooks_loaded": self.detection.playbooks_loaded,
                     "match_rate": self.detection.match_rate,
+                    "expected_playbooks": self.detection.expected_playbooks,
+                    "expected_fired": self.detection.expected_fired,
+                    "expected_missing": self.detection.expected_missing,
+                    "expected_not_loaded": self.detection.expected_not_loaded,
                     "db_api_consistent": self.detection.db_api_consistent,
                     "diagnosis": self.detection.diagnosis,
                     "how_computed": self.detection.how_computed,
@@ -1223,11 +1453,11 @@ impl GroundedHealthGates {
     pub fn summary(&self) -> String {
         format!(
             "{} A:Telemetry | {} B:Extraction | {} C:Detection | {} D:Explainability → {} Overall",
-            self.telemetry.status.emoji(),
-            self.extraction.status.emoji(),
-            self.detection.status.emoji(),
-            self.explainability.status.emoji(),
-            self.overall_status.emoji(),
+            self.telemetry.status.label(),
+            self.extraction.status.label(),
+            self.detection.status.label(),
+            self.explainability.status.label(),
+            self.overall_status.label(),
         )
     }
 }
@@ -1311,7 +1541,13 @@ impl E2EVerificationResult {
         });
 
         // Check 5: Compute gates
-        let gates = GroundedHealthGates::compute(run_dir, api_base_url, 60, 9).await;
+        // Playbook count from the status file edr-locald writes. The self check
+        // has no scenario context, so no playbook is expected here.
+        let playbooks_loaded = read_loaded_playbook_ids(run_dir)
+            .map(|ids| ids.len() as u32)
+            .unwrap_or(0);
+        let gates =
+            GroundedHealthGates::compute(run_dir, api_base_url, 60, playbooks_loaded, &[]).await;
         checks.push(VerificationCheck {
             name: "gates_computed".to_string(),
             passed: true,
@@ -1709,13 +1945,13 @@ impl GroundedImportGate {
         matches!(
             kind.to_lowercase().as_str(),
             // Core formats
-            "jsonl" | "json" | "har" | "csv" |
+            "jsonl" | "json" | "har" | "text" | "yaml" | "csv" |
             // Zeek
-            "zeek_conn" | "zeek_dns" | "zeek_http" | "zeek_ssl" | 
-            "zeek_files" | "zeek" | "zeektsv" |
+            "zeek_conn" | "zeek_dns" | "zeek_http" | "zeek_ssl" |
+            "zeek_files" | "zeek_other" | "zeek" | "zeektsv" |
             // Network tools
             "nmapxml" | "nmap_xml" | "suricataeve" | "suricata_eve" |
-            "zapjson" | "zap_json" |
+            "zapjson" | "zap_json" | "burpxml" | "burp_xml" |
             // Endpoint tools
             "osquery" | "velociraptor" | "evtxjson" | "evtx_json" |
             // Threat detection
@@ -1829,6 +2065,238 @@ mod tests {
         assert_eq!(gate.segments_count, 1);
         assert!(gate.events_by_channel.contains_key("Security"));
         assert_eq!(gate.status, GateStatus::Partial); // 100 events, 1 channel
+    }
+
+    /// Same schema edr-locald creates in crates/locald/src/main.rs
+    fn make_locald_db(path: &Path) -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE signals (
+                signal_id TEXT PRIMARY KEY,
+                signal_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                host TEXT NOT NULL,
+                ts INTEGER NOT NULL,
+                ts_start INTEGER NOT NULL,
+                ts_end INTEGER NOT NULL,
+                proc_key TEXT,
+                file_key TEXT,
+                identity_key TEXT,
+                metadata TEXT NOT NULL,
+                evidence_ptrs TEXT NOT NULL,
+                dropped_evidence_count INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn insert_signal(
+        conn: &rusqlite::Connection,
+        id: &str,
+        signal_type: &str,
+        severity: &str,
+        metadata: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO signals VALUES (?1, ?2, ?3, 'WS01', 0, 0, 0, NULL, NULL, NULL, ?4, '[]', 0, 'now')",
+            rusqlite::params![id, signal_type, severity, metadata],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_read_signals_from_sqlite() {
+        let temp = TempDir::new().unwrap();
+        let db_path = temp.path().join("workbench.db");
+        let conn = make_locald_db(&db_path);
+        insert_signal(
+            &conn,
+            "sig_1",
+            "playbook:signal_wmic_abuse",
+            "CRITICAL",
+            r#"{"playbook_id":"signal_wmic_abuse","rule":"WMIC Shadow Copy Delete"}"#,
+        );
+        insert_signal(
+            &conn,
+            "sig_2",
+            "playbook:signal_wmic_abuse",
+            "HIGH",
+            r#"{"playbook_id":"signal_wmic_abuse"}"#,
+        );
+        // A row without metadata.playbook_id falls back to the signal_type
+        insert_signal(
+            &conn,
+            "sig_3",
+            "playbook:signal_discovery_burst",
+            "HIGH",
+            "{}",
+        );
+        drop(conn);
+
+        let (count, by_playbook, by_severity) =
+            GroundedDetectionGate::read_signals_from_sqlite(&db_path);
+        assert_eq!(count, 3);
+        assert_eq!(by_playbook.get("signal_wmic_abuse"), Some(&2));
+        assert_eq!(by_playbook.get("signal_discovery_burst"), Some(&1));
+        assert_eq!(by_severity.get("HIGH"), Some(&2));
+        assert_eq!(by_severity.get("CRITICAL"), Some(&1));
+    }
+
+    #[test]
+    fn test_read_signals_from_sqlite_without_table_or_file() {
+        let temp = TempDir::new().unwrap();
+        let empty_db = temp.path().join("empty.db");
+        rusqlite::Connection::open(&empty_db).unwrap();
+        assert_eq!(
+            GroundedDetectionGate::read_signals_from_sqlite(&empty_db).0,
+            0
+        );
+        assert_eq!(
+            GroundedDetectionGate::read_signals_from_sqlite(&temp.path().join("missing.db")).0,
+            0
+        );
+    }
+
+    #[test]
+    fn test_playbook_id_of() {
+        let api = serde_json::json!({"signal_type": "playbook:signal_a", "metadata": {"playbook_id": "signal_b"}});
+        assert_eq!(playbook_id_of(&api).as_deref(), Some("signal_b"));
+        let type_only = serde_json::json!({"signal_type": "playbook:signal_a"});
+        assert_eq!(playbook_id_of(&type_only).as_deref(), Some("signal_a"));
+        let legacy = serde_json::json!({"playbook_id": "signal_c"});
+        assert_eq!(playbook_id_of(&legacy).as_deref(), Some("signal_c"));
+        let other = serde_json::json!({"signal_type": "WorkflowSeed"});
+        assert_eq!(playbook_id_of(&other), None);
+    }
+
+    fn fired(ids: &[&str]) -> HashMap<String, u32> {
+        ids.iter().map(|id| (id.to_string(), 1)).collect()
+    }
+
+    fn strings(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_detection_passes_when_every_expected_playbook_fired() {
+        let d = decide_detection_status(
+            10,
+            3,
+            &fired(&["signal_a", "signal_b"]),
+            &strings(&["signal_a", "signal_b"]),
+            None,
+            true,
+        );
+        assert_eq!(d.status, GateStatus::Pass);
+        assert!(d.missing.is_empty());
+    }
+
+    #[test]
+    fn test_detection_partial_when_some_expected_missing() {
+        let d = decide_detection_status(
+            10,
+            1,
+            &fired(&["signal_a"]),
+            &strings(&["signal_a", "signal_b"]),
+            None,
+            true,
+        );
+        assert_eq!(d.status, GateStatus::Partial);
+        assert_eq!(d.missing, strings(&["signal_b"]));
+        assert!(d.diagnosis.contains("signal_b"));
+    }
+
+    #[test]
+    fn test_detection_fails_when_no_expected_playbook_fired() {
+        // Other playbooks fired, but not the one the scenario expected
+        let d = decide_detection_status(
+            10,
+            2,
+            &fired(&["signal_other"]),
+            &strings(&["signal_a"]),
+            None,
+            true,
+        );
+        assert_eq!(d.status, GateStatus::Fail);
+    }
+
+    #[test]
+    fn test_detection_ignores_expected_playbooks_that_were_not_loaded() {
+        let loaded = strings(&["signal_a"]);
+        let d = decide_detection_status(
+            10,
+            1,
+            &fired(&["signal_a"]),
+            &strings(&["signal_a", "signal_b"]),
+            Some(&loaded),
+            true,
+        );
+        assert_eq!(d.status, GateStatus::Pass);
+        assert_eq!(d.not_loaded, strings(&["signal_b"]));
+        assert!(d.diagnosis.contains("signal_b"));
+    }
+
+    #[test]
+    fn test_detection_without_expectations() {
+        let d = decide_detection_status(10, 2, &fired(&["signal_a"]), &[], None, true);
+        assert_eq!(d.status, GateStatus::Pass);
+        // A quiet host is not a failure when nothing was expected
+        let quiet = decide_detection_status(10, 0, &HashMap::new(), &[], None, true);
+        assert_eq!(quiet.status, GateStatus::NoData);
+        let empty =
+            decide_detection_status(0, 0, &HashMap::new(), &strings(&["signal_a"]), None, true);
+        assert_eq!(empty.status, GateStatus::NoData);
+    }
+
+    #[test]
+    fn test_detection_partial_when_db_and_api_disagree() {
+        let d = decide_detection_status(
+            10,
+            50,
+            &fired(&["signal_a"]),
+            &strings(&["signal_a"]),
+            None,
+            false,
+        );
+        assert_eq!(d.status, GateStatus::Partial);
+    }
+
+    #[test]
+    fn test_detection_gate_does_not_need_half_of_loaded_playbooks() {
+        // 30 playbooks loaded, one scenario expected one playbook, it fired
+        let gate = GroundedDetectionGate::from_counts(
+            12,
+            30,
+            &strings(&["signal_discovery_burst"]),
+            None,
+            (
+                1,
+                fired(&["signal_discovery_burst"]),
+                HashMap::new(),
+                "workbench.db".to_string(),
+            ),
+            (1, fired(&["signal_discovery_burst"]), HashMap::new()),
+            "http://127.0.0.1:3000",
+        );
+        assert_eq!(gate.status, GateStatus::Pass);
+        assert!(gate.match_rate < 50.0);
+    }
+
+    #[test]
+    fn test_read_loaded_playbook_ids() {
+        let temp = TempDir::new().unwrap();
+        assert_eq!(read_loaded_playbook_ids(temp.path()), None);
+        fs::write(
+            temp.path().join("playbooks_loaded.json"),
+            r#"{"count": 2, "loaded": ["signal_a", "signal_b"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            read_loaded_playbook_ids(temp.path()),
+            Some(strings(&["signal_a", "signal_b"]))
+        );
     }
 
     #[test]

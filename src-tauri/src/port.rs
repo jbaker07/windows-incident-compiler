@@ -46,7 +46,7 @@ mod tests {
         assert!(port.is_some(), "Should find an available port");
 
         let port = port.unwrap();
-        assert!(port >= 3000 && port <= 3010, "Port should be in range");
+        assert!((3000..=3010).contains(&port), "Port should be in range");
     }
 
     #[tokio::test]

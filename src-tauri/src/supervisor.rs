@@ -9,7 +9,8 @@
 //! - Admin detection with graceful degradation
 //! - Process lifecycle management (start/stop/restart)
 //! - Time-windowed capture runs (mission mode)
-//! - Per-run telemetry structure: runs/<run_id>/{segments,logs,metrics,playbooks}
+//! - Per-run telemetry structure: runs/<run_id>/{segments,logs,metrics,incidents,exports}
+//!   plus playbooks_loaded.json, written by edr-locald with the playbooks it loaded
 //! - Log redirection to run-specific logs folder
 //! - Readiness checks (admin, security log, sysmon, audit policy)
 //! - Metrics v3.1 GROUNDED with health gates from disk/db/api artifacts
@@ -20,7 +21,7 @@
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -194,6 +195,9 @@ pub struct Supervisor {
     run_dir: Option<PathBuf>,
     run_started: Option<Instant>,
     shutdown_requested: Arc<AtomicBool>,
+    /// Playbooks the scenarios run during this run expect to fire. Gate C
+    /// checks that each of them fired.
+    expected_playbooks: BTreeSet<String>,
 }
 
 impl Supervisor {
@@ -224,6 +228,7 @@ impl Supervisor {
             run_dir: None,
             run_started: None,
             shutdown_requested: Arc::new(AtomicBool::new(false)),
+            expected_playbooks: BTreeSet::new(),
         })
     }
 
@@ -318,6 +323,7 @@ impl Supervisor {
         self.run_dir = Some(run_dir.clone());
         self.run_config = Some(config.clone());
         self.run_started = Some(Instant::now());
+        self.expected_playbooks.clear();
         self.shutdown_requested.store(false, Ordering::SeqCst);
 
         tracing::info!(
@@ -701,22 +707,18 @@ impl Supervisor {
 
         let elapsed_seconds = self.run_started.map(|s| s.elapsed().as_secs()).unwrap_or(0);
 
-        // Count loaded playbooks
-        let playbooks_loaded = self
-            .run_config
-            .as_ref()
-            .and_then(|c| c.selected_playbooks.as_ref())
-            .map(|p| p.len() as u32)
-            .unwrap_or(9); // Default to ~9 playbooks
+        let playbooks_loaded = self.playbooks_loaded(run_dir);
 
         // ========================================
         // GROUNDED GATES - Single source of truth
         // ========================================
+        let expected = self.expected_playbooks();
         let grounded_gates = GroundedHealthGates::compute(
             run_dir,
             &self.api_base_url(),
             elapsed_seconds,
             playbooks_loaded,
+            &expected,
         )
         .await;
 
@@ -772,6 +774,8 @@ impl Supervisor {
                     "playbooks_matched": grounded_gates.detection.playbooks_matched,
                     "playbooks_loaded": grounded_gates.detection.playbooks_loaded,
                     "match_rate": grounded_gates.detection.match_rate,
+                    "expected_playbooks": grounded_gates.detection.expected_playbooks,
+                    "expected_missing": grounded_gates.detection.expected_missing,
                     "diagnosis": grounded_gates.detection.diagnosis,
                     "how_computed": grounded_gates.detection.how_computed,
                 },
@@ -848,24 +852,56 @@ impl Supervisor {
         Ok(metrics_path)
     }
 
+    /// Remember the playbooks a scenario expects, so Gate C can check that
+    /// each one fired. Ignored when no run is active.
+    pub fn record_scenario_expectations(&mut self, playbooks: &[String]) {
+        if self.run_id.is_some() {
+            self.expected_playbooks.extend(playbooks.iter().cloned());
+        }
+    }
+
+    /// Playbooks expected by the scenarios run so far in this run, sorted.
+    pub fn expected_playbooks(&self) -> Vec<String> {
+        self.expected_playbooks.iter().cloned().collect()
+    }
+
+    /// Number of playbooks edr-locald actually loaded for this run.
+    ///
+    /// edr-locald writes playbooks_loaded.json into the run directory after it
+    /// parses the YAML files, so that is the source of truth. Before it exists
+    /// (locald still starting) fall back to what the run asked for: the
+    /// selection, or every YAML file in the playbook folder.
+    fn playbooks_loaded(&self, run_dir: &Path) -> u32 {
+        if let Some(count) = read_playbook_status_count(run_dir) {
+            return count;
+        }
+        if let Some(selected) = self
+            .run_config
+            .as_ref()
+            .and_then(|c| c.selected_playbooks.as_ref())
+        {
+            if !selected.is_empty() {
+                return selected.len() as u32;
+            }
+        }
+        count_yaml_files(&self.telemetry_root.join("playbooks").join("windows"))
+    }
+
     /// Get grounded health gates for UI display
     ///
     /// This is the SAME computation used by write_metrics() - single source of truth
     pub async fn get_grounded_health_gates(&self) -> Result<GroundedHealthGates, String> {
         let run_dir = self.run_dir.as_ref().ok_or("No run directory")?;
         let elapsed_seconds = self.run_started.map(|s| s.elapsed().as_secs()).unwrap_or(0);
-        let playbooks_loaded = self
-            .run_config
-            .as_ref()
-            .and_then(|c| c.selected_playbooks.as_ref())
-            .map(|p| p.len() as u32)
-            .unwrap_or(9);
+        let playbooks_loaded = self.playbooks_loaded(run_dir);
 
+        let expected = self.expected_playbooks();
         Ok(GroundedHealthGates::compute(
             run_dir,
             &self.api_base_url(),
             elapsed_seconds,
             playbooks_loaded,
+            &expected,
         )
         .await)
     }
@@ -1268,6 +1304,29 @@ fn find_binary(kind: ProcessKind) -> Result<PathBuf, String> {
         "Could not find {} binary. Build it with: cargo build --release",
         binary_name
     ))
+}
+
+/// Read the playbook count from the status file edr-locald writes.
+fn read_playbook_status_count(run_dir: &Path) -> Option<u32> {
+    let text = fs::read_to_string(run_dir.join("playbooks_loaded.json")).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    value.get("count")?.as_u64().map(|n| n as u32)
+}
+
+/// Count .yaml and .yml files directly inside a directory.
+fn count_yaml_files(dir: &Path) -> u32 {
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .is_some_and(|ext| ext == "yaml" || ext == "yml")
+                })
+                .count() as u32
+        })
+        .unwrap_or(0)
 }
 
 /// Find the playbooks directory
@@ -1894,5 +1953,48 @@ impl SupervisorState {
         Ok(Self {
             inner: Arc::new(RwLock::new(supervisor)),
         })
+    }
+}
+
+#[cfg(test)]
+mod playbook_count_tests {
+    use super::*;
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("edr-supervisor-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn status_file_count_is_read() {
+        let dir = scratch_dir("status");
+        fs::write(
+            dir.join("playbooks_loaded.json"),
+            r#"{"count": 30, "loaded": []}"#,
+        )
+        .unwrap();
+        assert_eq!(read_playbook_status_count(&dir), Some(30));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn missing_status_file_gives_none() {
+        let dir = scratch_dir("nostatus");
+        assert_eq!(read_playbook_status_count(&dir), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn yaml_files_are_counted() {
+        let dir = scratch_dir("yaml");
+        fs::write(dir.join("a.yaml"), "id: a").unwrap();
+        fs::write(dir.join("b.yml"), "id: b").unwrap();
+        fs::write(dir.join("notes.txt"), "x").unwrap();
+        assert_eq!(count_yaml_files(&dir), 2);
+        assert_eq!(count_yaml_files(&dir.join("missing")), 0);
+        let _ = fs::remove_dir_all(&dir);
     }
 }
