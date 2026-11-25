@@ -169,13 +169,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let err = format!("Failed to fetch signals: {:?}", signals_resp.error);
         report.errors.push(err.clone());
         report.passed = false;
-        eprintln!("❌ {}", err);
+        eprintln!("ERROR: {}", err);
         print_report(&report);
         return Ok(());
     }
 
     let signals = signals_resp.data.unwrap_or_default();
-    println!("✓ Found {} signals", signals.len());
+    println!("[OK] Found {} signals", signals.len());
 
     if signals.len() < args.min_signals {
         let err = format!(
@@ -185,11 +185,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         report.errors.push(err.clone());
         report.passed = false;
-        eprintln!("❌ {}", err);
+        eprintln!("ERROR: {}", err);
     }
 
     if signals.is_empty() {
-        println!("⚠ No signals to validate. Pass --min-signals=1 to require signals.");
+        println!("WARN: No signals to validate. Pass --min-signals=1 to require signals.");
         print_report(&report);
         return Ok(());
     }
@@ -223,7 +223,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     report.errors.push(err.clone());
                     report.explanations_invalid += 1;
                     report.passed = false;
-                    eprintln!("  ❌ {}", err);
+                    eprintln!("  ERROR: {}", err);
                     continue;
                 }
 
@@ -234,7 +234,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         report.explanations_valid += 1;
                         if args.verbose {
                             println!(
-                                "  ✓ Valid: playbook={}, slots={}, evidence={}",
+                                "  [OK] Valid: playbook={}, slots={}, evidence={}",
                                 exp.playbook_id,
                                 exp.slots.len(),
                                 exp.evidence.as_ref().map(|e| e.len()).unwrap_or(0)
@@ -246,7 +246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         for err in validation.errors {
                             let msg = format!("Signal {}: {}", sig.signal_id, err);
                             report.errors.push(msg.clone());
-                            eprintln!("  ❌ {}", msg);
+                            eprintln!("  ERROR: {}", msg);
                         }
                     }
 
@@ -260,7 +260,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     report.errors.push(err.clone());
                     report.explanations_invalid += 1;
                     report.passed = false;
-                    eprintln!("  ❌ {}", err);
+                    eprintln!("  ERROR: {}", err);
                 }
             }
             Err(e) => {
@@ -268,7 +268,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 report.errors.push(err.clone());
                 report.explanations_invalid += 1;
                 report.passed = false;
-                eprintln!("  ❌ {}", err);
+                eprintln!("  ERROR: {}", err);
             }
         }
     }
@@ -278,12 +278,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if report.passed {
         println!("═══════════════════════════════════════════════════════════════");
-        println!("  ✓ ALL CHECKS PASSED");
+        println!("  ALL CHECKS PASSED");
         println!("═══════════════════════════════════════════════════════════════");
         Ok(())
     } else {
         println!("═══════════════════════════════════════════════════════════════");
-        println!("  ✗ SOME CHECKS FAILED");
+        println!("  SOME CHECKS FAILED");
         println!("═══════════════════════════════════════════════════════════════");
         std::process::exit(1);
     }
@@ -388,7 +388,7 @@ fn print_report(report: &HarnessReport) {
         println!();
         println!("Warnings ({}):", report.warnings.len());
         for w in &report.warnings {
-            println!("  ⚠ {}", w);
+            println!("  WARN: {}", w);
         }
     }
 
@@ -396,7 +396,7 @@ fn print_report(report: &HarnessReport) {
         println!();
         println!("Errors ({}):", report.errors.len());
         for e in &report.errors {
-            println!("  ✗ {}", e);
+            println!("  ERROR: {}", e);
         }
     }
     println!();

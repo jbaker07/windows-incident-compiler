@@ -157,9 +157,9 @@ impl QuerySource {
     /// UI indicator badge
     pub fn badge(&self) -> &'static str {
         match self {
-            Self::Live => "🟢 Live",
-            Self::Imported => "📦 Imported",
-            Self::Mixed => "⚠️ Mixed",
+            Self::Live => "Live",
+            Self::Imported => "Imported",
+            Self::Mixed => "Mixed",
         }
     }
 }

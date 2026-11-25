@@ -23,8 +23,8 @@ NC='\033[0m' # No Color
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-log_test() { echo -e "  ${GREEN}✓${NC} $1"; }
-log_fail() { echo -e "  ${RED}✗${NC} $1"; }
+log_test() { echo -e "  ${GREEN}[OK]${NC} $1"; }
+log_fail() { echo -e "  ${RED}[FAIL]${NC} $1"; }
 
 TESTS_PASSED=0
 TESTS_FAILED=0
@@ -154,7 +154,7 @@ echo -e "  Failed: ${RED}$TESTS_FAILED${NC}"
 echo ""
 
 if [[ $TESTS_FAILED -eq 0 ]]; then
-    log_info "All sanity checks passed! ✓"
+    log_info "All sanity checks passed!"
     echo ""
     echo "Next steps:"
     if [[ -n "$SKIP_TAURI" ]]; then

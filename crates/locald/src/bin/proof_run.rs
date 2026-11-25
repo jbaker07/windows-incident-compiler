@@ -552,23 +552,23 @@ fn print_summary(output: &ProofRunOutput, artifact_path: &Path) {
     println!(
         "  Server:  {}",
         if output.wiring_check.server_binary_exists {
-            "✓"
+            "yes"
         } else {
-            "✗"
+            "no"
         }
     );
     println!(
         "  Locald:  {}",
         if output.wiring_check.locald_binary_exists {
-            "✓"
+            "yes"
         } else {
-            "✗"
+            "no"
         }
     );
     if output.wiring_check.agent_binary_exists {
-        println!("  Agent:   ✓");
+        println!("  Agent:   yes");
     } else {
-        println!("  Agent:   ○ (optional)");
+        println!("  Agent:   no (optional)");
         if let Some(note) = &output.wiring_check.agent_optional_note {
             println!("           {}", note);
         }
@@ -581,11 +581,11 @@ fn print_summary(output: &ProofRunOutput, artifact_path: &Path) {
             None => "---".to_string(),
         };
         let (icon, suffix) = if ec.ok {
-            ("✓", "")
+            ("OK  ", "")
         } else if ec.optional {
-            ("○", " (optional)")
+            ("SKIP", " (optional)")
         } else {
-            ("✗", "")
+            ("FAIL", "")
         };
         println!("  {} {} [{}]{}", icon, ec.endpoint, status, suffix);
     }
@@ -596,9 +596,9 @@ fn print_summary(output: &ProofRunOutput, artifact_path: &Path) {
     println!(
         "  incidents.jsonl: {}",
         if output.export_status.incidents_jsonl_exists {
-            "✓"
+            "yes"
         } else {
-            "—"
+            "no"
         }
     );
 

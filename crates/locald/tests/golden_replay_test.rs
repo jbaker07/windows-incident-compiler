@@ -268,7 +268,7 @@ fn test_explanation_response_json_structure() {
     assert!(vis["streams_missing"].as_array().unwrap().len() == 1);
     assert_eq!(vis["streams_missing"][0].as_str(), Some("network_events"));
 
-    println!("✓ ExplanationResponse JSON structure verified - all required keys present");
+    println!("OK: ExplanationResponse JSON structure verified - all required keys present");
     println!("  Keys verified:");
     println!("    - query_context");
     println!("    - observed_claims");
@@ -326,6 +326,6 @@ fn test_determinism_with_timestamp_collision() {
     assert_eq!(run1[3].segment_id, "seg_002");
     assert_eq!(run1[4].stream_id, "stream_c");
 
-    println!("✓ Determinism verified: timeline ordering stable with timestamp collisions");
+    println!("OK: Determinism verified: timeline ordering stable with timestamp collisions");
     println!("  Order: stream_a:seg_001:0 → stream_a:seg_001:1 → stream_b:seg_001:0 → stream_b:seg_002:10 → stream_c:seg_001:5");
 }

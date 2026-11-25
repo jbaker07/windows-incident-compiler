@@ -72,7 +72,7 @@ fn main() {
 
     match importer.import(&input) {
         Ok(result) => {
-            println!("✓ Import successful!");
+            println!("Import successful.");
             println!("  bundle_id:     {}", result.bundle_id);
             println!("  manifest:      {}", result.manifest_path);
             println!("  files_dir:     {}", result.files_dir);
@@ -89,7 +89,7 @@ fn main() {
             std::process::exit(0);
         }
         Err(e) => {
-            eprintln!("✗ Import failed: {}", e);
+            eprintln!("Import failed: {}", e);
             std::process::exit(1);
         }
     }

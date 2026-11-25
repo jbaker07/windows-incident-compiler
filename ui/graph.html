@@ -51,7 +51,7 @@
       <span class="item"><svg width="14" height="14"><polygon points="7,1 13,5 13,11 7,13 1,11 1,5" fill="#cdb4db"/></svg>Domain</span>
       <span class="item"><svg width="14" height="14"><circle cx="7" cy="7" r="5" fill="#8892b0"/></svg>Other</span>
     </div>
-    <div class="hud" id="hud">ts: — | nodes: — | edges: —</div>
+    <div class="hud" id="hud">ts: | | nodes: | | edges: -</div>
   </header>
 
   <div id="graph"></div>
@@ -145,7 +145,7 @@
     function render(graph){
       lastGraph = graph;
       document.getElementById("hud").textContent =
-        `ts: ${graph.ts || "—"} | nodes: ${graph.nodes_count ?? graph.nodes?.length ?? 0} | edges: ${graph.edges_count ?? graph.edges?.length ?? 0}`;
+        `ts: ${graph.ts || "-"} | nodes: ${graph.nodes_count ?? graph.nodes?.length ?? 0} | edges: ${graph.edges_count ?? graph.edges?.length ?? 0}`;
 
       // Data join
       const links = linkGroup.selectAll("line").data(graph.edges, d => `${d.source}->${d.target}:${d.rel||""}`);

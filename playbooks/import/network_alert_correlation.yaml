@@ -76,10 +76,10 @@ signal_template:
       Categories: {{categories | join: ', '}}
       
       {% if has_c2_indicator %}
-      ⚠️ POTENTIAL C2 ACTIVITY DETECTED - requires immediate investigation.
+      WARNING: POTENTIAL C2 ACTIVITY DETECTED - requires immediate investigation.
       {% endif %}
       {% if has_malware_indicator %}
-      ⚠️ MALWARE INDICATORS PRESENT - host may be compromised.
+      WARNING: MALWARE INDICATORS PRESENT - host may be compromised.
       {% endif %}
       
     evidence_refs:

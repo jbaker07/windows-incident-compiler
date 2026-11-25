@@ -157,7 +157,7 @@ impl Exporter {
                 }
 
                 let star = if entry.starred {
-                    r#"<span class="star">⭐</span>"#
+                    r#"<span class="star">[starred]</span>"#
                 } else {
                     ""
                 };
@@ -253,7 +253,7 @@ impl Exporter {
                     Self::escape_html(&event.display_time),
                     Self::escape_html(&event.display_type),
                     if event.starred {
-                        r#"<span class="star">⭐</span>"#
+                        r#"<span class="star">[starred]</span>"#
                     } else {
                         ""
                     },
@@ -383,7 +383,7 @@ impl Exporter {
                 if !entry.included {
                     continue;
                 }
-                let star = if entry.starred { " ⭐" } else { "" };
+                let star = if entry.starred { " [starred]" } else { "" };
                 md.push_str(&format!(
                     "| {} | {}{} | {} |\n",
                     Self::format_timestamp(entry.timestamp),
@@ -410,7 +410,7 @@ impl Exporter {
                 if !event.selected {
                     continue;
                 }
-                let star = if event.starred { " ⭐" } else { "" };
+                let star = if event.starred { " [starred]" } else { "" };
                 md.push_str(&format!("### {}{}\n\n", event.display_title, star));
                 md.push_str(&format!(
                     "*{}* | `{}`\n\n",
@@ -851,7 +851,7 @@ mod tests {
         assert!(html.contains("Test Attack Report"));
         assert!(html.contains("T1003.001"));
         assert!(html.contains("mimikatz started"));
-        assert!(html.contains("⭐"));
+        assert!(html.contains("[starred]"));
     }
 
     #[test]

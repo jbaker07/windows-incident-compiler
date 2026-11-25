@@ -72,7 +72,7 @@ signal_template:
       Web enumeration found {{web_directories_count}} accessible directories.
       {% endif %}
       {% if exposed_admin_paths_count > 0 %}
-      ⚠️ {{exposed_admin_paths_count}} administrative interface(s) potentially exposed: {{admin_paths | first: 5 | join: ', '}}
+      WARNING: {{exposed_admin_paths_count}} administrative interface(s) potentially exposed: {{admin_paths | first: 5 | join: ', '}}
       {% endif %}
       
     evidence_refs:

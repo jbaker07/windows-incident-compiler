@@ -110,11 +110,11 @@ impl SelfCheckVerdict {
         }
     }
 
-    pub fn emoji(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
-            Self::Healthy => "✅",
-            Self::Degraded => "⚠️",
-            Self::Blocked => "🚫",
+            Self::Healthy => "OK",
+            Self::Degraded => "WARN",
+            Self::Blocked => "BLOCKED",
         }
     }
 }
@@ -375,7 +375,7 @@ impl DiagnosticEngine {
         self.collect_storage_issues(&storage, &mut issues);
 
         // Sort issues by severity (highest first)
-        issues.sort_by(|a, b| b.severity.cmp(&a.severity));
+        issues.sort_by_key(|a| std::cmp::Reverse(a.severity));
 
         // Determine verdict
         let verdict = self.determine_verdict(&streams, &throttling, &storage, &issues);
@@ -990,7 +990,7 @@ The EDR Desktop app needs Full Disk Access to use the Endpoint Security Framewor
 1. Open **System Preferences** (or **System Settings** on macOS Ventura+)
 2. Go to **Security & Privacy** > **Privacy**
 3. Select **Full Disk Access** in the sidebar
-4. Click the lock 🔒 to make changes (enter your password)
+4. Click the lock icon to make changes (enter your password)
 5. Click **+** and add the EDR Desktop app
 6. Restart EDR Desktop
 

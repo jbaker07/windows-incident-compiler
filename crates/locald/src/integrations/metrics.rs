@@ -390,7 +390,7 @@ impl IntegrationMetrics {
         s.push_str(&format!("  Generated: {}\n", report.generated_at));
         s.push_str("═══════════════════════════════════════════════════════════════\n\n");
 
-        s.push_str("📊 SUMMARY\n");
+        s.push_str("SUMMARY\n");
         s.push_str("───────────────────────────────────────────────────────────────\n");
         s.push_str(&format!(
             "  Total Incidents:        {}\n",
@@ -419,7 +419,7 @@ impl IntegrationMetrics {
         ));
         s.push('\n');
 
-        s.push_str("📤 EXPORT METRICS\n");
+        s.push_str("EXPORT METRICS\n");
         s.push_str("───────────────────────────────────────────────────────────────\n");
         s.push_str(&format!(
             "  Incidents Exported:     {}\n",
@@ -439,7 +439,7 @@ impl IntegrationMetrics {
         ));
         s.push('\n');
 
-        s.push_str("📥 INGEST METRICS\n");
+        s.push_str("INGEST METRICS\n");
         s.push_str("───────────────────────────────────────────────────────────────\n");
         s.push_str(&format!(
             "  Events Read:            {}\n",
@@ -468,7 +468,7 @@ impl IntegrationMetrics {
         s.push('\n');
 
         if !report.summary.by_family.is_empty() {
-            s.push_str("📁 INCIDENTS BY FAMILY\n");
+            s.push_str("INCIDENTS BY FAMILY\n");
             s.push_str("───────────────────────────────────────────────────────────────\n");
             for (family, count) in &report.summary.by_family {
                 s.push_str(&format!("  {:<25} {}\n", family, count));

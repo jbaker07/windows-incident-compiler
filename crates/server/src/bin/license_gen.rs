@@ -120,7 +120,7 @@ fn main() {
     // Write to file
     fs::write(&output, &json).expect("Failed to write license file");
 
-    println!("✅ License generated successfully!");
+    println!("License generated successfully.");
     println!();
     println!("License ID:    {}", license_id);
     println!("Install ID:    {}", install_id);
@@ -157,7 +157,7 @@ fn generate_keypair() {
     let private_key_b64 = base64_encode(signing_key.as_bytes());
     let public_key_b64 = base64_encode(verifying_key.as_bytes());
 
-    println!("🔑 Generated new Ed25519 keypair");
+    println!("Generated new Ed25519 keypair");
     println!();
     println!("=== PRIVATE KEY (keep secret!) ===");
     println!("Set this in your environment:");
@@ -175,10 +175,8 @@ fn generate_keypair() {
         public_key_b64
     );
     println!();
-    println!(
-        "⚠️  WARNING: Store the private key securely. If lost, you cannot generate new licenses."
-    );
-    println!("⚠️  WARNING: Do not commit the private key to version control!");
+    println!("WARNING: Store the private key securely. If lost, you cannot generate new licenses.");
+    println!("WARNING: Do not commit the private key to version control!");
 }
 
 fn get_arg(args: &[String], name: &str) -> Option<String> {

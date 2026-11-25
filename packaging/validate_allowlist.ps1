@@ -33,10 +33,10 @@ Write-Host "Checking required binaries..." -ForegroundColor Yellow
 foreach ($bin in $allowlist.allowed_binaries) {
     $binPath = Join-Path $DistPath $bin
     if (Test-Path $binPath) {
-        Write-Host "  ✓ Found: $bin" -ForegroundColor Green
+        Write-Host "  [OK] Found: $bin" -ForegroundColor Green
     } else {
         $violations += "MISSING required binary: $bin"
-        Write-Host "  ✗ MISSING: $bin" -ForegroundColor Red
+        Write-Host "  [FAIL] MISSING: $bin" -ForegroundColor Red
     }
 }
 Write-Host ""
@@ -47,9 +47,9 @@ foreach ($bin in $allowlist.forbidden_binaries) {
     $binPath = Join-Path $DistPath $bin
     if (Test-Path $binPath) {
         $violations += "FORBIDDEN binary present: $bin"
-        Write-Host "  ✗ VIOLATION: $bin found in dist!" -ForegroundColor Red
+        Write-Host "  [FAIL] VIOLATION: $bin found in dist!" -ForegroundColor Red
     } else {
-        Write-Host "  ✓ Not present (correct): $bin" -ForegroundColor Green
+        Write-Host "  [OK] Not present (correct): $bin" -ForegroundColor Green
     }
 }
 Write-Host ""
@@ -59,10 +59,10 @@ Write-Host "Checking required directories..." -ForegroundColor Yellow
 foreach ($dir in $allowlist.required_dirs) {
     $dirPath = Join-Path $DistPath $dir
     if (Test-Path $dirPath -PathType Container) {
-        Write-Host "  ✓ Found: $dir/" -ForegroundColor Green
+        Write-Host "  [OK] Found: $dir/" -ForegroundColor Green
     } else {
         $violations += "MISSING required directory: $dir/"
-        Write-Host "  ✗ MISSING: $dir/" -ForegroundColor Red
+        Write-Host "  [FAIL] MISSING: $dir/" -ForegroundColor Red
     }
 }
 Write-Host ""
@@ -72,10 +72,10 @@ Write-Host "Checking required documents..." -ForegroundColor Yellow
 foreach ($doc in $allowlist.required_docs) {
     $docPath = Join-Path $DistPath $doc
     if (Test-Path $docPath) {
-        Write-Host "  ✓ Found: $doc" -ForegroundColor Green
+        Write-Host "  [OK] Found: $doc" -ForegroundColor Green
     } else {
         $violations += "MISSING required document: $doc"
-        Write-Host "  ✗ MISSING: $doc" -ForegroundColor Red
+        Write-Host "  [FAIL] MISSING: $doc" -ForegroundColor Red
     }
 }
 Write-Host ""
@@ -85,10 +85,10 @@ Write-Host "Checking optional documents..." -ForegroundColor Yellow
 foreach ($doc in $allowlist.optional_docs) {
     $docPath = Join-Path $DistPath $doc
     if (Test-Path $docPath) {
-        Write-Host "  ✓ Found: $doc" -ForegroundColor Green
+        Write-Host "  [OK] Found: $doc" -ForegroundColor Green
     } else {
         $warnings += "Optional document not found: $doc"
-        Write-Host "  ⚠ Optional not present: $doc" -ForegroundColor Yellow
+        Write-Host "  [WARN] Optional not present: $doc" -ForegroundColor Yellow
     }
 }
 Write-Host ""
@@ -106,7 +106,7 @@ $actualFiles = Get-ChildItem $DistPath -File | ForEach-Object { $_.Name }
 foreach ($file in $actualFiles) {
     if ($file -notin $expectedFiles) {
         $warnings += "Unexpected file in dist: $file"
-        Write-Host "  ⚠ Unexpected: $file" -ForegroundColor Yellow
+        Write-Host "  [WARN] Unexpected: $file" -ForegroundColor Yellow
     }
 }
 Write-Host ""
@@ -132,10 +132,10 @@ if ($warnings.Count -gt 0) {
 
 if ($violations.Count -eq 0) {
     Write-Host ""
-    Write-Host "✓ All validations passed!" -ForegroundColor Green
+    Write-Host "[OK] All validations passed!" -ForegroundColor Green
     exit 0
 } else {
     Write-Host ""
-    Write-Host "✗ Validation FAILED with $($violations.Count) violation(s)" -ForegroundColor Red
+    Write-Host "[FAIL] Validation FAILED with $($violations.Count) violation(s)" -ForegroundColor Red
     exit 1
 }

@@ -187,7 +187,7 @@ impl ProfileConfig {
             .extend(["file_hash".to_string(), "pe_header".to_string()]);
 
         // Increase limits for non-critical streams
-        for (_, throttle) in config.stream_throttles.iter_mut() {
+        for throttle in config.stream_throttles.values_mut() {
             if throttle.priority != StreamPriority::Tier0 {
                 throttle.rate_per_sec = (throttle.rate_per_sec as f64 * 1.5) as u32;
                 throttle.burst = (throttle.burst as f64 * 1.5) as u32;
@@ -234,7 +234,7 @@ impl ProfileConfig {
         ]);
 
         // Double all stream limits
-        for (_, throttle) in config.stream_throttles.iter_mut() {
+        for throttle in config.stream_throttles.values_mut() {
             throttle.rate_per_sec *= 2;
             throttle.burst *= 2;
             throttle.max_queue *= 2;
@@ -1232,7 +1232,7 @@ impl TelemetryThrottledSummary {
     /// Generate warning message if Tier-0 was throttled
     pub fn tier0_warning(&self) -> Option<&'static str> {
         if self.tier0_affected {
-            Some("⚠️ CRITICAL: Tier-0 stream throttled; conclusions may be incomplete.")
+            Some("CRITICAL: Tier-0 stream throttled; conclusions may be incomplete.")
         } else {
             None
         }

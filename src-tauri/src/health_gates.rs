@@ -36,12 +36,12 @@ impl GateStatus {
         }
     }
 
-    pub fn emoji(&self) -> &'static str {
+    pub fn label(&self) -> &'static str {
         match self {
-            GateStatus::Pass => "✅",
-            GateStatus::Fail => "❌",
-            GateStatus::Partial => "⚠️",
-            GateStatus::NoData => "⏸️",
+            GateStatus::Pass => "PASS",
+            GateStatus::Fail => "FAIL",
+            GateStatus::Partial => "PARTIAL",
+            GateStatus::NoData => "NO DATA",
         }
     }
 

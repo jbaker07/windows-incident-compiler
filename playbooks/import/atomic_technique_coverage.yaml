@@ -72,7 +72,7 @@ signal_template:
       {% endfor %}
       
       {% if detection_gap %}
-      ⚠️ DETECTION GAP: Technique executed successfully but no corresponding 
+      WARNING: DETECTION GAP: Technique executed successfully but no corresponding 
       detection events found. Review detection coverage for {{technique_id}}.
       {% endif %}
       

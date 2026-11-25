@@ -367,7 +367,7 @@ async fn test_e2e_live_server() {
             );
         }
         Err(e) => {
-            eprintln!("⚠️  Live server not available: {}", e);
+            eprintln!("WARNING: Live server not available: {}", e);
         }
     }
 }

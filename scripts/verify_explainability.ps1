@@ -38,15 +38,15 @@ function Write-Section($text) {
 }
 
 function Write-Pass($text) {
-    Write-Host "  ✓ $text" -ForegroundColor Green
+    Write-Host "  [OK] $text" -ForegroundColor Green
 }
 
 function Write-Fail($text) {
-    Write-Host "  ✗ $text" -ForegroundColor Red
+    Write-Host "  [FAIL] $text" -ForegroundColor Red
 }
 
 function Write-Warn($text) {
-    Write-Host "  ⚠ $text" -ForegroundColor Yellow
+    Write-Host "  [WARN] $text" -ForegroundColor Yellow
 }
 
 function Write-Info($text) {
@@ -249,9 +249,9 @@ if ($script:errors.Count -gt 0) {
 
 Write-Host ""
 if ($script:errors.Count -eq 0) {
-    Write-Header "✓ ALL CHECKS PASSED"
+    Write-Header "[OK] ALL CHECKS PASSED"
     exit 0
 } else {
-    Write-Header "✗ SOME CHECKS FAILED"
+    Write-Header "[FAIL] SOME CHECKS FAILED"
     exit 1
 }

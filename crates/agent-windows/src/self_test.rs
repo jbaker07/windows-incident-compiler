@@ -89,7 +89,7 @@ pub fn run_windows_selftest(host: &crate::host::HostCtx) -> std::io::Result<bool
                     total_errors += 1;
                 } else {
                     eprintln!(
-                        "[windows self-test]   ✓ Event {}: no evidence_ptr (correct)",
+                        "[windows self-test]   [OK] Event {}: no evidence_ptr (correct)",
                         i
                     );
                 }
@@ -99,7 +99,7 @@ pub fn run_windows_selftest(host: &crate::host::HostCtx) -> std::io::Result<bool
                     eprintln!("[windows self-test] ERROR: event {} missing host field", i);
                     total_errors += 1;
                 } else {
-                    eprintln!("[windows self-test]   ✓ Event {}: host={}", i, evt.host);
+                    eprintln!("[windows self-test]   [OK] Event {}: host={}", i, evt.host);
                 }
 
                 // Check: tags should include "windows"
@@ -110,7 +110,7 @@ pub fn run_windows_selftest(host: &crate::host::HostCtx) -> std::io::Result<bool
                     );
                     total_errors += 1;
                 } else {
-                    eprintln!("[windows self-test]   ✓ Event {}: has 'windows' tag", i);
+                    eprintln!("[windows self-test]   [OK] Event {}: has 'windows' tag", i);
                 }
             }
         }

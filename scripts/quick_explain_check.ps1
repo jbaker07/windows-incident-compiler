@@ -33,7 +33,7 @@ Write-Host "Fetching explanation for signal: $($SignalId.Substring(0, [Math]::Mi
 $expResp = Invoke-RestMethod -Uri "$ServerUrl/api/signals/$SignalId/explain" -Method Get
 
 if (-not $expResp.success) {
-    Write-Host "✗ No explanation available: $($expResp.error)" -ForegroundColor Red
+    Write-Host "[FAIL] No explanation available: $($expResp.error)" -ForegroundColor Red
     exit 1
 }
 
@@ -128,10 +128,10 @@ Write-Host ""
 if ($exp.limitations -and $exp.limitations.Count -gt 0) {
     Write-Host "Limitations:" -ForegroundColor Red
     foreach ($lim in $exp.limitations) {
-        Write-Host "  ⚠ $lim" -ForegroundColor Yellow
+        Write-Host "  [WARN] $lim" -ForegroundColor Yellow
     }
     Write-Host ""
 }
 
 Write-Host "══════════════════════════════════════════════════════════════" -ForegroundColor Cyan
-Write-Host "✓ Explanation bundle is valid" -ForegroundColor Green
+Write-Host "[OK] Explanation bundle is valid" -ForegroundColor Green

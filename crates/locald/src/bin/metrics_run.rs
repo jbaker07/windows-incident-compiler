@@ -514,9 +514,9 @@ fn print_summary(metrics: &RunMetrics, artifact_path: &Path) {
     println!(
         "  Index exists:   {}",
         if metrics.telemetry_files.index_exists {
-            "✓"
+            "yes"
         } else {
-            "✗"
+            "no"
         }
     );
     if let Some(mtime) = &metrics.telemetry_files.newest_segment_mtime {
@@ -542,7 +542,7 @@ fn print_summary(metrics: &RunMetrics, artifact_path: &Path) {
             .status
             .map(|s| s.to_string())
             .unwrap_or_else(|| "---".to_string());
-        let icon = if check.ok { "✓" } else { "✗" };
+        let icon = if check.ok { "OK  " } else { "FAIL" };
         println!(
             "  {} {} [{}] {}ms",
             icon, check.endpoint, status_str, check.latency_ms
@@ -551,9 +551,9 @@ fn print_summary(metrics: &RunMetrics, artifact_path: &Path) {
 
     println!("\n─── Summary ─────────────────────────────────────────────────────");
     if metrics.summary.passed {
-        println!("  Result: PASS ✓");
+        println!("  Result: PASS");
     } else {
-        println!("  Result: FAIL ✗");
+        println!("  Result: FAIL");
         for f in &metrics.summary.failures {
             println!("    - {}", f);
         }

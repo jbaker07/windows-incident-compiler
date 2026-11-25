@@ -184,9 +184,9 @@ fn run_verify(args: &[String]) -> ExitCode {
     println!("╠══════════════════════════════════════════════════════════════╣");
 
     let verdict_display = match report.overall_verdict.as_str() {
-        "PASS" => "✓ PASS",
-        "PARTIAL" => "⚠ PARTIAL",
-        "FAIL" => "✗ FAIL",
+        "PASS" => "PASS",
+        "PARTIAL" => "PARTIAL",
+        "FAIL" => "FAIL",
         _ => &report.overall_verdict,
     };
     println!("║  Overall Verdict: {:44} ║", verdict_display);
@@ -195,10 +195,10 @@ fn run_verify(args: &[String]) -> ExitCode {
     // Print per-bundle details
     for result in &report.results {
         let icon = match result.verdict.as_str() {
-            "PASS" => "✓",
-            "PARTIAL" => "⚠",
-            "FAIL" => "✗",
-            _ => "?",
+            "PASS" => "PASS   ",
+            "PARTIAL" => "PARTIAL",
+            "FAIL" => "FAIL   ",
+            _ => "UNKNOWN",
         };
 
         println!(
@@ -289,7 +289,7 @@ fn run_generate(args: &[String]) -> ExitCode {
                     .and_then(|n| n.to_str())
                     .unwrap_or("?");
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
-                println!("  ✓ {}/{}", family, name);
+                println!("  OK {}/{}", family, name);
             }
 
             println!(
