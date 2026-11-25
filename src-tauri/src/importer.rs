@@ -233,15 +233,35 @@ impl SafeImporter {
             imported_at: Utc::now(),
             source_type: ImportSourceType::Folder,
             source_path: source.display().to_string(),
-            bundle_id: bundle_id.clone(),
+            bundle_id,
             run_id: self.run_id.clone(),
             files: manifest_files,
             rejected: rejected_files,
             limits: self.limits.clone(),
-            summary: summary.clone(),
+            summary,
         };
 
-        // Write manifest
+        self.finish_import(manifest, &import_dir, &files_dir)
+    }
+
+    /// Parse every file an adapter supports, then write `events.json` (a JSON
+    /// array of ImportEvent) and `manifest.json` with the parse results
+    /// (parsed, parser, warnings and events per file, and the summary).
+    fn finish_import(
+        &self,
+        mut manifest: ImportManifest,
+        import_dir: &Path,
+        files_dir: &Path,
+    ) -> Result<ImportResult, String> {
+        let events =
+            crate::adapters::AdapterRegistry::new().parse_manifest(&mut manifest, files_dir)?;
+
+        let events_path = import_dir.join("events.json");
+        let events_file = File::create(&events_path)
+            .map_err(|e| format!("Failed to create events.json: {}", e))?;
+        serde_json::to_writer(io::BufWriter::new(events_file), &events)
+            .map_err(|e| format!("Failed to write events.json: {}", e))?;
+
         let manifest_path = import_dir.join("manifest.json");
         let manifest_json = serde_json::to_string_pretty(&manifest)
             .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
@@ -249,11 +269,11 @@ impl SafeImporter {
             .map_err(|e| format!("Failed to write manifest: {}", e))?;
 
         Ok(ImportResult {
-            bundle_id,
+            bundle_id: manifest.bundle_id.clone(),
             run_id: self.run_id.clone(),
             manifest_path: manifest_path.display().to_string(),
             files_dir: files_dir.display().to_string(),
-            summary,
+            summary: manifest.summary.clone(),
             success: true,
             error: None,
         })
@@ -574,30 +594,15 @@ impl SafeImporter {
             imported_at: Utc::now(),
             source_type: ImportSourceType::Zip,
             source_path: source.display().to_string(),
-            bundle_id: bundle_id.clone(),
+            bundle_id,
             run_id: self.run_id.clone(),
             files: manifest_files,
             rejected: rejected_files,
             limits: self.limits.clone(),
-            summary: summary.clone(),
+            summary,
         };
 
-        // Write manifest
-        let manifest_path = import_dir.join("manifest.json");
-        let manifest_json = serde_json::to_string_pretty(&manifest)
-            .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
-        fs::write(&manifest_path, &manifest_json)
-            .map_err(|e| format!("Failed to write manifest: {}", e))?;
-
-        Ok(ImportResult {
-            bundle_id,
-            run_id: self.run_id.clone(),
-            manifest_path: manifest_path.display().to_string(),
-            files_dir: files_dir.display().to_string(),
-            summary,
-            success: true,
-            error: None,
-        })
+        self.finish_import(manifest, &import_dir, &files_dir)
     }
 
     /// Validate zip archive for bomb detection
@@ -845,7 +850,10 @@ mod tests {
         assert!(validate_rel_path("foo/bar.json").is_ok());
         assert!(validate_rel_path("foo/bar/baz.json").is_ok());
         assert!(validate_rel_path("../foo.json").is_err());
-        assert!(validate_rel_path("foo/../bar.json").is_ok()); // Goes up then down, net positive
+        // Any ".." is rejected, even one that stays inside the root. A bundle
+        // never needs it, and refusing it outright closes zip slip tricks that
+        // depend on how the path is normalized later.
+        assert!(validate_rel_path("foo/../bar.json").is_err());
         assert!(validate_rel_path("foo/../../bar.json").is_err()); // Goes above root
         assert!(validate_rel_path("/absolute/path.json").is_err());
         assert!(validate_rel_path("C:\\windows\\path.json").is_err());

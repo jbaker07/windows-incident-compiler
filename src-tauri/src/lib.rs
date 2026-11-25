@@ -9,9 +9,11 @@
 //! - `scenario_profiles`: Scenario profiles with expected outcomes for validation testing
 //! - `logging`: Logging setup
 //! - `port`: Port allocation
+//! - `adapters`: Parsers that turn imported files into ImportEvents
 //! - `importer`: Safe import of evidence bundles (folders/zips)
 //! - `import_types`: Types for import manifests and events
 
+pub mod adapters;
 pub mod grounded_gates;
 pub mod health_gates;
 pub mod import_types;

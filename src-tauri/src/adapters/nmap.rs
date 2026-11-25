@@ -6,16 +6,17 @@
 //! - service banner
 //! - script output summary
 
-use crate::adapters::{Adapter, ParseResult, generate_event_id};
+use crate::adapters::{generate_event_id, Adapter, ParseResult};
 use crate::import_types::*;
-use std::collections::HashMap;
-use std::path::Path;
-use std::io::BufReader;
-use std::fs::File;
-use chrono::{DateTime, Utc, TimeZone};
-use quick_xml::Reader;
+use chrono::{DateTime, TimeZone, Utc};
 use quick_xml::events::Event as XmlEvent;
+use quick_xml::Reader;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
 
+#[derive(Default)]
 pub struct NmapAdapter;
 
 impl NmapAdapter {
@@ -28,11 +29,11 @@ impl Adapter for NmapAdapter {
     fn name(&self) -> &'static str {
         "nmap"
     }
-    
+
     fn can_handle(&self, file: &ManifestFile) -> bool {
         matches!(file.kind, FileKind::NmapXml)
     }
-    
+
     fn parse(
         &self,
         file: &ManifestFile,
@@ -40,29 +41,28 @@ impl Adapter for NmapAdapter {
         bundle_id: &str,
         _limits: &ImportLimits,
     ) -> Result<ParseResult, String> {
-        let f = File::open(file_path)
-            .map_err(|e| format!("Failed to open Nmap XML: {}", e))?;
+        let f = File::open(file_path).map_err(|e| format!("Failed to open Nmap XML: {}", e))?;
         let reader = BufReader::new(f);
-        
+
         let mut xml_reader = Reader::from_reader(reader);
-        xml_reader.trim_text(true);
-        
+        xml_reader.config_mut().trim_text(true);
+
         let mut events = Vec::new();
         let mut warnings = Vec::new();
         let mut buf = Vec::new();
-        
+
         // Parse state
         let mut scan_start: Option<DateTime<Utc>> = None;
         let mut current_host: Option<HostInfo> = None;
         let mut current_port: Option<PortInfo> = None;
         let mut event_index = 0u64;
-        
+
         loop {
             match xml_reader.read_event_into(&mut buf) {
                 Ok(XmlEvent::Start(ref e)) | Ok(XmlEvent::Empty(ref e)) => {
                     let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
                     let attrs = parse_attrs(e);
-                    
+
                     match tag.as_str() {
                         "nmaprun" => {
                             // Extract scan start time
@@ -77,9 +77,10 @@ impl Adapter for NmapAdapter {
                         }
                         "address" => {
                             if let Some(ref mut host) = current_host {
-                                let addr_type = attrs.get("addrtype").map(|s| s.as_str()).unwrap_or("");
+                                let addr_type =
+                                    attrs.get("addrtype").map(|s| s.as_str()).unwrap_or("");
                                 let addr = attrs.get("addr").cloned().unwrap_or_default();
-                                
+
                                 match addr_type {
                                     "ipv4" | "ipv6" => host.ip = Some(addr),
                                     "mac" => host.mac = Some(addr),
@@ -100,11 +101,12 @@ impl Adapter for NmapAdapter {
                             }
                         }
                         "port" => {
-                            let portid = attrs.get("portid")
+                            let portid = attrs
+                                .get("portid")
                                 .and_then(|p| p.parse::<u16>().ok())
                                 .unwrap_or(0);
                             let protocol = attrs.get("protocol").cloned().unwrap_or_default();
-                            
+
                             current_port = Some(PortInfo {
                                 port: portid,
                                 protocol,
@@ -122,18 +124,19 @@ impl Adapter for NmapAdapter {
                         "service" => {
                             if let Some(ref mut port) = current_port {
                                 port.service = attrs.get("name").cloned().unwrap_or_default();
-                                
+
                                 // Build version string
                                 let product = attrs.get("product").cloned().unwrap_or_default();
                                 let version = attrs.get("version").cloned().unwrap_or_default();
                                 let extra = attrs.get("extrainfo").cloned().unwrap_or_default();
-                                
-                                let version_parts: Vec<&str> = [
-                                    product.as_str(),
-                                    version.as_str(),
-                                    extra.as_str(),
-                                ].iter().filter(|s| !s.is_empty()).copied().collect();
-                                
+
+                                let version_parts: Vec<&str> =
+                                    [product.as_str(), version.as_str(), extra.as_str()]
+                                        .iter()
+                                        .filter(|s| !s.is_empty())
+                                        .copied()
+                                        .collect();
+
                                 port.version = version_parts.join(" ");
                             }
                         }
@@ -151,13 +154,13 @@ impl Adapter for NmapAdapter {
                 }
                 Ok(XmlEvent::End(ref e)) => {
                     let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                    
+
                     match tag.as_str() {
                         "host" => {
                             if let Some(host) = current_host.take() {
                                 // Emit host discovered event
                                 let timestamp = scan_start.unwrap_or_else(Utc::now);
-                                
+
                                 let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
                                 if let Some(ref ip) = host.ip {
                                     fields.insert("ip".to_string(), serde_json::json!(ip));
@@ -166,15 +169,25 @@ impl Adapter for NmapAdapter {
                                     fields.insert("mac".to_string(), serde_json::json!(mac));
                                 }
                                 if !host.hostnames.is_empty() {
-                                    fields.insert("hostnames".to_string(), serde_json::json!(host.hostnames));
+                                    fields.insert(
+                                        "hostnames".to_string(),
+                                        serde_json::json!(host.hostnames),
+                                    );
                                 }
                                 fields.insert("status".to_string(), serde_json::json!(host.status));
-                                fields.insert("ports_count".to_string(), serde_json::json!(host.ports.len()));
-                                
+                                fields.insert(
+                                    "ports_count".to_string(),
+                                    serde_json::json!(host.ports.len()),
+                                );
+
                                 let ip_display = host.ip.as_deref().unwrap_or("unknown");
-                                
+
                                 events.push(ImportEvent {
-                                    event_id: generate_event_id(bundle_id, &file.rel_path, event_index),
+                                    event_id: generate_event_id(
+                                        bundle_id,
+                                        &file.rel_path,
+                                        event_index,
+                                    ),
                                     timestamp,
                                     timestamp_quality: if scan_start.is_some() {
                                         TimestampQuality::Precise
@@ -189,42 +202,76 @@ impl Adapter for NmapAdapter {
                                         bundle_id: bundle_id.to_string(),
                                         rel_path: file.rel_path.clone(),
                                         line_no: None,
-                                        json_path: Some(format!("//host[address/@addr='{}']", ip_display)),
+                                        json_path: Some(format!(
+                                            "//host[address/@addr='{}']",
+                                            ip_display
+                                        )),
                                         byte_offset: None,
                                     },
-                                    tags: vec!["nmap".to_string(), "recon".to_string(), "host_discovery".to_string()],
+                                    tags: vec![
+                                        "nmap".to_string(),
+                                        "recon".to_string(),
+                                        "host_discovery".to_string(),
+                                    ],
                                 });
                                 event_index += 1;
-                                
+
                                 // Emit port events
                                 for port_info in &host.ports {
-                                    let mut port_fields: HashMap<String, serde_json::Value> = HashMap::new();
-                                    port_fields.insert("ip".to_string(), serde_json::json!(ip_display));
-                                    port_fields.insert("port".to_string(), serde_json::json!(port_info.port));
-                                    port_fields.insert("protocol".to_string(), serde_json::json!(port_info.protocol));
-                                    port_fields.insert("state".to_string(), serde_json::json!(port_info.state));
-                                    port_fields.insert("service".to_string(), serde_json::json!(port_info.service));
+                                    let mut port_fields: HashMap<String, serde_json::Value> =
+                                        HashMap::new();
+                                    port_fields
+                                        .insert("ip".to_string(), serde_json::json!(ip_display));
+                                    port_fields.insert(
+                                        "port".to_string(),
+                                        serde_json::json!(port_info.port),
+                                    );
+                                    port_fields.insert(
+                                        "protocol".to_string(),
+                                        serde_json::json!(port_info.protocol),
+                                    );
+                                    port_fields.insert(
+                                        "state".to_string(),
+                                        serde_json::json!(port_info.state),
+                                    );
+                                    port_fields.insert(
+                                        "service".to_string(),
+                                        serde_json::json!(port_info.service),
+                                    );
                                     if !port_info.version.is_empty() {
-                                        port_fields.insert("version".to_string(), serde_json::json!(port_info.version));
+                                        port_fields.insert(
+                                            "version".to_string(),
+                                            serde_json::json!(port_info.version),
+                                        );
                                     }
-                                    
-                                    let mut tags = vec!["nmap".to_string(), "recon".to_string(), "port_scan".to_string()];
-                                    
+
+                                    let mut tags = vec![
+                                        "nmap".to_string(),
+                                        "recon".to_string(),
+                                        "port_scan".to_string(),
+                                    ];
+
                                     // Add service-specific tags
                                     match port_info.service.as_str() {
-                                        "http" | "https" | "http-proxy" => tags.push("web".to_string()),
+                                        "http" | "https" | "http-proxy" => {
+                                            tags.push("web".to_string())
+                                        }
                                         "ssh" => tags.push("ssh".to_string()),
                                         "ftp" => tags.push("ftp".to_string()),
-                                        "smb" | "microsoft-ds" | "netbios-ssn" => tags.push("smb".to_string()),
+                                        "smb" | "microsoft-ds" | "netbios-ssn" => {
+                                            tags.push("smb".to_string())
+                                        }
                                         "rdp" | "ms-wbt-server" => tags.push("rdp".to_string()),
-                                        "mysql" | "postgresql" | "mssql" | "oracle" => tags.push("database".to_string()),
+                                        "mysql" | "postgresql" | "mssql" | "oracle" => {
+                                            tags.push("database".to_string())
+                                        }
                                         _ => {}
                                     }
-                                    
+
                                     if port_info.state == "open" {
                                         tags.push("open_port".to_string());
                                     }
-                                    
+
                                     events.push(ImportEvent {
                                         event_id: generate_event_id(bundle_id, &file.rel_path, event_index),
                                         timestamp,
@@ -250,15 +297,28 @@ impl Adapter for NmapAdapter {
                                         tags,
                                     });
                                     event_index += 1;
-                                    
+
                                     // Emit script output events
                                     for (script_id, output) in &port_info.scripts {
-                                        let mut script_fields: HashMap<String, serde_json::Value> = HashMap::new();
-                                        script_fields.insert("ip".to_string(), serde_json::json!(ip_display));
-                                        script_fields.insert("port".to_string(), serde_json::json!(port_info.port));
-                                        script_fields.insert("script_id".to_string(), serde_json::json!(script_id));
-                                        script_fields.insert("output".to_string(), serde_json::json!(output));
-                                        
+                                        let mut script_fields: HashMap<String, serde_json::Value> =
+                                            HashMap::new();
+                                        script_fields.insert(
+                                            "ip".to_string(),
+                                            serde_json::json!(ip_display),
+                                        );
+                                        script_fields.insert(
+                                            "port".to_string(),
+                                            serde_json::json!(port_info.port),
+                                        );
+                                        script_fields.insert(
+                                            "script_id".to_string(),
+                                            serde_json::json!(script_id),
+                                        );
+                                        script_fields.insert(
+                                            "output".to_string(),
+                                            serde_json::json!(output),
+                                        );
+
                                         events.push(ImportEvent {
                                             event_id: generate_event_id(bundle_id, &file.rel_path, event_index),
                                             timestamp,
@@ -289,7 +349,9 @@ impl Adapter for NmapAdapter {
                             }
                         }
                         "port" => {
-                            if let (Some(ref mut host), Some(port)) = (&mut current_host, current_port.take()) {
+                            if let (Some(ref mut host), Some(port)) =
+                                (&mut current_host, current_port.take())
+                            {
                                 host.ports.push(port);
                             }
                         }
@@ -305,7 +367,7 @@ impl Adapter for NmapAdapter {
             }
             buf.clear();
         }
-        
+
         Ok(ParseResult {
             events,
             warnings,
@@ -337,7 +399,11 @@ fn parse_attrs(e: &quick_xml::events::BytesStart) -> HashMap<String, String> {
     let mut attrs = HashMap::new();
     for attr in e.attributes().filter_map(Result::ok) {
         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-        let value = String::from_utf8_lossy(&attr.value).to_string();
+        // Decode entities such as &#xa; (nmap writes newlines in script output that way)
+        let value = attr
+            .unescape_value()
+            .map(|v| v.into_owned())
+            .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
         attrs.insert(key, value);
     }
     attrs

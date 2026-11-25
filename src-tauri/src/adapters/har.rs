@@ -3,14 +3,15 @@
 //! HAR (HTTP Archive) is a JSON format for recording HTTP requests/responses.
 //! This adapter extracts security-relevant events from HAR files.
 
-use crate::adapters::{Adapter, ParseResult, generate_event_id, parse_timestamp};
+use crate::adapters::{generate_event_id, parse_timestamp, Adapter, ParseResult};
 use crate::import_types::*;
-use std::collections::HashMap;
-use std::path::Path;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
 
 /// HAR adapter
+#[derive(Default)]
 pub struct HarAdapter;
 
 impl HarAdapter {
@@ -23,11 +24,11 @@ impl Adapter for HarAdapter {
     fn name(&self) -> &'static str {
         "har"
     }
-    
+
     fn can_handle(&self, file: &ManifestFile) -> bool {
         matches!(file.kind, FileKind::Har)
     }
-    
+
     fn parse(
         &self,
         file: &ManifestFile,
@@ -37,32 +38,32 @@ impl Adapter for HarAdapter {
     ) -> Result<ParseResult, String> {
         let content = std::fs::read_to_string(file_path)
             .map_err(|e| format!("Failed to read HAR file: {}", e))?;
-        
+
         let har: HarFile = serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse HAR JSON: {}", e))?;
-        
+
         let mut events = Vec::new();
         let mut warnings = Vec::new();
         let mut entries_processed = 0u64;
-        
+
         for (idx, entry) in har.log.entries.iter().enumerate() {
             if entries_processed >= limits.max_lines_per_file {
                 warnings.push(format!("Stopped at entry {} (limit reached)", idx));
                 break;
             }
-            
+
             // Parse request event
             if let Some(event) = self.entry_to_event(entry, file, bundle_id, idx as u64) {
                 events.push(event);
             }
-            
+
             entries_processed += 1;
         }
-        
+
         // Add summary events for patterns
         let summary_events = self.detect_patterns(&har.log.entries, file, bundle_id);
         events.extend(summary_events);
-        
+
         Ok(ParseResult {
             events,
             warnings,
@@ -81,48 +82,54 @@ impl HarAdapter {
         bundle_id: &str,
         index: u64,
     ) -> Option<ImportEvent> {
-        let timestamp = parse_timestamp(&entry.started_date_time)
-            .unwrap_or_else(Utc::now);
+        let timestamp = parse_timestamp(&entry.started_date_time).unwrap_or_else(Utc::now);
         let ts_quality = if parse_timestamp(&entry.started_date_time).is_some() {
             TimestampQuality::Precise
         } else {
             TimestampQuality::Unknown
         };
-        
+
         // Extract URL parts
         let url = &entry.request.url;
         let method = &entry.request.method;
         let status = entry.response.status;
-        
+
         // Parse URL for domain
-        let domain = url.split("://")
+        let domain = url
+            .split("://")
             .nth(1)
             .and_then(|s| s.split('/').next())
             .and_then(|s| s.split(':').next())
             .unwrap_or("unknown")
             .to_string();
-        
+
         // Build tags
         let mut tags = vec!["http_request".to_string(), "network".to_string()];
-        
+
         // Add method-based tags
         if method.eq_ignore_ascii_case("POST") {
             tags.push("http_post".to_string());
         }
-        
+
         // Check for suspicious patterns
         let url_lower = url.to_lowercase();
-        if url_lower.contains(".exe") || url_lower.contains(".dll") || 
-           url_lower.contains(".ps1") || url_lower.contains(".bat") {
+        if url_lower.contains(".exe")
+            || url_lower.contains(".dll")
+            || url_lower.contains(".ps1")
+            || url_lower.contains(".bat")
+        {
             tags.push("suspicious_download".to_string());
         }
-        
+
         // Check response for auth endpoints
-        if url_lower.contains("login") || url_lower.contains("auth") || 
-           url_lower.contains("signin") || url_lower.contains("token") {
+        if url_lower.contains("login")
+            || url_lower.contains("auth")
+            || url_lower.contains("signin")
+            || url_lower.contains("token")
+        {
             tags.push("auth_endpoint".to_string());
         }
-        
+
         // Check for error statuses
         if status == 401 || status == 403 {
             tags.push("auth_failure".to_string());
@@ -130,18 +137,19 @@ impl HarAdapter {
         if status >= 500 {
             tags.push("server_error".to_string());
         }
-        
+
         // Check headers for auth tokens (redact in display but flag)
-        let has_auth_header = entry.request.headers.iter()
-            .any(|h| {
-                let name_lower = h.name.to_lowercase();
-                name_lower == "authorization" || name_lower == "cookie" || 
-                name_lower == "x-auth-token" || name_lower == "x-api-key"
-            });
+        let has_auth_header = entry.request.headers.iter().any(|h| {
+            let name_lower = h.name.to_lowercase();
+            name_lower == "authorization"
+                || name_lower == "cookie"
+                || name_lower == "x-auth-token"
+                || name_lower == "x-api-key"
+        });
         if has_auth_header {
             tags.push("has_auth_token".to_string());
         }
-        
+
         // Check content type
         let content_type = entry.response.content.mime_type.as_deref().unwrap_or("");
         if content_type.contains("javascript") {
@@ -150,45 +158,68 @@ impl HarAdapter {
         if content_type.contains("octet-stream") || content_type.contains("application/x-") {
             tags.push("binary_content".to_string());
         }
-        
+
         // Build fields
         let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
         fields.insert("url".to_string(), serde_json::json!(url));
         fields.insert("method".to_string(), serde_json::json!(method));
+        if let Some(ip) = entry
+            .server_ip_address
+            .as_deref()
+            .filter(|ip| !ip.is_empty())
+        {
+            fields.insert("server_ip".to_string(), serde_json::json!(ip));
+        }
         fields.insert("status".to_string(), serde_json::json!(status));
         fields.insert("domain".to_string(), serde_json::json!(domain));
         fields.insert("content_type".to_string(), serde_json::json!(content_type));
-        
+
         // Add timing if available
         if entry.time > 0.0 {
             fields.insert("duration_ms".to_string(), serde_json::json!(entry.time));
         }
-        
+
         // Add response size
         let response_size = entry.response.content.size.unwrap_or(0);
-        fields.insert("response_size".to_string(), serde_json::json!(response_size));
-        
+        fields.insert(
+            "response_size".to_string(),
+            serde_json::json!(response_size),
+        );
+
         // Add header count (not the actual headers for privacy)
-        fields.insert("request_header_count".to_string(), 
-            serde_json::json!(entry.request.headers.len()));
-        fields.insert("response_header_count".to_string(), 
-            serde_json::json!(entry.response.headers.len()));
-        
+        fields.insert(
+            "request_header_count".to_string(),
+            serde_json::json!(entry.request.headers.len()),
+        );
+        fields.insert(
+            "response_header_count".to_string(),
+            serde_json::json!(entry.response.headers.len()),
+        );
+
         // Redacted headers (for display - mark that auth is present but don't show value)
-        let redacted_headers: Vec<String> = entry.request.headers.iter()
+        let redacted_headers: Vec<String> = entry
+            .request
+            .headers
+            .iter()
             .map(|h| {
                 let name_lower = h.name.to_lowercase();
-                if name_lower == "authorization" || name_lower == "cookie" || 
-                   name_lower.contains("token") || name_lower.contains("key") || 
-                   name_lower.contains("secret") {
+                if name_lower == "authorization"
+                    || name_lower == "cookie"
+                    || name_lower.contains("token")
+                    || name_lower.contains("key")
+                    || name_lower.contains("secret")
+                {
                     format!("{}: [REDACTED]", h.name)
                 } else {
                     format!("{}: {}", h.name, h.value)
                 }
             })
             .collect();
-        fields.insert("headers_redacted".to_string(), serde_json::json!(redacted_headers));
-        
+        fields.insert(
+            "headers_redacted".to_string(),
+            serde_json::json!(redacted_headers),
+        );
+
         let evidence_ptr = ImportEvidencePtr {
             bundle_id: bundle_id.to_string(),
             rel_path: file.rel_path.clone(),
@@ -196,12 +227,12 @@ impl HarAdapter {
             json_path: Some(format!("$.log.entries[{}]", index)),
             byte_offset: None,
         };
-        
+
         Some(ImportEvent {
             event_id: generate_event_id(bundle_id, &file.rel_path, index),
             timestamp,
             timestamp_quality: ts_quality,
-            event_type: format!("http_{}", method.to_lowercase()),
+            event_type: "http_request".to_string(),
             source_file: file.rel_path.clone(),
             source_line: None,
             fields,
@@ -209,7 +240,7 @@ impl HarAdapter {
             tags,
         })
     }
-    
+
     /// Detect patterns across all entries (brute force, scanning, etc.)
     fn detect_patterns(
         &self,
@@ -218,49 +249,58 @@ impl HarAdapter {
         bundle_id: &str,
     ) -> Vec<ImportEvent> {
         let mut pattern_events = Vec::new();
-        
+
         // Count auth failures by domain
         let mut auth_failures: HashMap<String, u32> = HashMap::new();
         // Count status codes by domain
         let mut status_by_domain: HashMap<String, HashMap<u16, u32>> = HashMap::new();
         // Track domains
         let mut domains: HashMap<String, u32> = HashMap::new();
-        
+
         for entry in entries {
             let url = &entry.request.url;
-            let domain = url.split("://")
+            let domain = url
+                .split("://")
                 .nth(1)
                 .and_then(|s| s.split('/').next())
                 .and_then(|s| s.split(':').next())
                 .unwrap_or("unknown")
                 .to_string();
-            
+
             *domains.entry(domain.clone()).or_insert(0) += 1;
-            
+
             let status = entry.response.status;
-            
+
             // Track auth failures
             if status == 401 || status == 403 {
                 let url_lower = url.to_lowercase();
-                if url_lower.contains("login") || url_lower.contains("auth") || 
-                   url_lower.contains("signin") {
+                if url_lower.contains("login")
+                    || url_lower.contains("auth")
+                    || url_lower.contains("signin")
+                {
                     *auth_failures.entry(domain.clone()).or_insert(0) += 1;
                 }
             }
-            
+
             // Track status codes
-            *status_by_domain.entry(domain).or_default()
-                .entry(status).or_insert(0) += 1;
+            *status_by_domain
+                .entry(domain)
+                .or_default()
+                .entry(status)
+                .or_insert(0) += 1;
         }
-        
+
         // Generate brute force indicator if many auth failures
         for (domain, count) in &auth_failures {
             if *count >= 5 {
                 let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
                 fields.insert("domain".to_string(), serde_json::json!(domain));
                 fields.insert("auth_failure_count".to_string(), serde_json::json!(count));
-                fields.insert("pattern".to_string(), serde_json::json!("brute_force_indicator"));
-                
+                fields.insert(
+                    "pattern".to_string(),
+                    serde_json::json!("brute_force_indicator"),
+                );
+
                 let evidence_ptr = ImportEvidencePtr {
                     bundle_id: bundle_id.to_string(),
                     rel_path: file.rel_path.clone(),
@@ -268,9 +308,13 @@ impl HarAdapter {
                     json_path: Some("$.log.entries[*]".to_string()),
                     byte_offset: None,
                 };
-                
+
                 pattern_events.push(ImportEvent {
-                    event_id: generate_event_id(bundle_id, &file.rel_path, 100000 + pattern_events.len() as u64),
+                    event_id: generate_event_id(
+                        bundle_id,
+                        &file.rel_path,
+                        100000 + pattern_events.len() as u64,
+                    ),
                     timestamp: Utc::now(),
                     timestamp_quality: TimestampQuality::Estimated,
                     event_type: "security_pattern".to_string(),
@@ -286,7 +330,7 @@ impl HarAdapter {
                 });
             }
         }
-        
+
         // Generate scanning indicator if many 404s
         for (domain, statuses) in &status_by_domain {
             let not_found = statuses.get(&404).unwrap_or(&0);
@@ -294,8 +338,11 @@ impl HarAdapter {
                 let mut fields: HashMap<String, serde_json::Value> = HashMap::new();
                 fields.insert("domain".to_string(), serde_json::json!(domain));
                 fields.insert("404_count".to_string(), serde_json::json!(not_found));
-                fields.insert("pattern".to_string(), serde_json::json!("directory_scanning"));
-                
+                fields.insert(
+                    "pattern".to_string(),
+                    serde_json::json!("directory_scanning"),
+                );
+
                 let evidence_ptr = ImportEvidencePtr {
                     bundle_id: bundle_id.to_string(),
                     rel_path: file.rel_path.clone(),
@@ -303,9 +350,13 @@ impl HarAdapter {
                     json_path: Some("$.log.entries[*]".to_string()),
                     byte_offset: None,
                 };
-                
+
                 pattern_events.push(ImportEvent {
-                    event_id: generate_event_id(bundle_id, &file.rel_path, 200000 + pattern_events.len() as u64),
+                    event_id: generate_event_id(
+                        bundle_id,
+                        &file.rel_path,
+                        200000 + pattern_events.len() as u64,
+                    ),
                     timestamp: Utc::now(),
                     timestamp_quality: TimestampQuality::Estimated,
                     event_type: "security_pattern".to_string(),
@@ -321,7 +372,7 @@ impl HarAdapter {
                 });
             }
         }
-        
+
         pattern_events
     }
 }
@@ -379,8 +430,8 @@ pub struct HarEntry {
     pub cache: serde_json::Value,
     #[serde(default)]
     pub timings: serde_json::Value,
-    #[serde(default)]
-    pub serverIPAddress: Option<String>,
+    #[serde(default, rename = "serverIPAddress")]
+    pub server_ip_address: Option<String>,
     #[serde(default)]
     pub connection: Option<String>,
 }
@@ -394,10 +445,10 @@ pub struct HarRequest {
     #[serde(default)]
     pub cookies: Vec<HarCookie>,
     pub headers: Vec<HarHeader>,
-    #[serde(default)]
-    pub queryString: Vec<HarQueryString>,
-    #[serde(default)]
-    pub postData: Option<HarPostData>,
+    #[serde(default, rename = "queryString")]
+    pub query_string: Vec<HarQueryString>,
+    #[serde(default, rename = "postData")]
+    pub post_data: Option<HarPostData>,
     #[serde(rename = "headersSize")]
     pub headers_size: i64,
     #[serde(rename = "bodySize")]
@@ -440,7 +491,8 @@ pub struct HarCookie {
     #[serde(default)]
     pub expires: Option<String>,
     #[serde(default)]
-    pub httpOnly: Option<bool>,
+    #[serde(rename = "httpOnly")]
+    pub http_only: Option<bool>,
     #[serde(default)]
     pub secure: Option<bool>,
 }
@@ -467,9 +519,11 @@ pub struct HarParam {
     #[serde(default)]
     pub value: Option<String>,
     #[serde(default)]
-    pub fileName: Option<String>,
+    #[serde(rename = "fileName")]
+    pub file_name: Option<String>,
     #[serde(default)]
-    pub contentType: Option<String>,
+    #[serde(rename = "contentType")]
+    pub content_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -488,7 +542,7 @@ pub struct HarContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_har_parsing() {
         let har_json = r#"{
@@ -520,7 +574,7 @@ mod tests {
                 ]
             }
         }"#;
-        
+
         let har: HarFile = serde_json::from_str(har_json).unwrap();
         assert_eq!(har.log.entries.len(), 1);
         assert_eq!(har.log.entries[0].response.status, 401);

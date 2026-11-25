@@ -4,7 +4,7 @@
 //! (JSONL, HAR, Zeek logs, etc.) into a common ImportEvent structure.
 //!
 //! ## Supported Formats
-//! 
+//!
 //! ### Network & Web
 //! - **JSONL** - Generic JSON lines (Elastic, Splunk exports)
 //! - **HAR** - HTTP Archive (browser dev tools, Burp, ZAP)
@@ -12,6 +12,7 @@
 //! - **Suricata** - EVE JSON (alerts, dns, http, flow)
 //! - **Nmap** - XML scan results
 //! - **OWASP ZAP** - JSON scan reports
+//! - **Burp Suite** - XML exports of HTTP history items and scanner issues
 //!
 //! ### Endpoint
 //! - **osquery** - Query result JSON
@@ -27,19 +28,25 @@
 //! - **Shell History** - bash_history, zsh_history
 //! - **Gobuster** - Directory enumeration output
 //! - **ffuf** - Fuzzing results (JSON and text)
+//!
+//! ### Generic structured files
+//! - **YAML** - One event per document or list item
+//! - **CSV** - One event per row, columns as fields
 
-pub mod jsonl;
+pub mod atomic;
+pub mod burp;
+pub mod evtx_json;
 pub mod har;
-pub mod zeek;
+pub mod jsonl;
 pub mod nmap;
-pub mod suricata;
 pub mod osquery;
+pub mod plaintext;
+pub mod structured;
+pub mod suricata;
 pub mod velociraptor;
 pub mod yara;
 pub mod zap;
-pub mod evtx_json;
-pub mod atomic;
-pub mod plaintext;
+pub mod zeek;
 
 use crate::import_types::*;
 use std::path::Path;
@@ -52,10 +59,10 @@ use std::path::Path;
 pub trait Adapter: Send + Sync {
     /// Adapter name for logging/manifest
     fn name(&self) -> &'static str;
-    
+
     /// Check if this adapter can handle the given file
     fn can_handle(&self, file: &ManifestFile) -> bool;
-    
+
     /// Parse the file and return events
     fn parse(
         &self,
@@ -114,34 +121,36 @@ impl AdapterRegistry {
                 Box::new(jsonl::JsonlAdapter::new()),
                 Box::new(har::HarAdapter::new()),
                 Box::new(zeek::ZeekAdapter::new()),
-                
                 // Network & security tools
                 Box::new(nmap::NmapAdapter::new()),
                 Box::new(suricata::SuricataAdapter::new()),
                 Box::new(zap::ZapAdapter::new()),
-                
                 // Endpoint tools
                 Box::new(osquery::OsqueryAdapter::new()),
                 Box::new(velociraptor::VelociraptorAdapter::new()),
                 Box::new(evtx_json::EvtxJsonAdapter::new()),
-                
                 // Threat detection
                 Box::new(yara::YaraAdapter::new()),
                 Box::new(atomic::AtomicAdapter::new()),
-                
                 // Plaintext & recon (handles multiple types)
                 Box::new(plaintext::PlaintextAdapter::new()),
+                // Web scanning
+                Box::new(burp::BurpAdapter::new()),
+                // Generic structured files
+                Box::new(structured::YamlAdapter::new()),
+                Box::new(structured::CsvAdapter::new()),
             ],
         }
     }
-    
+
     /// Find adapter that can handle a file
     pub fn find_adapter(&self, file: &ManifestFile) -> Option<&dyn Adapter> {
-        self.adapters.iter()
+        self.adapters
+            .iter()
             .find(|a| a.can_handle(file))
             .map(|a| a.as_ref())
     }
-    
+
     /// Parse all files in a manifest
     pub fn parse_manifest(
         &self,
@@ -150,22 +159,22 @@ impl AdapterRegistry {
     ) -> Result<Vec<ImportEvent>, String> {
         let mut all_events = Vec::new();
         let limits = manifest.limits.clone();
-        
+
         for file in &mut manifest.files {
             if !file.kind.is_parseable() {
                 continue;
             }
-            
+
             if let Some(adapter) = self.find_adapter(file) {
                 let file_path = files_dir.join(&file.rel_path);
-                
+
                 match adapter.parse(file, &file_path, &manifest.bundle_id, &limits) {
                     Ok(result) => {
                         file.parsed = true;
                         file.parser = Some(adapter.name().to_string());
                         file.warnings = result.warnings;
                         file.events_extracted = Some(result.events.len() as u64);
-                        
+
                         all_events.extend(result.events);
                     }
                     Err(e) => {
@@ -175,11 +184,11 @@ impl AdapterRegistry {
                 }
             }
         }
-        
+
         // Update manifest summary
         manifest.summary.parsed_files = manifest.files.iter().filter(|f| f.parsed).count() as u64;
         manifest.summary.events_extracted = all_events.len() as u64;
-        
+
         Ok(all_events)
     }
 }
@@ -200,13 +209,18 @@ pub fn generate_event_id(bundle_id: &str, file_path: &str, index: u64) -> String
 
 /// Parse a timestamp string with multiple format attempts
 pub fn parse_timestamp(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
-    use chrono::{DateTime, NaiveDateTime, Utc, TimeZone};
-    
+    use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+
     // Try RFC3339 first
     if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
         return Some(dt.with_timezone(&Utc));
     }
-    
+
+    // Offsets without a colon, as Suricata writes them: 2024-01-01T00:00:02.000123+0000
+    if let Ok(dt) = DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%z") {
+        return Some(dt.with_timezone(&Utc));
+    }
+
     // Try ISO 8601 without timezone
     if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
         return Some(Utc.from_utc_datetime(&naive));
@@ -214,7 +228,7 @@ pub fn parse_timestamp(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
         return Some(Utc.from_utc_datetime(&naive));
     }
-    
+
     // Try common formats
     if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S%.f") {
         return Some(Utc.from_utc_datetime(&naive));
@@ -222,7 +236,7 @@ pub fn parse_timestamp(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
         return Some(Utc.from_utc_datetime(&naive));
     }
-    
+
     // Try Unix timestamp (seconds or milliseconds)
     if let Ok(ts) = s.parse::<i64>() {
         if ts > 1_000_000_000_000 {
@@ -233,14 +247,14 @@ pub fn parse_timestamp(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
             return Utc.timestamp_opt(ts, 0).single();
         }
     }
-    
+
     // Try Unix timestamp as float
     if let Ok(ts) = s.parse::<f64>() {
         let secs = ts.trunc() as i64;
         let nanos = ((ts.fract()) * 1_000_000_000.0) as u32;
         return Utc.timestamp_opt(secs, nanos).single();
     }
-    
+
     None
 }
 
@@ -268,7 +282,7 @@ pub fn extract_timestamp(
             }
         }
     }
-    
+
     // No timestamp found, use now
     (chrono::Utc::now(), TimestampQuality::Unknown)
 }

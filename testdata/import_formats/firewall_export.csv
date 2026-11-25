@@ -1,0 +1,3 @@
+Timestamp,Action,SourceIp,DestinationIp,DestinationPort,Protocol,Rule
+2024-01-01T00:04:00Z,deny,203.0.113.50,10.0.0.5,3389,TCP,Block RDP from internet
+2024-01-01T00:04:10Z,allow,10.0.0.5,198.51.100.7,443,TCP,Allow outbound HTTPS

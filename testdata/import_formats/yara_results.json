@@ -1,0 +1,21 @@
+[
+  {
+    "rule": "Mimikatz_Strings",
+    "namespace": "default",
+    "tags": [
+      "credential_access"
+    ],
+    "meta": {
+      "author": "lab",
+      "severity": "high"
+    },
+    "file": "C:\\Users\\Public\\payload.dll",
+    "strings": [
+      {
+        "identifier": "$s1",
+        "offset": 6699,
+        "data": "sekurlsa::logonpasswords"
+      }
+    ]
+  }
+]

@@ -1,0 +1,4 @@
+Mimikatz_Strings C:\Users\Public\payload.dll
+0x1a2b:$s1: sekurlsa::logonpasswords
+0x2c3d:$s2: privilege::debug
+CobaltStrike_Beacon C:\Windows\Temp\beacon.bin

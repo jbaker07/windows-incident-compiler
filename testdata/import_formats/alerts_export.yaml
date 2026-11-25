@@ -1,0 +1,27 @@
+# Alerts exported from a VPN gateway, then a pod spec seized from the cluster
+- timestamp: "2024-01-01T00:03:00Z"
+  event_type: login_failure
+  user:
+    name: admin
+  source:
+    ip: 203.0.113.50
+  host:
+    name: vpn-gw-01
+- timestamp: "2024-01-01T00:03:05Z"
+  event_type: login_success
+  user:
+    name: admin
+  source:
+    ip: 203.0.113.50
+  host:
+    name: vpn-gw-01
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: miner
+  namespace: default
+spec:
+  containers:
+    - name: xmrig
+      image: xmrig/xmrig:latest

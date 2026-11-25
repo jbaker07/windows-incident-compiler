@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!DOCTYPE issues [
+<!ELEMENT issues (issue*)>
+<!ATTLIST issues burpVersion CDATA "">
+<!ATTLIST issues exportTime CDATA "">
+]>
+<issues burpVersion="2023.10.3" exportTime="Mon Jan 01 00:01:00 UTC 2024">
+  <issue>
+    <serialNumber>8392016473921</serialNumber>
+    <type>1049088</type>
+    <name>SQL injection</name>
+    <host ip="203.0.113.10">https://app.example.com</host>
+    <path><![CDATA[/login]]></path>
+    <location><![CDATA[/login [pass parameter]]]></location>
+    <severity>High</severity>
+    <confidence>Firm</confidence>
+    <issueBackground><![CDATA[<p>SQL injection vulnerabilities arise when user-controllable data is incorporated into database SQL queries in an unsafe manner.</p>]]></issueBackground>
+    <remediationBackground><![CDATA[<p>Use parameterized queries.</p>]]></remediationBackground>
+    <vulnerabilityClassifications><![CDATA[<ul>
+<li><a href="https://cwe.mitre.org/data/definitions/89.html">CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')</a></li>
+<li><a href="https://cwe.mitre.org/data/definitions/94.html">CWE-94: Improper Control of Generation of Code ('Code Injection')</a></li>
+</ul>]]></vulnerabilityClassifications>
+    <issueDetail><![CDATA[The <b>pass</b> parameter appears to be vulnerable to SQL injection attacks.]]></issueDetail>
+  </issue>
+  <issue>
+    <serialNumber>8392016473922</serialNumber>
+    <type>5245344</type>
+    <name>Frameable response (potential Clickjacking)</name>
+    <host ip="203.0.113.10">https://app.example.com</host>
+    <path><![CDATA[/dashboard]]></path>
+    <location><![CDATA[/dashboard]]></location>
+    <severity>Information</severity>
+    <confidence>Firm</confidence>
+    <vulnerabilityClassifications><![CDATA[<ul><li><a href="https://cwe.mitre.org/data/definitions/693.html">CWE-693: Protection Mechanism Failure</a></li></ul>]]></vulnerabilityClassifications>
+  </issue>
+</issues>

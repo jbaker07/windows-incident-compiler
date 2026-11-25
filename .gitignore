@@ -4,6 +4,8 @@ logs/
 state/
 json_files/
 *.log
+# Zeek log samples the import format tests read
+!testdata/import_formats/*.log
 *.out
 *.err
 *errors*.txt

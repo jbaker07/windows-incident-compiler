@@ -1,0 +1,2 @@
+{"@timestamp": "2024-01-01T00:02:00Z", "host": {"name": "WS01"}, "event": {"action": "process_start"}, "process": {"name": "rundll32.exe", "command_line": "rundll32.exe C:\\Users\\Public\\payload.dll,Start", "pid": 5555}, "user": {"name": "alice"}, "source": {"ip": "10.0.0.5"}}
+{"@timestamp": "2024-01-01T00:02:05Z", "host": {"name": "WS01"}, "event": {"action": "network_connection"}, "process": {"name": "rundll32.exe", "pid": 5555}, "destination": {"ip": "198.51.100.7", "port": 443}, "user": {"name": "alice"}}

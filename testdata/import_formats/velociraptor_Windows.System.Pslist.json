@@ -1,0 +1,2 @@
+{"Pid": 4321, "Ppid": 1200, "TokenIsElevated": true, "Name": "powershell.exe", "CommandLine": "powershell.exe -nop -w hidden -enc SQBFAFgA", "Exe": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "Username": "WS01\\alice", "CreateTime": "2024-01-01T00:00:09Z"}
+{"Pid": 1200, "Ppid": 800, "TokenIsElevated": false, "Name": "cmd.exe", "CommandLine": "cmd.exe /c start powershell", "Exe": "C:\\Windows\\System32\\cmd.exe", "Username": "WS01\\alice", "CreateTime": "2024-01-01T00:00:08Z"}

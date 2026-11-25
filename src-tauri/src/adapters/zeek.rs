@@ -3,15 +3,16 @@
 //! Zeek produces TSV-format logs with a specific header structure.
 //! This adapter handles conn.log, dns.log, http.log, ssl.log, files.log etc.
 
-use crate::adapters::{Adapter, ParseResult, generate_event_id, parse_timestamp};
+use crate::adapters::{generate_event_id, Adapter, ParseResult};
 use crate::import_types::*;
+use chrono::{TimeZone, Utc};
 use std::collections::HashMap;
-use std::path::Path;
-use std::io::{BufRead, BufReader};
 use std::fs::File;
-use chrono::{DateTime, Utc, TimeZone};
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 /// Zeek adapter for TSV-format logs
+#[derive(Default)]
 pub struct ZeekAdapter;
 
 impl ZeekAdapter {
@@ -24,14 +25,19 @@ impl Adapter for ZeekAdapter {
     fn name(&self) -> &'static str {
         "zeek"
     }
-    
+
     fn can_handle(&self, file: &ManifestFile) -> bool {
-        matches!(file.kind, 
-            FileKind::ZeekConn | FileKind::ZeekDns | FileKind::ZeekHttp | 
-            FileKind::ZeekSsl | FileKind::ZeekFiles | FileKind::Zeek
+        matches!(
+            file.kind,
+            FileKind::ZeekConn
+                | FileKind::ZeekDns
+                | FileKind::ZeekHttp
+                | FileKind::ZeekSsl
+                | FileKind::ZeekFiles
+                | FileKind::ZeekOther
         )
     }
-    
+
     fn parse(
         &self,
         file: &ManifestFile,
@@ -39,24 +45,23 @@ impl Adapter for ZeekAdapter {
         bundle_id: &str,
         limits: &ImportLimits,
     ) -> Result<ParseResult, String> {
-        let f = File::open(file_path)
-            .map_err(|e| format!("Failed to open Zeek file: {}", e))?;
+        let f = File::open(file_path).map_err(|e| format!("Failed to open Zeek file: {}", e))?;
         let reader = BufReader::new(f);
-        
+
         let mut events = Vec::new();
         let mut warnings = Vec::new();
         let mut entries_processed = 0u64;
         let mut entries_skipped = 0u64;
-        
+
         // Parse Zeek header to get field names
         let mut separator = "\t".to_string();
         let mut fields: Vec<String> = Vec::new();
         let mut types: Vec<String> = Vec::new();
         let mut line_no = 0u64;
-        
+
         for line_result in reader.lines() {
             line_no += 1;
-            
+
             let line = match line_result {
                 Ok(l) => l,
                 Err(e) => {
@@ -65,7 +70,7 @@ impl Adapter for ZeekAdapter {
                     continue;
                 }
             };
-            
+
             // Parse header lines
             if line.starts_with("#separator") {
                 // #separator \x09
@@ -74,13 +79,18 @@ impl Adapter for ZeekAdapter {
                 }
                 continue;
             }
-            if line.starts_with("#set_separator") || line.starts_with("#empty_field") ||
-               line.starts_with("#unset_field") || line.starts_with("#path") ||
-               line.starts_with("#open") || line.starts_with("#close") {
+            if line.starts_with("#set_separator")
+                || line.starts_with("#empty_field")
+                || line.starts_with("#unset_field")
+                || line.starts_with("#path")
+                || line.starts_with("#open")
+                || line.starts_with("#close")
+            {
                 continue;
             }
             if line.starts_with("#fields") {
-                fields = line.strip_prefix("#fields")
+                fields = line
+                    .strip_prefix("#fields")
                     .unwrap_or("")
                     .split(&separator)
                     .map(|s| s.trim().to_string())
@@ -89,7 +99,8 @@ impl Adapter for ZeekAdapter {
                 continue;
             }
             if line.starts_with("#types") {
-                types = line.strip_prefix("#types")
+                types = line
+                    .strip_prefix("#types")
                     .unwrap_or("")
                     .split(&separator)
                     .map(|s| s.trim().to_string())
@@ -101,28 +112,32 @@ impl Adapter for ZeekAdapter {
                 // Unknown header, skip
                 continue;
             }
-            
+
             // Data line - ensure we have fields
             if fields.is_empty() {
                 warnings.push(format!("Line {}: no #fields header found", line_no));
                 entries_skipped += 1;
                 continue;
             }
-            
+
             if entries_processed >= limits.max_lines_per_file {
                 warnings.push(format!("Stopped at line {} (limit reached)", line_no));
                 break;
             }
-            
+
             // Parse data row
             let values: Vec<&str> = line.split(&separator).collect();
             if values.len() != fields.len() {
-                warnings.push(format!("Line {}: field count mismatch ({} vs {})", 
-                    line_no, values.len(), fields.len()));
+                warnings.push(format!(
+                    "Line {}: field count mismatch ({} vs {})",
+                    line_no,
+                    values.len(),
+                    fields.len()
+                ));
                 entries_skipped += 1;
                 continue;
             }
-            
+
             // Build field map
             let mut field_map: HashMap<String, serde_json::Value> = HashMap::new();
             for (i, field_name) in fields.iter().enumerate() {
@@ -130,27 +145,38 @@ impl Adapter for ZeekAdapter {
                 if value == "-" || value == "(empty)" {
                     continue; // Skip unset fields
                 }
-                
+
                 // Try to parse based on field type if available
                 let parsed = if i < types.len() {
                     parse_zeek_value(value, &types[i])
                 } else {
                     serde_json::Value::String(value.to_string())
                 };
-                
+
                 field_map.insert(field_name.clone(), parsed);
             }
-            
+
+            // Endpoint names the Suricata adapter also uses
+            for (zeek_name, common) in [
+                ("id.orig_h", "src_ip"),
+                ("id.orig_p", "src_port"),
+                ("id.resp_h", "dest_ip"),
+                ("id.resp_p", "dest_port"),
+            ] {
+                if let Some(v) = field_map.get(zeek_name).cloned() {
+                    field_map.entry(common.to_string()).or_insert(v);
+                }
+            }
+
             // Create event
-            if let Some(event) = self.row_to_event(
-                &field_map, &file.kind, file, bundle_id, line_no
-            ) {
+            if let Some(event) = self.row_to_event(&field_map, &file.kind, file, bundle_id, line_no)
+            {
                 events.push(event);
             }
-            
+
             entries_processed += 1;
         }
-        
+
         Ok(ParseResult {
             events,
             warnings,
@@ -171,35 +197,37 @@ impl ZeekAdapter {
         line_no: u64,
     ) -> Option<ImportEvent> {
         // Extract timestamp (Zeek uses 'ts' field as Unix epoch float)
-        let timestamp = field_map.get("ts")
+        let timestamp = field_map
+            .get("ts")
             .and_then(|v| v.as_f64())
-            .map(|ts| {
+            .and_then(|ts| {
                 let secs = ts as i64;
                 let nanos = ((ts - secs as f64) * 1_000_000_000.0) as u32;
                 Utc.timestamp_opt(secs, nanos).single()
             })
-            .flatten()
             .unwrap_or_else(Utc::now);
-        
+
         let ts_quality = if field_map.contains_key("ts") {
             TimestampQuality::Precise
         } else {
             TimestampQuality::Unknown
         };
-        
-        // Determine event type based on file kind
+
+        // Event type by log, named as the Suricata adapter names the same
+        // traffic, so a timeline mixes both sources.
         let event_type = match kind {
-            FileKind::ZeekConn => "zeek_conn",
-            FileKind::ZeekDns => "zeek_dns",
-            FileKind::ZeekHttp => "zeek_http",
-            FileKind::ZeekSsl => "zeek_ssl",
-            FileKind::ZeekFiles => "zeek_files",
+            FileKind::ZeekConn => "netflow",
+            FileKind::ZeekDns => "dns_query",
+            FileKind::ZeekHttp => "http_txn",
+            FileKind::ZeekSsl => "tls_handshake",
+            FileKind::ZeekFiles => "file_transfer",
             _ => "zeek_log",
-        }.to_string();
-        
+        }
+        .to_string();
+
         // Build tags based on content
         let mut tags = vec!["zeek".to_string(), "network".to_string()];
-        
+
         match kind {
             FileKind::ZeekConn => {
                 tags.push("connection".to_string());
@@ -246,8 +274,11 @@ impl ZeekAdapter {
                     }
                     // Check for suspicious TLDs
                     let query_lower = query.to_lowercase();
-                    if query_lower.ends_with(".xyz") || query_lower.ends_with(".top") ||
-                       query_lower.ends_with(".tk") || query_lower.ends_with(".ml") {
+                    if query_lower.ends_with(".xyz")
+                        || query_lower.ends_with(".top")
+                        || query_lower.ends_with(".tk")
+                        || query_lower.ends_with(".ml")
+                    {
                         tags.push("suspicious_tld".to_string());
                     }
                 }
@@ -263,16 +294,21 @@ impl ZeekAdapter {
                 // Check for suspicious URIs
                 if let Some(uri) = field_map.get("uri").and_then(|v| v.as_str()) {
                     let uri_lower = uri.to_lowercase();
-                    if uri_lower.contains(".exe") || uri_lower.contains(".dll") ||
-                       uri_lower.contains(".ps1") || uri_lower.contains(".bat") {
+                    if uri_lower.contains(".exe")
+                        || uri_lower.contains(".dll")
+                        || uri_lower.contains(".ps1")
+                        || uri_lower.contains(".bat")
+                    {
                         tags.push("suspicious_download".to_string());
                     }
                 }
                 // Check user agent
                 if let Some(ua) = field_map.get("user_agent").and_then(|v| v.as_str()) {
                     let ua_lower = ua.to_lowercase();
-                    if ua_lower.contains("powershell") || ua_lower.contains("wget") ||
-                       ua_lower.contains("curl") {
+                    if ua_lower.contains("powershell")
+                        || ua_lower.contains("wget")
+                        || ua_lower.contains("curl")
+                    {
                         tags.push("script_ua".to_string());
                     }
                 }
@@ -286,7 +322,9 @@ impl ZeekAdapter {
             FileKind::ZeekSsl => {
                 tags.push("ssl".to_string());
                 // Check for self-signed or expired certs
-                if let Some(validation) = field_map.get("validation_status").and_then(|v| v.as_str()) {
+                if let Some(validation) =
+                    field_map.get("validation_status").and_then(|v| v.as_str())
+                {
                     if validation.contains("self signed") || validation.contains("expired") {
                         tags.push("cert_issue".to_string());
                     }
@@ -303,8 +341,10 @@ impl ZeekAdapter {
                 // Check mime type
                 if let Some(mime) = field_map.get("mime_type").and_then(|v| v.as_str()) {
                     let mime_lower = mime.to_lowercase();
-                    if mime_lower.contains("executable") || mime_lower.contains("x-msdownload") ||
-                       mime_lower.contains("x-msdos") {
+                    if mime_lower.contains("executable")
+                        || mime_lower.contains("x-msdownload")
+                        || mime_lower.contains("x-msdos")
+                    {
                         tags.push("executable".to_string());
                     }
                     if mime_lower.contains("javascript") {
@@ -318,7 +358,7 @@ impl ZeekAdapter {
             }
             _ => {}
         }
-        
+
         let evidence_ptr = ImportEvidencePtr {
             bundle_id: bundle_id.to_string(),
             rel_path: file.rel_path.clone(),
@@ -326,7 +366,7 @@ impl ZeekAdapter {
             json_path: None,
             byte_offset: None,
         };
-        
+
         Some(ImportEvent {
             event_id: generate_event_id(bundle_id, &file.rel_path, line_no),
             timestamp,
@@ -356,23 +396,20 @@ fn parse_zeek_value(value: &str, type_str: &str) -> serde_json::Value {
     match type_str {
         "time" => {
             // Unix timestamp as float
-            value.parse::<f64>()
+            value
+                .parse::<f64>()
                 .map(serde_json::Value::from)
                 .unwrap_or_else(|_| serde_json::Value::String(value.to_string()))
         }
-        "interval" | "double" => {
-            value.parse::<f64>()
-                .map(serde_json::Value::from)
-                .unwrap_or_else(|_| serde_json::Value::String(value.to_string()))
-        }
-        "count" | "int" | "port" => {
-            value.parse::<i64>()
-                .map(serde_json::Value::from)
-                .unwrap_or_else(|_| serde_json::Value::String(value.to_string()))
-        }
-        "bool" => {
-            serde_json::Value::Bool(value == "T" || value == "true")
-        }
+        "interval" | "double" => value
+            .parse::<f64>()
+            .map(serde_json::Value::from)
+            .unwrap_or_else(|_| serde_json::Value::String(value.to_string())),
+        "count" | "int" | "port" => value
+            .parse::<i64>()
+            .map(serde_json::Value::from)
+            .unwrap_or_else(|_| serde_json::Value::String(value.to_string())),
+        "bool" => serde_json::Value::Bool(value == "T" || value == "true"),
         "set[string]" | "vector[string]" => {
             // Comma-separated values
             let items: Vec<serde_json::Value> = value
@@ -381,40 +418,29 @@ fn parse_zeek_value(value: &str, type_str: &str) -> serde_json::Value {
                 .collect();
             serde_json::Value::Array(items)
         }
-        "addr" | "string" | _ => {
-            serde_json::Value::String(value.to_string())
-        }
+        _ => serde_json::Value::String(value.to_string()),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_separator() {
         assert_eq!(parse_separator("\\x09"), "\t");
         assert_eq!(parse_separator("\\x2c"), ",");
         assert_eq!(parse_separator(","), ",");
     }
-    
+
     #[test]
     fn test_parse_zeek_value() {
         assert_eq!(
             parse_zeek_value("1234567890.123456", "time"),
             serde_json::json!(1234567890.123456)
         );
-        assert_eq!(
-            parse_zeek_value("443", "port"),
-            serde_json::json!(443)
-        );
-        assert_eq!(
-            parse_zeek_value("T", "bool"),
-            serde_json::json!(true)
-        );
-        assert_eq!(
-            parse_zeek_value("F", "bool"),
-            serde_json::json!(false)
-        );
+        assert_eq!(parse_zeek_value("443", "port"), serde_json::json!(443));
+        assert_eq!(parse_zeek_value("T", "bool"), serde_json::json!(true));
+        assert_eq!(parse_zeek_value("F", "bool"), serde_json::json!(false));
     }
 }

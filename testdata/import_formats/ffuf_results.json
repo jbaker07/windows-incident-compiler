@@ -1,0 +1,46 @@
+{
+  "commandline": "ffuf -u http://10.10.10.5/FUZZ -w common.txt -o ffuf_results.json",
+  "time": "2024-01-01T00:01:00Z",
+  "results": [
+    {
+      "input": {
+        "FFUFHASH": "a1b2",
+        "FUZZ": "admin"
+      },
+      "position": 12,
+      "status": 301,
+      "length": 178,
+      "words": 6,
+      "lines": 8,
+      "content-type": "text/html",
+      "redirectlocation": "http://10.10.10.5/admin/",
+      "scraper": {},
+      "duration": 12345678,
+      "resultfile": "",
+      "url": "http://10.10.10.5/admin",
+      "host": "10.10.10.5"
+    },
+    {
+      "input": {
+        "FFUFHASH": "a1b3",
+        "FUZZ": "backup.zip"
+      },
+      "position": 40,
+      "status": 200,
+      "length": 10485,
+      "words": 20,
+      "lines": 3,
+      "content-type": "application/zip",
+      "redirectlocation": "",
+      "scraper": {},
+      "duration": 2345678,
+      "resultfile": "",
+      "url": "http://10.10.10.5/backup.zip",
+      "host": "10.10.10.5"
+    }
+  ],
+  "config": {
+    "url": "http://10.10.10.5/FUZZ",
+    "method": "GET"
+  }
+}

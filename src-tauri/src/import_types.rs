@@ -132,13 +132,16 @@ pub enum FileKind {
 }
 
 impl FileKind {
-    /// Check if this file kind should be parsed
+    /// Check if this file kind should be parsed: an adapter in
+    /// `crate::adapters` handles it.
     pub fn is_parseable(&self) -> bool {
         matches!(
             self,
             FileKind::Jsonl
                 | FileKind::Json
                 | FileKind::Yaml
+                | FileKind::Csv
+                | FileKind::BurpXml
                 | FileKind::Har
                 | FileKind::ZeekConn
                 | FileKind::ZeekDns
@@ -146,7 +149,6 @@ impl FileKind {
                 | FileKind::ZeekSsl
                 | FileKind::ZeekFiles
                 | FileKind::ZeekOther
-                | FileKind::Csv
                 | FileKind::Text
                 | FileKind::NmapXml
                 | FileKind::SuricataEve
@@ -155,7 +157,6 @@ impl FileKind {
                 | FileKind::YaraJson
                 | FileKind::YaraText
                 | FileKind::ZapJson
-                | FileKind::BurpXml
                 | FileKind::EvtxJson
                 | FileKind::AtomicOutput
                 | FileKind::PsTranscript

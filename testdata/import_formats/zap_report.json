@@ -1,0 +1,67 @@
+{
+  "@programName": "ZAP",
+  "@version": "2.14.0",
+  "@generated": "Mon, 1 Jan 2024 00:00:20",
+  "site": [
+    {
+      "@name": "https://app.example.com",
+      "@host": "app.example.com",
+      "@port": "443",
+      "@ssl": "true",
+      "alerts": [
+        {
+          "pluginid": "40018",
+          "alertRef": "40018",
+          "alert": "SQL Injection",
+          "name": "SQL Injection",
+          "riskcode": "3",
+          "confidence": "2",
+          "riskdesc": "High (Medium)",
+          "desc": "<p>SQL injection may be possible.</p>",
+          "instances": [
+            {
+              "uri": "https://app.example.com/login",
+              "method": "POST",
+              "param": "pass",
+              "attack": "' OR '1'='1",
+              "evidence": ""
+            }
+          ],
+          "count": "1",
+          "solution": "<p>Use prepared statements.</p>",
+          "otherinfo": "",
+          "reference": "<p>https://owasp.org/www-community/attacks/SQL_Injection</p>",
+          "cweid": "89",
+          "wascid": "19",
+          "sourceid": "1"
+        },
+        {
+          "pluginid": "10021",
+          "alertRef": "10021",
+          "alert": "X-Content-Type-Options Header Missing",
+          "name": "X-Content-Type-Options Header Missing",
+          "riskcode": "1",
+          "confidence": "2",
+          "riskdesc": "Low (Medium)",
+          "desc": "<p>The Anti-MIME-Sniffing header is not set.</p>",
+          "instances": [
+            {
+              "uri": "https://app.example.com/api/users?id=1",
+              "method": "GET",
+              "param": "x-content-type-options",
+              "attack": "",
+              "evidence": ""
+            }
+          ],
+          "count": "1",
+          "solution": "<p>Set the header.</p>",
+          "otherinfo": "",
+          "reference": "",
+          "cweid": "693",
+          "wascid": "15",
+          "sourceid": "3"
+        }
+      ]
+    }
+  ]
+}

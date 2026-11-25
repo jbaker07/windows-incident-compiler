@@ -1,0 +1,10 @@
+#separator \x09
+#set_separator	,
+#empty_field	(empty)
+#unset_field	-
+#path	http
+#open	2024-01-01-00-00-00
+#fields	ts	uid	id.orig_h	id.orig_p	id.resp_h	id.resp_p	trans_depth	method	host	uri	referrer	version	user_agent	origin	request_body_len	response_body_len	status_code	status_msg	info_code	info_msg	tags	username	password	proxied	orig_fuids	orig_filenames	orig_mime_types	resp_fuids	resp_filenames	resp_mime_types
+#types	time	string	addr	port	addr	port	count	string	string	string	string	string	string	string	count	count	count	string	count	string	set[enum]	string	string	set[string]	vector[string]	vector[string]	vector[string]	vector[string]	vector[string]	vector[string]
+1704067202.000000	CmES5u32sYpV7JYN	10.0.0.5	49160	198.51.100.7	80	1	GET	evil-c2.example	/payload.ps1	-	1.1	Mozilla/5.0 (Windows NT; Windows NT 10.0) WindowsPowerShell/5.1	-	0	4512	200	OK	-	-	(empty)	-	-	-	-	-	-	FHUsSu3rWdP07eRE4l	-	text/plain
+#close	2024-01-01-00-10-00
