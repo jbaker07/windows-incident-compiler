@@ -1,7 +1,9 @@
 [package]
 name = "edr-server"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "HTTP API server for the attack documentation workbench"
 
 [lib]
@@ -30,6 +32,7 @@ workbench = { path = "../workbench" }
 
 # Web framework
 axum = "0.7"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }  # server sent event streams
 tower-http = { version = "0.5", features = ["cors", "fs", "set-header"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "signal", "time", "fs"] }
 hyper = "1"
@@ -63,7 +66,6 @@ genpdf = "0.2"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 regex = "1"
 sha2 = "0.10"
-tempfile = "3"
 
 # License generation (for license_gen binary only)
 ed25519-dalek = "2"

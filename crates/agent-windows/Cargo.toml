@@ -1,7 +1,9 @@
 [package]
 name = "agent-windows"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Windows capture agent using ETW"
 
 [features]
@@ -29,17 +31,15 @@ edr-core = { path = "../core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "fs", "io-util", "sync", "time"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hostname = "0.4"
 anyhow = "1"
 sha2 = "0.10"
 uuid = { version = "1", features = ["v4", "serde"] }
-ctrlc = "3.4"
 
 # Windows specific
 [target.'cfg(target_os = "windows")'.dependencies]
+# Ctrl-C handling in the capture binary, which only captures on Windows
+ctrlc = "3.4"
 windows = { version = "0.54", features = [
     "Win32_System_EventLog",
     "Win32_System_Memory",
