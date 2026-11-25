@@ -64,6 +64,13 @@ pub fn extract_facts(event: &Event) -> Vec<Fact> {
                 }
             }
 
+            // Kerberos service ticket requests (4769)
+            "kerberos_ticket" => {
+                if let Some(fact) = extract_kerberos_ticket_fact(event, &host_id, &evidence) {
+                    facts.push(fact);
+                }
+            }
+
             // Share access (5140)
             "network_access" | "share_access" => {
                 if let Some(fact) = extract_share_access_fact(event, &host_id, &evidence) {
@@ -158,6 +165,13 @@ pub fn extract_facts(event: &Event) -> Vec<Fact> {
             // === NEW: Remote thread creation (Sysmon 8) ===
             "remote_thread" => {
                 if let Some(fact) = extract_injection_fact(event, &host_id, &evidence) {
+                    facts.push(fact);
+                }
+            }
+
+            // Process image tampering, such as hollowing (Sysmon 25)
+            "process_tamper" => {
+                if let Some(fact) = extract_process_tamper_fact(event, &host_id, &evidence) {
                     facts.push(fact);
                 }
             }
@@ -492,9 +506,12 @@ fn extract_auth_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Op
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    // Check if success (4624) or failure (4625)
-    let success =
-        !event.tags.contains(&"failed".to_string()) && !event.tags.contains(&"4625".to_string());
+    // Failure is event 4625. Older callers marked failures with a tag instead.
+    let success = event_id_of(event) != Some(4625)
+        && !event
+            .tags
+            .iter()
+            .any(|t| t == "failed" || t == "logon_failed" || t == "4625");
 
     let fact = Fact::new(
         host_id,
@@ -703,13 +720,15 @@ fn extract_registry_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -
 
 /// Extract WMI persistence fact (Sysmon 19, 20, 21)
 fn extract_wmi_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) -> Option<Fact> {
-    // WMI persistence creates filter+consumer+binding
-    let wmi_type = if event.tags.contains(&"filter".to_string()) {
-        "WmiEventFilter"
-    } else if event.tags.contains(&"consumer".to_string()) {
-        "WmiEventConsumer"
-    } else {
-        "WmiFilterToConsumerBinding"
+    // WMI persistence creates filter+consumer+binding. Sysmon reports them as
+    // events 19, 20 and 21. Tags are honored for callers that set them.
+    let wmi_type = match event_id_of(event) {
+        Some(19) => "WmiEventFilter",
+        Some(20) => "WmiEventConsumer",
+        Some(21) => "WmiFilterToConsumerBinding",
+        _ if event.tags.contains(&"filter".to_string()) => "WmiEventFilter",
+        _ if event.tags.contains(&"consumer".to_string()) => "WmiEventConsumer",
+        _ => "WmiFilterToConsumerBinding",
     };
 
     let name = event
@@ -986,6 +1005,104 @@ fn extract_injection_fact(event: &Event, host_id: &str, evidence: &EvidencePtr) 
     );
 
     Some(fact)
+}
+
+/// Extract process tampering fact (Sysmon 25). Sysmon raises it when a
+/// process image in memory no longer matches the file on disk, which is what
+/// process hollowing and similar techniques look like.
+fn extract_process_tamper_fact(
+    event: &Event,
+    host_id: &str,
+    evidence: &EvidencePtr,
+) -> Option<Fact> {
+    let image = event
+        .fields
+        .get("Image")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let proc_key = event
+        .fields
+        .get("ProcessGuid")
+        .or_else(|| event.fields.get("ProcessId"))
+        .and_then(|v| {
+            v.as_str()
+                .map(|s| s.to_string())
+                .or_else(|| v.as_u64().map(|n| n.to_string()))
+        })
+        .unwrap_or_else(|| image.clone());
+
+    let fact = Fact::new(
+        host_id,
+        ScopeKey::Process {
+            key: proc_key.clone(),
+        },
+        FactType::Injection {
+            source_proc_key: proc_key.clone(),
+            target_proc_key: proc_key,
+            injection_type: InjectionType::ProcessHollowing,
+        },
+        vec![evidence.clone()],
+    );
+
+    Some(fact)
+}
+
+/// Extract Kerberos service ticket request fact (4769). The account that asked
+/// for the ticket is the user. Status 0x0 means the ticket was issued.
+fn extract_kerberos_ticket_fact(
+    event: &Event,
+    host_id: &str,
+    evidence: &EvidencePtr,
+) -> Option<Fact> {
+    let user = event
+        .fields
+        .get("TargetUserName")
+        .or_else(|| event.fields.get("user"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let source_ip = event
+        .fields
+        .get("IpAddress")
+        .or_else(|| event.fields.get("source_ip"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim_start_matches("::ffff:").to_string());
+
+    let success = event
+        .fields
+        .get("Status")
+        .and_then(|v| v.as_str())
+        .map(|s| s.eq_ignore_ascii_case("0x0") || s == "0")
+        .unwrap_or(true);
+
+    let fact = Fact::new(
+        host_id,
+        ScopeKey::User { key: user.clone() },
+        FactType::AuthEvent {
+            auth_type: AuthType::Other("kerberos_service_ticket".to_string()),
+            user,
+            source: source_ip,
+            success,
+        },
+        vec![evidence.clone()],
+    );
+
+    Some(fact)
+}
+
+/// Windows event ID of an event, from the capture field.
+fn event_id_of(event: &Event) -> Option<u32> {
+    event
+        .fields
+        .get("windows.event_id")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+        })
+        .map(|v| v as u32)
 }
 
 /// Extract RDP session fact (Terminal Services events)

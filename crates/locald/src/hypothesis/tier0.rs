@@ -292,12 +292,10 @@ impl SuppressionChecker {
                     };
                 }
             }
-            SuppressionTarget::Hypothesis { .. } => {
-                if !self.policy.allow_hypothesis_suppression {
-                    return SuppressionCheckResult::Denied {
-                        reason: SuppressionDenialReason::HypothesisSuppressionDisabled,
-                    };
-                }
+            SuppressionTarget::Hypothesis { .. } if !self.policy.allow_hypothesis_suppression => {
+                return SuppressionCheckResult::Denied {
+                    reason: SuppressionDenialReason::HypothesisSuppressionDisabled,
+                };
             }
             _ => {}
         }

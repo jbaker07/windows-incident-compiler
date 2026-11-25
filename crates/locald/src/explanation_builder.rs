@@ -5,6 +5,7 @@
 
 use crate::evidence_deref::{deref_evidence, DerefResult};
 use crate::hypothesis::{EvidencePtr as HypEvidencePtr, Fact, FactType, HypothesisState, Incident};
+use crate::playbook::{Playbook, PlaybookMatch};
 use crate::slot_matcher::PlaybookDef;
 use edr_core::{
     EntityBundle, EvidenceExcerpt, EvidencePtr, ExplanationBundle, ExplanationCounters,
@@ -53,6 +54,191 @@ pub fn build_explanation_from_hypothesis(
         .counters(counters)
         .limitations(limitations)
         .build()
+}
+
+/// Build an ExplanationBundle for a signal produced by a YAML playbook rule.
+///
+/// Each rule step becomes one slot: a single event or count rule has one slot,
+/// a sequence rule has two. The predicate text is the rule conditions in plain
+/// words, and the matched facts point back to the segment records.
+pub fn build_explanation_from_match(
+    m: &PlaybookMatch,
+    playbook: &Playbook,
+    telemetry_root: &Path,
+) -> ExplanationBundle {
+    let rule = playbook.rules.iter().find(|r| r.name == m.rule_name);
+
+    let mut steps = Vec::new();
+    if let Some(rule) = rule {
+        steps.push((1u8, rule.first.describe()));
+        if let Some(then) = &rule.then {
+            steps.push((2u8, then.describe()));
+        }
+    } else {
+        steps.push((1u8, m.rule_name.clone()));
+    }
+    let window = rule.map(|r| r.window_seconds).unwrap_or(0);
+
+    let slots: Vec<SlotExplanation> = steps
+        .iter()
+        .map(|(step, desc)| {
+            let matched: Vec<MatchedFact> = m
+                .facts
+                .iter()
+                .filter(|f| f.step == *step)
+                .map(|f| {
+                    MatchedFact::new(
+                        &f.fact.fact_id,
+                        fact_type_name(&f.fact.fact_type),
+                        f.fact.ts.timestamp_millis(),
+                    )
+                    .with_entity_keys(extract_entity_keys(&f.fact))
+                    .with_evidence_ptrs(
+                        f.fact
+                            .evidence_ptrs
+                            .iter()
+                            .map(convert_evidence_ptr)
+                            .collect(),
+                    )
+                })
+                .collect();
+            let status = if matched.is_empty() {
+                SlotStatus::Empty
+            } else {
+                SlotStatus::Filled
+            };
+            let name = if steps.len() > 1 {
+                format!("{} (step {})", m.rule_name, step)
+            } else {
+                m.rule_name.clone()
+            };
+            SlotExplanation::new(format!("step{}", step), name, true, window)
+                .with_status(status)
+                .with_predicate_desc(desc.clone())
+                .with_matched_facts(matched)
+        })
+        .collect();
+
+    // Entities from every matched fact
+    let mut entities = EntityBundle::default();
+    let mut proc_keys = HashSet::new();
+    let mut file_keys = HashSet::new();
+    let mut identity_keys = HashSet::new();
+    let mut net_keys = HashSet::new();
+    let mut registry_keys = HashSet::new();
+    for f in &m.facts {
+        let keys = extract_entity_keys(&f.fact);
+        proc_keys.extend(keys.proc_key);
+        file_keys.extend(keys.file_key);
+        identity_keys.extend(keys.user_key);
+        net_keys.extend(keys.net_key);
+        registry_keys.extend(keys.registry_key);
+    }
+    let sorted = |set: HashSet<String>| {
+        let mut v: Vec<String> = set.into_iter().collect();
+        v.sort();
+        v
+    };
+    entities.proc_keys = sorted(proc_keys);
+    entities.file_keys = sorted(file_keys);
+    entities.identity_keys = sorted(identity_keys);
+    entities.net_keys = sorted(net_keys);
+    entities.registry_keys = sorted(registry_keys);
+
+    // Evidence excerpts, first 10 pointers
+    let evidence: Vec<EvidenceExcerpt> = m
+        .facts
+        .iter()
+        .flat_map(|f| f.fact.evidence_ptrs.iter())
+        .take(10)
+        .map(|ptr| excerpt_for(ptr, telemetry_root))
+        .collect();
+
+    let counters = ExplanationCounters {
+        events_seen: m.facts.len() as u64,
+        facts_emitted: m.facts.len() as u64,
+        required_slots_filled: slots
+            .iter()
+            .filter(|s| s.status == SlotStatus::Filled)
+            .count() as u32,
+        required_slots_total: slots.len() as u32,
+        optional_slots_filled: 0,
+        optional_slots_total: 0,
+    };
+
+    let mut limitations = Vec::new();
+    if let Some(rule) = rule {
+        if rule.threshold > 1 {
+            let what = match &rule.distinct {
+                Some(field) => format!("{} distinct values of {}", rule.threshold, field),
+                None => format!("{} matching events", rule.threshold),
+            };
+            limitations.push(format!(
+                "Count rule: fired after {} within {} seconds, grouped by {}. Activity below the threshold is not reported.",
+                what,
+                rule.window_seconds,
+                rule.group_by.describe()
+            ));
+        }
+        if rule.then.is_some() {
+            limitations.push(format!(
+                "Sequence rule: step 2 must follow step 1 within {} seconds for the same {}.",
+                rule.window_seconds,
+                rule.group_by.describe()
+            ));
+        }
+    }
+    if !playbook.requires.is_empty() {
+        limitations.push(format!(
+            "Needs telemetry: {}. Missing sources cause missed detections, not false ones.",
+            playbook.requires.join(", ")
+        ));
+    }
+
+    let summary = format!(
+        "Rule '{}' in playbook '{}' matched {} fact(s) on {}. ATT&CK v{}: {}.",
+        m.rule_name,
+        playbook.title,
+        m.facts.len(),
+        m.group_key,
+        m.attack_version,
+        m.techniques.join(", ")
+    );
+
+    ExplanationBundle::builder(m.signal_id.clone(), playbook.id.clone())
+        .playbook_title(&playbook.title)
+        .family(&playbook.family)
+        .matched_at_ms(m.last_ts_ms)
+        .summary(summary)
+        .slots(slots)
+        .entities(entities)
+        .evidence(evidence)
+        .counters(counters)
+        .limitations(limitations)
+        .build()
+}
+
+fn excerpt_for(ptr: &HypEvidencePtr, telemetry_root: &Path) -> EvidenceExcerpt {
+    let core_ptr = convert_evidence_ptr(ptr);
+    let (excerpt, ts_ms, source) = match deref_evidence(telemetry_root, &core_ptr, 500) {
+        DerefResult::Success {
+            excerpt,
+            ts_ms,
+            source,
+            ..
+        } => (Some(excerpt), ts_ms.unwrap_or(0), source),
+        _ => (
+            None,
+            ptr.ts.map(|t| t.timestamp_millis()).unwrap_or(0),
+            "deref_failed".to_string(),
+        ),
+    };
+    EvidenceExcerpt {
+        ptr: core_ptr,
+        excerpt,
+        ts_ms,
+        source,
+    }
 }
 
 /// Build slot explanations from hypothesis state
@@ -245,10 +431,8 @@ fn extract_entity_keys(fact: &Fact) -> FactEntityKeys {
         FactType::RegistryMod { key, .. } => {
             keys.registry_key = Some(key.clone());
         }
-        FactType::AuthEvent { user, .. } => {
-            if keys.user_key.is_none() {
-                keys.user_key = Some(user.clone());
-            }
+        FactType::AuthEvent { user, .. } if keys.user_key.is_none() => {
+            keys.user_key = Some(user.clone());
         }
         _ => {}
     }
@@ -336,40 +520,12 @@ fn build_evidence_excerpts(
     telemetry_root: &Path,
     max_excerpts: usize,
 ) -> Vec<EvidenceExcerpt> {
-    let mut excerpts = Vec::new();
-
-    for ptr in incident.evidence_ptrs_summary.iter().take(max_excerpts) {
-        let core_ptr = convert_evidence_ptr(ptr);
-
-        // Try to dereference
-        let result = deref_evidence(telemetry_root, &core_ptr, 500);
-
-        let (excerpt, ts_ms, source) = match result {
-            DerefResult::Success {
-                excerpt,
-                ts_ms,
-                source,
-                ..
-            } => (Some(excerpt), ts_ms.unwrap_or(0), source),
-            _ => {
-                // Fallback if deref fails
-                (
-                    None,
-                    ptr.ts.map(|t| t.timestamp_millis()).unwrap_or(0),
-                    "deref_failed".to_string(),
-                )
-            }
-        };
-
-        excerpts.push(EvidenceExcerpt {
-            ptr: core_ptr,
-            excerpt,
-            ts_ms,
-            source,
-        });
-    }
-
-    excerpts
+    incident
+        .evidence_ptrs_summary
+        .iter()
+        .take(max_excerpts)
+        .map(|ptr| excerpt_for(ptr, telemetry_root))
+        .collect()
 }
 
 /// Build counters from hypothesis state

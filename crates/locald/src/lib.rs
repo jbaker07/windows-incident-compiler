@@ -42,9 +42,11 @@ pub mod signal_result;
 
 // Platform-agnostic modules
 pub mod baseline;
-pub mod playbook_loader;
 pub mod scoring;
 pub mod signal_persistence;
+
+// YAML detection playbooks: loader, schema and engine used by edr-locald
+pub mod playbook;
 
 // Slot matcher: playbook slot matching engine
 pub mod slot_matcher;
@@ -67,8 +69,6 @@ pub mod narrative_builder;
 pub mod safety;
 
 // Hypothesis/Incident detection system (incident compiler)
-// Uses path attribute to include from workspace root (legacy location)
-#[path = "../../../locald/hypothesis/mod.rs"]
 pub mod hypothesis;
 
 // HypothesisController: Runtime wiring for the incident compiler
@@ -92,7 +92,10 @@ pub use signal_result::{EvidenceRef, SignalResult};
 
 // Re-export scoring and baseline types
 pub use baseline::{BaselineQuery, BaselineStore, BaselineUpdater, HostBaseline};
-pub use playbook_loader::{load_playbook_paths, Platform as PlaybookPlatform};
+pub use playbook::{
+    load_from_env as load_playbooks_from_env, Platform as PlaybookPlatform, PlaybookEngine,
+    PlaybookMatch,
+};
 pub use scoring::{ScoredSignal, ScoringEngine};
 
 // Re-export hypothesis controller

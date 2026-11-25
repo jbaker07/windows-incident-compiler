@@ -1,28 +1,29 @@
 //! EDR Locald entry point - Windows signal detection daemon
 //!
-//! Pipeline: segments/*.jsonl -> extract_facts -> HypothesisController -> Incidents -> signals table -> edr-server
+//! Pipeline: segments/*.jsonl -> flatten_event_xml -> extract_facts -> YAML playbook engine
+//! -> signals table + signal_explanations table -> edr-server
 //!
-//! This is the FULL detection pipeline that uses:
-//! - PlaybookDef: Windows playbook definitions with slot predicates
-//! - extract_facts: Convert Windows events to canonical Facts
-//! - HypothesisController: Slot matching, TTL, cooldowns, incident promotion
-//! - Signal persistence: Store fired incidents as signals for API
-//! - ExplanationBundle: Full explainability for each signal
+//! Detection logic lives in the YAML files under playbooks/windows. At startup
+//! edr-locald loads them (see edr_locald::playbook::loader for the directory
+//! order and EDR_SELECTED_PLAYBOOKS), writes playbooks_loaded.json into the
+//! telemetry root, and then runs every fact through the engine.
+//!
+//! Flags:
+//! - `--once`: process the segments listed in index.json one time and exit
+//!   instead of polling. Used for replaying a capture and by the end to end test.
 
 use chrono::Utc;
 use edr_core::{Event, EvidencePtr};
-use edr_locald::explanation_builder::build_explanation_from_hypothesis;
-use edr_locald::hypothesis::Fact;
-use edr_locald::hypothesis_controller::HypothesisController;
-use edr_locald::os::windows::{extract_facts, windows_playbooks, WindowsSignalEngine};
+use edr_locald::explanation_builder::build_explanation_from_match;
+use edr_locald::os::windows::{extract_facts, flatten_event_xml, WindowsSignalEngine};
+use edr_locald::playbook::{self, PlaybookEngine, PlaybookMatch};
 use edr_locald::scoring::ScoringEngine;
-use edr_locald::signal_result::SignalResult;
-use edr_locald::slot_matcher::PlaybookDef;
+use edr_locald::signal_result::{EvidenceRef, SignalResult};
 use rusqlite::{params, Connection};
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -87,17 +88,26 @@ fn parse_segment_record(line: &str, segment_id: u64, record_index: u32) -> Optio
         .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
         .unwrap_or_default();
 
-    // Build evidence pointer from segment record
+    // Build evidence pointer from segment record. The capture agent writes the
+    // segment sequence and record index it assigned, so prefer those and fall
+    // back to the file name and line position.
     let evidence_ptr = parsed.get("evidence_ptr").and_then(|ep| {
         let stream_id = ep.get("stream_id")?.as_str()?.to_string();
         Some(EvidencePtr {
             stream_id,
-            segment_id,
-            record_index,
+            segment_id: ep
+                .get("segment_id")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(segment_id),
+            record_index: ep
+                .get("record_index")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as u32)
+                .unwrap_or(record_index),
         })
     });
 
-    Some(Event {
+    let mut event = Event {
         ts_ms,
         host,
         tags,
@@ -115,16 +125,17 @@ fn parse_segment_record(line: &str, segment_id: u64, record_index: u32) -> Optio
             .map(|s| s.to_string()),
         evidence_ptr,
         fields,
-    })
+    };
+    flatten_event_xml(&mut event);
+    Some(event)
 }
 
-/// Convert an incident to a SignalResult for database persistence
-fn incident_to_signal(incident: &edr_locald::hypothesis::Incident, hostname: &str) -> SignalResult {
-    use edr_locald::signal_result::EvidenceRef;
-
-    let evidence_refs: Vec<EvidenceRef> = incident
-        .evidence_ptrs_summary
+/// Convert a playbook match to a SignalResult for database persistence
+fn match_to_signal(m: &PlaybookMatch) -> SignalResult {
+    let evidence_ptrs: Vec<EvidenceRef> = m
+        .facts
         .iter()
+        .flat_map(|f| f.fact.evidence_ptrs.iter())
         .map(|ep| EvidenceRef {
             stream_id: ep.stream_id.clone(),
             segment_id: ep.segment_id.clone(),
@@ -132,37 +143,150 @@ fn incident_to_signal(incident: &edr_locald::hypothesis::Incident, hostname: &st
         })
         .collect();
 
-    // Build metadata JSON
     let metadata = serde_json::json!({
-        "family": incident.family,
-        "primary_scope_key": format!("{:?}", incident.primary_scope_key),
-        "confidence": incident.confidence,
-        "mitre_techniques": incident.mitre_techniques,
-        "tags": incident.tags.iter().collect::<Vec<_>>(),
-        "promoted_from": incident.promoted_from_hypothesis_ids,
+        "playbook_id": m.playbook_id,
+        "playbook_title": m.playbook_title,
+        "rule": m.rule_name,
+        "family": m.family,
+        "attack_version": m.attack_version,
+        "mitre_techniques": m.techniques,
+        "mitre_tactics": m.tactics,
+        "group_by": m.group_by,
+        "group_key": m.group_key,
+        "tags": m.tags,
+        "fact_count": m.facts.len(),
     });
 
     SignalResult {
-        signal_id: incident.incident_id.clone(),
-        signal_type: format!("playbook:{}", incident.family),
-        severity: format!("{:?}", incident.severity),
-        host: hostname.to_string(),
-        ts: incident.first_ts.timestamp_millis(),
-        ts_start: incident.first_ts.timestamp_millis(),
-        ts_end: incident.last_ts.timestamp_millis(),
+        signal_id: m.signal_id.clone(),
+        signal_type: format!("playbook:{}", m.playbook_id),
+        severity: m.severity.clone(),
+        host: m.host.clone(),
+        ts: m.first_ts_ms,
+        ts_start: m.first_ts_ms,
+        ts_end: m.last_ts_ms,
         proc_key: None,
         file_key: None,
         identity_key: None,
-        evidence_ptrs: evidence_refs,
+        evidence_ptrs,
         dropped_evidence_count: 0,
         metadata,
     }
 }
 
+/// Load playbooks, log the result, and write the status file the desktop app reads.
+fn load_playbooks(telemetry_root: &Path) -> PlaybookEngine {
+    let report = playbook::load_from_env(telemetry_root);
+
+    match &report.dir {
+        Some(dir) => eprintln!("Playbook dir: {} (from {})", dir.path.display(), dir.source),
+        None => eprintln!("Playbook dir: none found"),
+    }
+    if let Some(sel) = &report.selected {
+        eprintln!("Selected playbooks ({}): {}", sel.len(), sel.join(", "));
+    }
+    for pb in &report.playbooks {
+        eprintln!(
+            "  [playbook] Loaded: {} ({} rules, ATT&CK {})",
+            pb.id,
+            pb.rules.len(),
+            pb.technique_ids().join(" ")
+        );
+    }
+    for id in &report.disabled {
+        eprintln!("  [playbook] Disabled in file: {}", id);
+    }
+    for id in &report.unknown_selected {
+        eprintln!("  [playbook] WARNING: selected but not found: {}", id);
+    }
+    for err in &report.errors {
+        eprintln!("  [playbook] ERROR: {} {}", err.file, err.error);
+    }
+    eprintln!(
+        "Loaded {} Windows playbooks ({} rules) from {} files",
+        report.playbooks.len(),
+        report.rule_count(),
+        report.files_found
+    );
+
+    let status_path = telemetry_root.join(playbook::STATUS_FILE_NAME);
+    match serde_json::to_string_pretty(&report.status_json()) {
+        Ok(json) => {
+            if let Err(e) = fs::write(&status_path, json) {
+                eprintln!("WARNING: could not write {}: {}", status_path.display(), e);
+            }
+        }
+        Err(e) => eprintln!("WARNING: could not serialize playbook status: {}", e),
+    }
+
+    PlaybookEngine::new(report.playbooks)
+}
+
+/// Write one playbook match and its explanation to the database.
+fn persist_match(
+    db: &Connection,
+    engine: &PlaybookEngine,
+    m: &PlaybookMatch,
+    telemetry_root: &Path,
+) {
+    let signal = match_to_signal(m);
+    let evidence_json =
+        serde_json::to_string(&signal.evidence_ptrs).unwrap_or_else(|_| "[]".to_string());
+    let metadata_json = signal.metadata.to_string();
+    let created_at = Utc::now().to_rfc3339();
+
+    if let Err(e) = db.execute(
+        "INSERT OR REPLACE INTO signals
+         (signal_id, signal_type, severity, host, ts, ts_start, ts_end, proc_key, file_key, identity_key, metadata, evidence_ptrs, dropped_evidence_count, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            signal.signal_id,
+            signal.signal_type,
+            signal.severity,
+            signal.host,
+            signal.ts,
+            signal.ts_start,
+            signal.ts_end,
+            signal.proc_key,
+            signal.file_key,
+            signal.identity_key,
+            metadata_json,
+            evidence_json,
+            signal.dropped_evidence_count,
+            &created_at
+        ],
+    ) {
+        eprintln!("  [signal] ERROR writing {}: {}", signal.signal_id, e);
+        return;
+    }
+
+    if let Some(pb) = engine.playbook(&m.playbook_id) {
+        let explanation = build_explanation_from_match(m, pb, telemetry_root);
+        if let Ok(explanation_json) = serde_json::to_string(&explanation) {
+            let _ = db.execute(
+                "INSERT OR REPLACE INTO signal_explanations
+                 (signal_id, explanation_json, created_at)
+                 VALUES (?1, ?2, ?3)",
+                params![signal.signal_id, explanation_json, &created_at],
+            );
+        }
+    }
+
+    eprintln!(
+        "  [signal] {} {} rule=\"{}\" severity={} techniques={}",
+        signal.signal_id,
+        signal.signal_type,
+        m.rule_name,
+        m.severity,
+        m.techniques.join(",")
+    );
+}
+
 fn main() {
     let telemetry_root = get_telemetry_root();
+    let run_once = std::env::args().any(|a| a == "--once");
 
-    eprintln!("edr-locald starting (FULL PIPELINE MODE)");
+    eprintln!("edr-locald starting (YAML playbook engine)");
     eprintln!("TELEMETRY_ROOT: {}", telemetry_root.display());
 
     // Check workflow seed env var (for backward compatibility)
@@ -235,27 +359,8 @@ fn main() {
         .unwrap_or_else(|_| "unknown".to_string());
     eprintln!("Host: {}", hostname);
 
-    // Initialize HypothesisController (the core of playbook-based detection)
-    let mut hypothesis_controller = HypothesisController::new(&hostname);
-
-    // Load Windows playbooks into the controller (and keep a map for explanations)
-    let playbooks = windows_playbooks();
-    let playbook_count = playbooks.len();
-    let mut playbook_map: HashMap<String, PlaybookDef> = HashMap::new();
-    for playbook in playbooks {
-        eprintln!(
-            "  [playbook] Registered: {} (family={}, slots={})",
-            playbook.playbook_id,
-            playbook.family,
-            playbook.slots.len()
-        );
-        playbook_map.insert(playbook.playbook_id.clone(), playbook.clone());
-        hypothesis_controller.register_playbook(playbook);
-    }
-    eprintln!("Loaded {} Windows playbooks", playbook_count);
-
-    // Track facts for explanation building
-    let mut facts_store: Vec<Fact> = Vec::new();
+    // Load YAML playbooks (the single source of detection logic)
+    let mut engine = load_playbooks(&telemetry_root);
 
     // Initialize legacy WindowsSignalEngine (for WorkflowSeed only if enabled)
     let mut signal_engine = WindowsSignalEngine::new(hostname.clone());
@@ -294,12 +399,15 @@ fn main() {
 
     let index_path = telemetry_root.join("index.json");
     eprintln!("Watching: {}", index_path.display());
-    eprintln!("(Press Ctrl+C to stop)");
+    if run_once {
+        eprintln!("(--once: processing the current index and exiting)");
+    } else {
+        eprintln!("(Press Ctrl+C to stop)");
+    }
 
     let mut total_events = 0u64;
     let mut total_facts = 0u64;
     let mut total_signals = 0u64;
-    let mut incidents_fired: HashSet<String> = HashSet::new();
 
     // Main loop
     while !shutdown.load(Ordering::Relaxed) {
@@ -321,10 +429,12 @@ fn main() {
                         continue;
                     }
 
-                    // Extract segment_id from filename (e.g., "segments/1234.jsonl" -> 1234)
+                    // Segment number from the file name: "segments/1234.jsonl" -> 1234,
+                    // "segments/evtx_000012.jsonl" -> 12
                     let segment_id: u64 = segment_path
                         .file_stem()
                         .and_then(|s| s.to_str())
+                        .and_then(|s| s.rsplit('_').next())
                         .and_then(|s| s.parse().ok())
                         .unwrap_or(0);
 
@@ -345,28 +455,13 @@ fn main() {
                             {
                                 segment_events += 1;
 
-                                // === FULL PIPELINE: Extract Facts ===
+                                // Extract facts, then run them through the playbooks
                                 let facts = extract_facts(&event);
                                 segment_facts += facts.len() as u32;
 
-                                // === FULL PIPELINE: Feed Facts to HypothesisController ===
-                                for fact in facts {
-                                    // Store fact for explanation building
-                                    facts_store.push(fact.clone());
-
-                                    match hypothesis_controller.ingest_fact(fact) {
-                                        Ok(affected_hypotheses) => {
-                                            if !affected_hypotheses.is_empty() {
-                                                eprintln!(
-                                                    "    [fact] Affected {} hypotheses",
-                                                    affected_hypotheses.len()
-                                                );
-                                            }
-                                        }
-                                        Err(e) => {
-                                            eprintln!("    [fact] Error: {}", e);
-                                        }
-                                    }
+                                for m in engine.process(&event, &facts) {
+                                    persist_match(&db, &engine, &m, &telemetry_root);
+                                    segment_signals += 1;
                                 }
 
                                 // === LEGACY: WorkflowSeed signal if enabled ===
@@ -385,104 +480,6 @@ fn main() {
                                     }
                                 }
                             }
-                        }
-
-                        // === FULL PIPELINE: Check for fired incidents ===
-                        // HypothesisController promotes hypotheses to incidents automatically
-                        hypothesis_controller.expire_hypotheses();
-
-                        // Persist any new incidents as signals with explanations
-                        let all_incidents = hypothesis_controller.all_incidents();
-                        for incident in all_incidents {
-                            if !incidents_fired.contains(&incident.incident_id) {
-                                // Convert incident to signal and persist
-                                let signal = incident_to_signal(incident, &hostname);
-                                segment_signals += 1;
-
-                                let evidence_json = serde_json::to_string(&signal.evidence_ptrs)
-                                    .unwrap_or_else(|_| "[]".to_string());
-                                let metadata_json = signal.metadata.to_string();
-                                let created_at = Utc::now().to_rfc3339();
-
-                                let _ = db.execute(
-                                    "INSERT OR REPLACE INTO signals
-                                     (signal_id, signal_type, severity, host, ts, ts_start, ts_end, proc_key, file_key, identity_key, metadata, evidence_ptrs, dropped_evidence_count, created_at)
-                                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-                                    params![
-                                        signal.signal_id,
-                                        signal.signal_type,
-                                        signal.severity,
-                                        signal.host,
-                                        signal.ts,
-                                        signal.ts_start,
-                                        signal.ts_end,
-                                        signal.proc_key,
-                                        signal.file_key,
-                                        signal.identity_key,
-                                        metadata_json,
-                                        evidence_json,
-                                        signal.dropped_evidence_count,
-                                        &created_at
-                                    ],
-                                );
-
-                                // === BUILD AND PERSIST EXPLANATION BUNDLE ===
-                                // Find hypothesis that promoted to this incident
-                                if let Some(hyp_id) = incident.promoted_from_hypothesis_ids.first()
-                                {
-                                    if let Some(hypothesis) =
-                                        hypothesis_controller.get_hypothesis(hyp_id)
-                                    {
-                                        // Find playbook for this hypothesis
-                                        if let Some(playbook) =
-                                            playbook_map.get(&hypothesis.template_id)
-                                        {
-                                            let explanation = build_explanation_from_hypothesis(
-                                                hypothesis,
-                                                incident,
-                                                playbook,
-                                                &telemetry_root,
-                                                &facts_store,
-                                            );
-
-                                            // Persist explanation
-                                            if let Ok(explanation_json) =
-                                                serde_json::to_string(&explanation)
-                                            {
-                                                let _ = db.execute(
-                                                    "INSERT OR REPLACE INTO signal_explanations
-                                                     (signal_id, explanation_json, created_at)
-                                                     VALUES (?1, ?2, ?3)",
-                                                    params![
-                                                        signal.signal_id,
-                                                        explanation_json,
-                                                        &created_at
-                                                    ],
-                                                );
-                                                eprintln!(
-                                                    "  [explanation] {} → {} slots, {} evidence",
-                                                    signal.signal_id,
-                                                    explanation.slots.len(),
-                                                    explanation.evidence.len()
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-
-                                eprintln!(
-                                    "  [persisted] {} → {} severity={:?}",
-                                    signal.signal_id, signal.signal_type, incident.severity
-                                );
-
-                                incidents_fired.insert(incident.incident_id.clone());
-                            }
-                        }
-
-                        // Check active hypotheses for debugging
-                        let active = hypothesis_controller.active_hypotheses();
-                        if !active.is_empty() {
-                            eprintln!("  [hypothesis] {} active hypotheses", active.len());
                         }
 
                         total_events += segment_events as u64;
@@ -505,6 +502,10 @@ fn main() {
                     );
                 }
             }
+        }
+
+        if run_once {
+            break;
         }
 
         // Poll every 2 seconds

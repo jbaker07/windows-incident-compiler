@@ -496,11 +496,11 @@ impl TemplatedRenderer {
         for (i, ranked) in arb.top3.iter().enumerate() {
             let rank = i + 1;
             let severity_icon = match ranked.severity {
-                Severity::Critical => "🔴",
-                Severity::High => "🟠",
-                Severity::Medium => "🟡",
-                Severity::Low => "🟢",
-                Severity::Informational => "⚪",
+                Severity::Critical => "[CRITICAL]",
+                Severity::High => "[HIGH]",
+                Severity::Medium => "[MEDIUM]",
+                Severity::Low => "[LOW]",
+                Severity::Informational => "[INFO]",
             };
 
             lines.push(format!(
@@ -611,7 +611,9 @@ impl TemplatedRenderer {
 
         let mut lines = vec!["## Visibility Gaps\n".to_string()];
 
-        lines.push("⚠️ **Analysis is limited due to missing telemetry streams.**\n".to_string());
+        lines.push(
+            "**Warning: analysis is limited due to missing telemetry streams.**\n".to_string(),
+        );
 
         if !explanation.visibility_state.streams_missing.is_empty() {
             lines.push("**Missing Streams:**".to_string());
@@ -649,8 +651,8 @@ impl TemplatedRenderer {
 
         for note in &explanation.integrity_notes {
             let icon = match note.severity {
-                super::explanation::IntegrityNoteSeverity::Error => "❌",
-                super::explanation::IntegrityNoteSeverity::Warning => "⚠️",
+                super::explanation::IntegrityNoteSeverity::Error => "ERROR",
+                super::explanation::IntegrityNoteSeverity::Warning => "WARNING",
             };
             lines.push(format!(
                 "{} **{:?}**: {}",
@@ -949,16 +951,16 @@ fn render_visibility_explanation(
     text.push_str("## Visibility Analysis\n\n");
 
     if explanation.visibility_state.degraded {
-        text.push_str("⚠️ **Visibility is degraded.**\n\n");
+        text.push_str("**Warning: visibility is degraded.**\n\n");
     } else {
-        text.push_str("✅ **All expected streams are present.**\n\n");
+        text.push_str("**All expected streams are present.**\n\n");
     }
 
     // Present streams
     if !explanation.visibility_state.streams_present.is_empty() {
         text.push_str("**Active Streams:**\n");
         for stream in &explanation.visibility_state.streams_present {
-            text.push_str(&format!("- ✓ `{}`\n", stream));
+            text.push_str(&format!("- present: `{}`\n", stream));
         }
         text.push('\n');
     }
@@ -968,7 +970,7 @@ fn render_visibility_explanation(
         text.push_str("**Missing Streams:**\n");
         for stream in &explanation.visibility_state.streams_missing {
             text.push_str(&format!(
-                "- ✗ `{}`: {}\n",
+                "- missing: `{}`: {}\n",
                 stream,
                 stream_impact_description(stream)
             ));
