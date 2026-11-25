@@ -1,134 +1,106 @@
 ---
 # playbooks/windows/signal_discovery_burst.yaml
-# Detection of discovery command bursts
+# Detects bursts of different discovery commands from one user in a short window.
 
-id: "windows_discovery_burst_001"
-title: "Discovery Command Burst"
-name: "Discovery Burst Detection"
-family: "discovery"
-version: "2.0"
+id: signal_discovery_burst
+title: 'Discovery Command Burst'
+family: discovery
+version: "3.0"
 description: |
-  Detects burst of discovery commands often seen in:
-  - Post-exploitation reconnaissance
+  Detects bursts of discovery commands often seen in:
+  - Post exploitation reconnaissance
   - Automated attack tools
   - Red team frameworks
-  
-  Correlates multiple discovery commands within short windows.
+
+  Each rule counts distinct command lines from one user inside a short window,
+  so the same command run again does not add to the count.
 
 enabled: true
-confidence_threshold: 0.75
+severity: HIGH
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Security 4688 with command line, or Sysmon 1'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - discovery
   techniques:
-    - T1087      # Account Discovery
-    - T1016      # System Network Configuration
-    - T1033      # System Owner/User Discovery
-    - T1069      # Permission Groups Discovery
-    - T1082      # System Information Discovery
-    - T1083      # File and Directory Discovery
-
-input_facts:
-  required:
-    - Exec
-
-# Discovery commands to track
-discovery_commands:
-  user_discovery:
-    - "whoami"
-    - "net user"
-    - "net localgroup"
-    - "net group"
-    - "quser"
-  system_discovery:
-    - "hostname"
-    - "systeminfo"
-    - "ipconfig"
-    - "netstat"
-  domain_discovery:
-    - "nltest"
-    - "net domain"
-    - "dsquery"
-    - "gpresult"
-  process_discovery:
-    - "tasklist"
-    - "wmic process"
-    - "query process"
+    - id: T1033
+      name: 'System Owner/User Discovery'
+    - id: T1087
+      name: 'Account Discovery'
+    - id: T1069
+      name: 'Permission Groups Discovery'
+    - id: T1016
+      name: 'System Network Configuration Discovery'
+    - id: T1049
+      name: 'System Network Connections Discovery'
+    - id: T1482
+      name: 'Domain Trust Discovery'
+    - id: T1615
+      name: 'Group Policy Discovery'
+    - id: T1082
+      name: 'System Information Discovery'
+    - id: T1057
+      name: 'Process Discovery'
 
 rules:
-  - name: "User Discovery Burst"
-    window: 60
-    aggregation: count
+  - name: 'User Discovery Burst'
+    severity: HIGH
+    fact: Exec
     threshold: 3
-    conditions:
-      - fact_type: Exec
+    distinct: cmdline
+    window_seconds: 60
+    group_by: user
+    match:
       - field: cmdline
-        matches: "(?i)(whoami|net user|net localgroup|quser)"
-    actions:
-      - severity: HIGH
-        tags:
-          - "discovery"
-          - "user_enum"
-          - "recon_burst"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
+        regex: '(?i)\b(whoami|quser|net1?(\.exe)?"?\s+(user|localgroup))\b'
+    techniques: [T1033, T1087, T1069]
 
-  - name: "Network Discovery Burst"
-    window: 60
-    aggregation: count
+  - name: 'Network Discovery Burst'
+    severity: MEDIUM
+    fact: Exec
     threshold: 3
-    conditions:
-      - fact_type: Exec
+    distinct: cmdline
+    window_seconds: 60
+    group_by: user
+    match:
       - field: cmdline
-        matches: "(?i)(ipconfig|netstat|arp -a|route print|nbtstat)"
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "discovery"
-          - "network_enum"
+        regex: '(?i)\b(ipconfig|netstat|arp\s+-a|route\s+print|nbtstat)\b'
+    techniques: [T1016, T1049]
 
-  - name: "Domain Discovery Burst"
-    window: 60
-    aggregation: count
+  - name: 'Domain Discovery Burst'
+    severity: HIGH
+    fact: Exec
     threshold: 2
-    conditions:
-      - fact_type: Exec
+    distinct: cmdline
+    window_seconds: 60
+    group_by: user
+    match:
       - field: cmdline
-        matches: "(?i)(nltest|dsquery|gpresult|net domain)"
-    actions:
-      - severity: HIGH
-        tags:
-          - "discovery"
-          - "domain_enum"
-          - "ad_recon"
+        regex: '(?i)\b(nltest|dsquery|gpresult)\b|\bnet1?(\.exe)?"?\s+(group|accounts|view)\b.*/domain'
+    techniques: [T1087, T1069, T1482, T1615]
 
-  - name: "Combined Discovery Activity"
-    window: 300
-    aggregation: count
+  - name: 'Combined Discovery Activity'
+    severity: CRITICAL
+    fact: Exec
     threshold: 5
-    conditions:
-      - fact_type: Exec
-      - field: cmdline
-        matches: "(?i)(whoami|hostname|ipconfig|systeminfo|tasklist|net user|net localgroup|nltest)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "discovery_burst"
-          - "attack_framework"
-          - "post_exploitation"
+    distinct: image
+    window_seconds: 300
+    group_by: user
+    match:
+      - field: image
+        in: ['whoami.exe', 'hostname.exe', 'ipconfig.exe', 'systeminfo.exe', 'tasklist.exe', 'net.exe', 'net1.exe', 'nltest.exe', 'quser.exe', 'netstat.exe']
+    techniques: [T1082, T1033, T1016, T1057, T1087]
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "Discovery Burst Detected"
-    priority: "high"
-
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "IT administrators troubleshooting"
-  - "Deployment scripts with inventory commands"
+- IT administrators troubleshooting
+- Deployment scripts with inventory commands
+response:
+- type: alert
+  channel: siem
+  title: Discovery Burst Detected
+  priority: high

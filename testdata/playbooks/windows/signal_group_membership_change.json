@@ -1,0 +1,103 @@
+{
+ "playbook": "signal_group_membership_change",
+ "fires": [
+  {
+   "rule": "Admin Group Member Added",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4732,
+      "windows.channel": "Security",
+      "TargetUserName": "Administrators",
+      "MemberName": "CN=bob,CN=Users,DC=corp,DC=local",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Enterprise or Schema Admin Added",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4756,
+      "windows.channel": "Security",
+      "TargetUserName": "Enterprise Admins",
+      "MemberName": "CN=bob,CN=Users,DC=corp,DC=local",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Remote Desktop Users Added",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4732,
+      "windows.channel": "Security",
+      "TargetUserName": "Remote Desktop Users",
+      "MemberName": "S-1-5-21-1-2-3-1105",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Backup Operators Added",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4732,
+      "windows.channel": "Security",
+      "TargetUserName": "Backup Operators",
+      "MemberName": "S-1-5-21-1-2-3-1105",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "User Account Created",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4720,
+      "windows.channel": "Security",
+      "TargetUserName": "svc_backup2",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "member added to an ordinary group",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4732,
+      "windows.channel": "Security",
+      "TargetUserName": "Print Operators Helpdesk",
+      "MemberName": "S-1-5-21-1-2-3-1105",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "password reset",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4724,
+      "windows.channel": "Security",
+      "TargetUserName": "bob",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

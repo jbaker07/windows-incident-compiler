@@ -1,0 +1,77 @@
+{
+ "playbook": "signal_task_persistence",
+ "fires": [
+  {
+   "rule": "Scheduled Task Created With Suspicious Action",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4698,
+      "windows.channel": "Security",
+      "TaskName": "\\Microsoft\\Windows\\Updater",
+      "SubjectUserName": "alice",
+      "TaskContent": "<Task><Actions><Exec><Command>powershell.exe</Command><Arguments>-w hidden -f C:\\ProgramData\\u.ps1</Arguments></Exec></Actions></Task>"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Scheduled Task Updated With Suspicious Action",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4702,
+      "windows.channel": "Security",
+      "TaskName": "\\Vendor\\Updater",
+      "SubjectUserName": "alice",
+      "TaskContentNew": "",
+      "TaskContent": "<Task><Actions><Exec><Command>C:\\Users\\Public\\u.exe</Command></Exec></Actions></Task>"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Hidden Scheduled Task",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4698,
+      "windows.channel": "Security",
+      "TaskName": "\\Sync",
+      "SubjectUserName": "alice",
+      "TaskContent": "<Task><Settings><Hidden>true</Hidden></Settings><Actions><Exec><Command>C:\\Program Files\\Sync\\s.exe</Command></Exec></Actions></Task>"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "vendor task",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4698,
+      "windows.channel": "Security",
+      "TaskName": "\\Vendor\\Updater",
+      "SubjectUserName": "alice",
+      "TaskContent": "<Task><Settings><Hidden>false</Hidden></Settings><Actions><Exec><Command>C:\\Program Files\\Vendor\\update.exe</Command></Exec></Actions></Task>"
+     }
+    }
+   ]
+  },
+  {
+   "name": "task deleted",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4699,
+      "windows.channel": "Security",
+      "TaskName": "\\Vendor\\Updater",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,379 @@
+{
+ "playbook": "signal_lateral_movement_detection",
+ "fires": [
+  {
+   "rule": "Remote RDP Logon",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "10",
+      "IpAddress": "10.0.4.21"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Administrative Share Access",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 5140,
+      "windows.channel": "Security",
+      "ShareName": "\\\\*\\C$",
+      "SubjectUserName": "alice",
+      "IpAddress": "10.0.4.21"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Kerberoasting Ticket Burst",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql0",
+      "TicketEncryptionType": "0x17",
+      "IpAddress": "::ffff:10.0.4.21",
+      "Status": "0x0"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql1",
+      "TicketEncryptionType": "0x17",
+      "IpAddress": "::ffff:10.0.4.21",
+      "Status": "0x0"
+     },
+     "t": 1
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql2",
+      "TicketEncryptionType": "0x17",
+      "IpAddress": "::ffff:10.0.4.21",
+      "Status": "0x0"
+     },
+     "t": 2
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql3",
+      "TicketEncryptionType": "0x17",
+      "IpAddress": "::ffff:10.0.4.21",
+      "Status": "0x0"
+     },
+     "t": 3
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql4",
+      "TicketEncryptionType": "0x17",
+      "IpAddress": "::ffff:10.0.4.21",
+      "Status": "0x0"
+     },
+     "t": 4
+    }
+   ]
+  },
+  {
+   "rule": "PsExec Service Execution",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\PSEXESVC.exe",
+      "CommandLine": "C:\\Windows\\PSEXESVC.exe",
+      "SubjectUserName": "SYSTEM",
+      "ParentProcessName": "C:\\Windows\\System32\\services.exe"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "WMI Remote Process Execution",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\cmd.exe",
+      "CommandLine": "cmd.exe /Q /c cd \\ 1> \\\\127.0.0.1\\ADMIN$\\__1700000000.1 2>&1",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "WinRM Remote Shell",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\whoami.exe",
+      "CommandLine": "whoami",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Windows\\System32\\wsmprovhost.exe"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "RDP Logon Followed by Shell",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "10",
+      "IpAddress": "10.0.4.21"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\cmd.exe",
+      "CommandLine": "cmd.exe",
+      "SubjectUserName": "alice"
+     },
+     "t": 45
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "network logon to a file share",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     }
+    }
+   ]
+  },
+  {
+   "name": "local console RDP loopback",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "10",
+      "IpAddress": "127.0.0.1"
+     }
+    }
+   ]
+  },
+  {
+   "name": "IPC$ share access",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 5140,
+      "windows.channel": "Security",
+      "ShareName": "\\\\*\\IPC$",
+      "SubjectUserName": "alice",
+      "IpAddress": "10.0.4.21"
+     }
+    }
+   ]
+  },
+  {
+   "name": "AES service tickets for many services",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql0",
+      "TicketEncryptionType": "0x12",
+      "Status": "0x0"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql1",
+      "TicketEncryptionType": "0x12",
+      "Status": "0x0"
+     },
+     "t": 1
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql2",
+      "TicketEncryptionType": "0x12",
+      "Status": "0x0"
+     },
+     "t": 2
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql3",
+      "TicketEncryptionType": "0x12",
+      "Status": "0x0"
+     },
+     "t": 3
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql4",
+      "TicketEncryptionType": "0x12",
+      "Status": "0x0"
+     },
+     "t": 4
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "svc_sql5",
+      "TicketEncryptionType": "0x12",
+      "Status": "0x0"
+     },
+     "t": 5
+    }
+   ]
+  },
+  {
+   "name": "RC4 tickets for computer accounts",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "WS00$",
+      "TicketEncryptionType": "0x17",
+      "Status": "0x0"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "WS01$",
+      "TicketEncryptionType": "0x17",
+      "Status": "0x0"
+     },
+     "t": 1
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "WS02$",
+      "TicketEncryptionType": "0x17",
+      "Status": "0x0"
+     },
+     "t": 2
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "WS03$",
+      "TicketEncryptionType": "0x17",
+      "Status": "0x0"
+     },
+     "t": 3
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "WS04$",
+      "TicketEncryptionType": "0x17",
+      "Status": "0x0"
+     },
+     "t": 4
+    },
+    {
+     "fields": {
+      "windows.event_id": 4769,
+      "windows.channel": "Security",
+      "TargetUserName": "alice@CORP.LOCAL",
+      "ServiceName": "WS05$",
+      "TicketEncryptionType": "0x17",
+      "Status": "0x0"
+     },
+     "t": 5
+    }
+   ]
+  },
+  {
+   "name": "shell and a network logon",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\cmd.exe",
+      "CommandLine": "cmd.exe",
+      "SubjectUserName": "bob"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "bob",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.30"
+     },
+     "t": 5
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,96 @@
+{
+ "playbook": "signal_service_persistence",
+ "fires": [
+  {
+   "rule": "Service With Shell Command Line",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7045,
+      "windows.channel": "System",
+      "ServiceName": "WinUpdate",
+      "ImagePath": "%COMSPEC% /c powershell -nop -w hidden -enc SQBFAFgA",
+      "ServiceType": "user mode service",
+      "StartType": "demand start"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Service Binary in User Writable Path",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7045,
+      "windows.channel": "System",
+      "ServiceName": "TestPersistenceService",
+      "ImagePath": "C:\\Windows\\Temp\\persistence.exe",
+      "ServiceType": "user mode service",
+      "StartType": "auto start"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Service Binary in User Writable Path",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4697,
+      "windows.channel": "Security",
+      "ServiceName": "Updater",
+      "ServiceFileName": "C:\\Users\\Public\\u.exe",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Remote Admin Tool Service",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7045,
+      "windows.channel": "System",
+      "ServiceName": "PSEXESVC",
+      "ImagePath": "%SystemRoot%\\PSEXESVC.exe",
+      "ServiceType": "user mode service",
+      "StartType": "demand start"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "vendor service in Program Files",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7045,
+      "windows.channel": "System",
+      "ServiceName": "VendorAgent",
+      "ImagePath": "\"C:\\Program Files\\Vendor\\agent.exe\"",
+      "ServiceType": "user mode service",
+      "StartType": "auto start"
+     }
+    }
+   ]
+  },
+  {
+   "name": "kernel driver in System32",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7045,
+      "windows.channel": "System",
+      "ServiceName": "vendordrv",
+      "ImagePath": "\\SystemRoot\\System32\\drivers\\vendordrv.sys",
+      "ServiceType": "kernel mode driver",
+      "StartType": "boot start"
+     }
+    }
+   ]
+  }
+ ]
+}

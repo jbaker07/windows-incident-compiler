@@ -1,0 +1,120 @@
+{
+ "playbook": "signal_log_tampering",
+ "fires": [
+  {
+   "rule": "EventLog Service Stopped or Disabled",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc config eventlog start= disabled",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "EventLog Service Stopped or Disabled",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "\"C:\\Windows\\system32\\sc.exe\" stop EventLog",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Event Log Channel Disabled",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\wevtutil.exe",
+      "CommandLine": "wevtutil sl Microsoft-Windows-PowerShell/Operational /e:false",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Audit Policy Cleared or Disabled",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\auditpol.exe",
+      "CommandLine": "auditpol /set /category:\"Logon/Logoff\" /success:disable /failure:disable",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Audit Policy Changed",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4719,
+      "windows.channel": "Security",
+      "SubjectUserName": "alice",
+      "CategoryId": "%%8274",
+      "SubcategoryGuid": "{0CCE9215-69AE-11D9-BED3-505054503030}",
+      "AuditPolicyChanges": "%%8448"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "querying the EventLog service",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc query eventlog",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "enabling a log channel",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wevtutil.exe",
+      "CommandLine": "wevtutil sl Microsoft-Windows-PowerShell/Operational /e:true",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "reading audit policy",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\auditpol.exe",
+      "CommandLine": "auditpol /get /category:*",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

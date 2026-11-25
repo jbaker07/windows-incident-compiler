@@ -1,103 +1,88 @@
 ---
 # playbooks/windows/signal_file_staging.yaml
-# Detection of file staging activity
+# Detects archive tools collecting data, password protected archives and archives dropped in staging folders.
 
-id: "windows_file_staging_001"
-title: "File Staging Detection"
-name: "File Staging Detection"
-family: "collection"
-version: "2.0"
+id: signal_file_staging
+title: 'File Staging Detection'
+family: collection
+version: "3.0"
 description: |
-  Detects file staging activity for exfiltration:
-  - Archive creation (7z, zip, rar)
-  - Staging in temp directories
-  - Large file operations
-  - Compression utilities execution
+  Detects data being collected and staged before exfiltration:
+  - Archive tools (7-Zip, RAR) adding files to an archive
+  - PowerShell Compress-Archive
+  - Archives written into temp folders
+  - Password protected archives
+  - Archive files created in Users\Public, Windows\Temp or ProgramData
 
 enabled: true
-confidence_threshold: 0.70
+severity: MEDIUM
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
-
-enhances_with:
-  - sysmon
+  - 'Security 4688 with command line, or Sysmon 1'
+  - 'Sysmon 11 for file creation'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - collection
-    - exfiltration
   techniques:
-    - T1560.001  # Archive via Utility
-    - T1074      # Data Staged
-
-input_facts:
-  required:
-    - Exec
-  optional:
-    - CreatePath
+    - id: T1560.001
+      name: 'Archive Collected Data: Archive via Utility'
+    - id: T1074.001
+      name: 'Data Staged: Local Data Staging'
 
 rules:
-  - name: "Archive Utility Execution"
-    window: 60
-    conditions:
-      - fact_type: Exec
+  - name: 'Archive Utility Execution'
+    severity: MEDIUM
+    fact: Exec
+    match:
+      - field: image
+        in: ['7z.exe', '7za.exe', '7zr.exe', 'rar.exe', 'winrar.exe']
+      - field: cmdline
+        regex: '(?i)\s(a|u)\s'
+    techniques: [T1560.001]
+
+  - name: 'PowerShell Compress-Archive'
+    severity: MEDIUM
+    fact: Exec
+    match:
+      - field: image
+        in: ['powershell.exe', 'pwsh.exe']
+      - field: cmdline
+        regex: '(?i)compress-archive'
+    techniques: [T1560.001]
+
+  - name: 'Archive Created in Temp'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: cmdline
+        regex: '(?i)\b(7z|7za|rar|compress-archive)\b.*\\(temp|tmp)\\'
+    techniques: [T1560.001, T1074.001]
+
+  - name: 'Password Protected Archive'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: cmdline
+        regex: '(?i)\b(7z|7za|rar)(\.exe)?\b.*\s-(p|hp)\S+'
+    techniques: [T1560.001]
+
+  - name: 'Archive Written to Staging Folder'
+    severity: MEDIUM
+    fact: CreatePath
+    match:
       - field: path
-        matches: "(?i)(7z|7za|winrar|rar|winzip|zip)\\.exe"
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "archive_creation"
-          - "staging"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
+        regex: '(?i)\\(users\\public|windows\\temp|programdata)\\[^\\]*\.(zip|7z|rar)$'
+    techniques: [T1074.001]
 
-  - name: "PowerShell Compress-Archive"
-    window: 60
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)powershell"
-      - field: cmdline
-        matches: "(?i)compress-archive"
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "powershell_archive"
-          - "staging"
-
-  - name: "Archive Creation in Temp"
-    window: 60
-    conditions:
-      - fact_type: Exec
-      - field: cmdline
-        matches: "(?i)(7z|rar|zip).*\\\\temp\\\\"
-    actions:
-      - severity: HIGH
-        tags:
-          - "temp_staging"
-          - "exfiltration_prep"
-
-  - name: "Archive with Password"
-    window: 60
-    conditions:
-      - fact_type: Exec
-      - field: cmdline
-        matches: "(?i)(7z|rar).*-p"
-    actions:
-      - severity: HIGH
-        tags:
-          - "encrypted_archive"
-          - "data_protection"
-
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "File Staging Detected"
-    priority: "medium"
-
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "IT backup operations"
-  - "Developer build processes"
+- IT backup operations
+- Developer build processes
+response:
+- type: alert
+  channel: siem
+  title: File Staging Detected
+  priority: medium

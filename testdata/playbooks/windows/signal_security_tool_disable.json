@@ -1,0 +1,161 @@
+{
+ "playbook": "signal_security_tool_disable",
+ "fires": [
+  {
+   "rule": "Disable Windows Defender",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell Set-MpPreference -DisableIOAVProtection $true",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Disable Windows Defender",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net stop windefend",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Defender Exclusion Added",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c Add-MpPreference -ExclusionPath C:\\Users\\Public",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Disable Windows Firewall",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\netsh.exe",
+      "CommandLine": "netsh advfirewall set allprofiles state off",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Stop Event Log Service",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net stop eventlog /y",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "AMSI Bypass Attempt",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Security Process Killed",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\taskkill.exe",
+      "CommandLine": "taskkill /im MsMpEng.exe /f",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "enabling the firewall",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\netsh.exe",
+      "CommandLine": "netsh advfirewall set allprofiles state on",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "reading Defender status",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell Get-MpComputerStatus",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "killing a normal program",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\taskkill.exe",
+      "CommandLine": "taskkill /im notepad.exe /f",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "taskkill without force",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\taskkill.exe",
+      "CommandLine": "taskkill /im MsMpEng.exe",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

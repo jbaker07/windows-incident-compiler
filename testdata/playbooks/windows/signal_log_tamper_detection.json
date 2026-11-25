@@ -1,0 +1,111 @@
+{
+ "playbook": "signal_log_tamper_detection",
+ "fires": [
+  {
+   "rule": "Event Log Cleared",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1102,
+      "windows.channel": "Security",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Event Log Cleared",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 104,
+      "windows.channel": "System",
+      "Channel": "System",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Log Clear Command",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wevtutil.exe",
+      "CommandLine": "wevtutil cl Security",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Log Clear Command",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c Clear-EventLog -LogName Security,System",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Shell Followed by Log Clear",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\cmd.exe",
+      "CommandLine": "cmd.exe",
+      "SubjectUserName": "alice"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 1102,
+      "windows.channel": "Security",
+      "SubjectUserName": "alice"
+     },
+     "t": 120
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "exporting a log",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wevtutil.exe",
+      "CommandLine": "wevtutil epl Security C:\\backup\\sec.evtx",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "querying a log",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell Get-EventLog -LogName Security -Newest 10",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,172 @@
+{
+ "playbook": "signal_net_command_abuse",
+ "fires": [
+  {
+   "rule": "Net Domain Group Enumeration",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net group \"Domain Admins\" /domain",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Net User Add",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net user backdoor P@ssw0rd! /add",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Net Localgroup Add",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\net1.exe",
+      "CommandLine": "net1 localgroup administrators backdoor /add",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Net Share Enumeration",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net view",
+      "SubjectUserName": "alice"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net view \\\\FS01 /all",
+      "SubjectUserName": "alice"
+     },
+     "t": 10
+    }
+   ]
+  },
+  {
+   "rule": "Net Use to Admin Share",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net use \\\\FS01\\C$ /user:CORP\\admin P@ss",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Net Session or Connection Delete",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net use \\\\FS01\\C$ /delete /y",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Net User Password Reset",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net user bob *",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "listing local users",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net user",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "mapping a normal file share",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net use Z: \\\\FS01\\Projects",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "starting a service",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net start spooler",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "one share listing",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net share",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

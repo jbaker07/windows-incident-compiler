@@ -1,148 +1,94 @@
 ---
 # playbooks/windows/signal_encoded_powershell.yaml
-# Detection of encoded/obfuscated PowerShell execution
+# Detects encoded, hidden and fileless PowerShell command lines.
 
-id: "windows_encoded_powershell_001"
-title: "Encoded PowerShell Execution"
-name: "Encoded PowerShell Detection"
-family: "execution"
-version: "2.0"
+id: signal_encoded_powershell
+title: 'Encoded PowerShell Execution'
+family: execution
+version: "3.0"
 description: |
   Detects encoded or obfuscated PowerShell commands commonly used in:
-  - Initial access via malicious documents/scripts
-  - Download cradles (IEX/DownloadString)
-  - Fileless malware execution
-  - Empire/Cobalt Strike payloads
+  - Initial access through malicious documents and scripts
+  - Download cradles (IEX with DownloadString)
+  - Hidden window launches with an encoded payload
+  - Fileless loading of .NET assemblies through reflection
 
 enabled: true
-confidence_threshold: 0.85
+severity: HIGH
+cooldown_seconds: 60
 
-# Capability requirements
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Security 4688 with command line, or Sysmon 1'
 
-# Optional capabilities that improve detection
-enhances_with:
-  - powershell_logging
-  - sysmon
-
-# MITRE ATT&CK mapping
 mitre:
+  attack_version: "20.1"
   tactics:
     - execution
-    - defense_evasion
+    - stealth
   techniques:
-    - T1059.001  # PowerShell
-    - T1027      # Obfuscated Files/Information
-    - T1140      # Deobfuscate/Decode Files
+    - id: T1059.001
+      name: 'Command and Scripting Interpreter: PowerShell'
+    - id: T1027.010
+      name: 'Obfuscated Files or Information: Command Obfuscation'
+    - id: T1564.003
+      name: 'Hide Artifacts: Hidden Window'
+    - id: T1620
+      name: 'Reflective Code Loading'
 
-# Input fact types
-input_facts:
-  required:
-    - Exec
-  optional:
-    - ScriptExec
-
-# Slot definitions for matching
-slots:
-  required:
-    - name: process_name
-      type: string
-      pattern: "(?i)powershell\\.exe|pwsh\\.exe"
-    - name: encoded_flag
-      type: string
-      pattern: "(?i)-enc|-encodedcommand|-e\\s+[A-Za-z0-9+/=]{20,}"
-  optional:
-    - name: bypass_flag
-      type: string
-      pattern: "(?i)-ep\\s*bypass|-executionpolicy\\s*bypass"
-    - name: hidden_flag
-      type: string
-      pattern: "(?i)-w\\s*hidden|-windowstyle\\s*hidden"
-    - name: noprofile_flag
-      type: string
-      pattern: "(?i)-nop|-noprofile"
-
-# Detection rules
 rules:
-  - name: "Base64 Encoded Command"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)powershell|pwsh"
+  - name: 'Base64 Encoded Command'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        in: ['powershell.exe', 'pwsh.exe']
       - field: cmdline
-        matches: "(?i)-enc(odedcommand)?\\s+[A-Za-z0-9+/=]{50,}"
-    actions:
-      - severity: HIGH
-        tags:
-          - "encoded_powershell"
-          - "obfuscation"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
-        field_mapping:
-          process: "NewProcessName"
-          cmdline: "CommandLine"
-          parent: "ParentProcessName"
+        regex: '(?i)\s-e(c|nc|ncodedcommand)?\s+[A-Za-z0-9+/=]{40,}'
+    techniques: [T1059.001, T1027.010]
 
-  - name: "Download Cradle Pattern"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)powershell|pwsh"
+  - name: 'Download Cradle Pattern'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        in: ['powershell.exe', 'pwsh.exe']
       - field: cmdline
-        matches: "(?i)(iex|invoke-expression).*(downloadstring|webclient|webrequest|bitstransfer)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "download_cradle"
-          - "initial_access"
-          - "dropper"
+        regex: '(?i)\b(iex|invoke-expression)\b.*(downloadstring|net\.webclient|invoke-webrequest|\biwr\b|start-bitstransfer)'
+    techniques: [T1059.001]
 
-  - name: "Multi-Stage Evasion"
-    window: 10
-    conditions:
-      - fact_type: Exec
+  - name: 'Hidden Window With Encoded Command'
+    severity: CRITICAL
+    fact: Exec
+    match:
       - field: cmdline
-        matches: "(?i)-nop.*-w\\s*hidden.*-enc"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "staged_payload"
-          - "fileless"
-
-  - name: "Reflection Load (Fileless)"
-    window: 10
-    conditions:
-      - fact_type: Exec
+        regex: '(?i)\s-(nop|noprofile)\b'
       - field: cmdline
-        matches: "(?i)\\[reflection\\.assembly\\]::load|\\[system\\.reflection"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "fileless_malware"
-          - "memory_only"
+        regex: '(?i)\s-w(indowstyle)?\s+hidden\b'
+      - field: cmdline
+        regex: '(?i)\s-e(c|nc|ncodedcommand)?\s+\S'
+    techniques: [T1059.001, T1564.003, T1027.010]
 
-# Response actions
-response:
-  - type: "suspend_process"
-    target: "process"
-    description: "Suspend suspicious PowerShell process"
-    
-  - type: "capture_memory"
-    target: "process"
-    description: "Capture process memory for analysis"
-    
-  - type: "alert"
-    channel: "siem"
-    title: "Encoded PowerShell Detected"
-    priority: "critical"
+  - name: 'Reflection Assembly Load'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: cmdline
+        regex: '(?i)\[(system\.)?reflection\.assembly\]::load'
+    techniques: [T1059.001, T1620]
 
-# False positive notes
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "Some legitimate deployment scripts use -EncodedCommand"
-  - "SCCM/ConfigMgr deployments may use encoded commands"
-  - "Validate parent process context before blocking"
+- Some legitimate deployment scripts use -EncodedCommand
+- SCCM/ConfigMgr deployments may use encoded commands
+- Validate parent process context before blocking
+response:
+- type: suspend_process
+  target: process
+  description: Suspend suspicious PowerShell process
+- type: capture_memory
+  target: process
+  description: Capture process memory for analysis
+- type: alert
+  channel: siem
+  title: Encoded PowerShell Detected
+  priority: critical

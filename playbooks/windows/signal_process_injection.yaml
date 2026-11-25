@@ -1,92 +1,87 @@
 ---
 # playbooks/windows/signal_process_injection.yaml
-# Detection of process injection techniques
+# Detects remote thread injection and process image tampering.
 
-id: "windows_process_injection_001"
-title: "Process Injection Detection"
-name: "Process Injection Detection"
-family: "defense_evasion"
-version: "2.0"
+id: signal_process_injection
+title: 'Process Injection Detection'
+family: stealth
+version: "3.0"
 description: |
   Detects process injection techniques including:
-  - Remote thread creation
-  - Process hollowing indicators
-  - APC injection patterns
+  - Remote thread creation (Sysmon 8), the core step of classic DLL injection
+  - Remote threads created in system processes such as lsass or svchost
+  - Remote threads created by programs running from user writable folders
+  - Process image tampering (Sysmon 25), which is how process hollowing appears
 
 enabled: true
-confidence_threshold: 0.85
+severity: HIGH
+cooldown_seconds: 60
 
 requires:
-  - sysmon
+  - 'Sysmon 8 and Sysmon 25'
 
 mitre:
+  attack_version: "20.1"
   tactics:
-    - defense_evasion
+    - stealth
     - privilege_escalation
   techniques:
-    - T1055.001  # DLL Injection
-    - T1055.002  # PE Injection
-    - T1055.003  # Thread Execution Hijacking
-    - T1055.004  # APC Injection
-    - T1055.012  # Process Hollowing
-
-input_facts:
-  required:
-    - MemAlloc
-  optional:
-    - Exec
-
-slots:
-  optional:
-    - name: target_process
-      type: string
-    - name: source_process
-      type: string
+    - id: T1055
+      name: 'Process Injection'
+    - id: T1055.001
+      name: 'Process Injection: Dynamic-link Library Injection'
+    - id: T1055.012
+      name: 'Process Injection: Process Hollowing'
 
 rules:
-  - name: "Remote Thread Creation"
-    window: 10
-    conditions:
-      - tag: "remote_thread"
-    actions:
-      - severity: HIGH
-        tags:
-          - "injection"
-          - "remote_thread"
-    evidence:
-      - event_type: "create_remote_thread"
-        event_id: 8
-
-  - name: "Injection into System Process"
-    window: 10
-    conditions:
-      - tag: "remote_thread"
-      - field: target_image
-        matches: "(?i)(svchost|lsass|csrss|winlogon|services)\\.exe"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "system_injection"
-          - "privilege_escalation"
-
-  - name: "Injection from Temp Path"
-    window: 10
-    conditions:
-      - tag: "remote_thread"
+  - name: 'Remote Thread Creation'
+    severity: HIGH
+    fact: Injection
+    match:
+      - field: injection_type
+        equals: 'remote_thread'
+    exclude:
       - field: source_image
-        matches: "(?i)(\\\\temp\\\\|\\\\appdata\\\\)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "suspicious_injector"
-          - "malware"
+        regex: '(?i)\\(csrss|wininit|services|smss|MsMpEng)\.exe$'
+    techniques: [T1055, T1055.001]
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "Process Injection Detected"
-    priority: "critical"
+  - name: 'Injection into System Process'
+    severity: CRITICAL
+    fact: Injection
+    match:
+      - field: injection_type
+        equals: 'remote_thread'
+      - field: target_image
+        regex: '(?i)\\(svchost|lsass|csrss|winlogon|services|explorer)\.exe$'
+    exclude:
+      - field: source_image
+        regex: '(?i)\\(csrss|wininit|services|smss|MsMpEng)\.exe$'
+    techniques: [T1055, T1055.001]
 
+  - name: 'Injection from User Writable Path'
+    severity: CRITICAL
+    fact: Injection
+    match:
+      - field: injection_type
+        equals: 'remote_thread'
+      - field: source_image
+        regex: '(?i)(\\temp\\|%temp%|\\appdata\\|%appdata%|\\users\\public\\|\\downloads\\)'
+    techniques: [T1055, T1055.001]
+
+  - name: 'Process Image Tampering'
+    severity: HIGH
+    fact: Injection
+    match:
+      - field: injection_type
+        equals: 'process_hollowing'
+    techniques: [T1055.012]
+
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "Security software"
-  - "Accessibility tools"
+- Security software
+- Accessibility tools
+response:
+- type: alert
+  channel: siem
+  title: Process Injection Detected
+  priority: critical

@@ -1,115 +1,99 @@
 ---
 # playbooks/windows/signal_group_membership_change.yaml
-# Detection of sensitive group membership changes
+# Detects users added to privileged groups and new accounts being created.
 
-id: "windows_group_membership_001"
-title: "Sensitive Group Membership Change"
-name: "Group Membership Change Detection"
-family: "identity"
-version: "2.0"
+id: signal_group_membership_change
+title: 'Sensitive Group Membership Change'
+family: persistence
+version: "3.0"
 description: |
-  Detects changes to sensitive security groups:
-  - Administrators
-  - Domain Admins
-  - Enterprise Admins
-  - Schema Admins
+  Detects changes to sensitive security groups (events 4728, 4732, 4756):
+  - Administrators and Domain Admins
+  - Enterprise Admins and Schema Admins
   - Backup Operators
   - Remote Desktop Users
 
+  Also reports new user accounts (event 4720). In these events TargetUserName is
+  the group name and MemberName is the account that was added.
+
 enabled: true
-confidence_threshold: 0.85
+severity: CRITICAL
+cooldown_seconds: 60
 
 requires:
-  - security_log
+  - 'Security 4720, 4728, 4732 and 4756 (account management auditing)'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - persistence
     - privilege_escalation
   techniques:
-    - T1098      # Account Manipulation
-    - T1136      # Create Account
-
-input_facts:
-  required:
-    - AuthEvent  # Note: Using AuthEvent as proxy since we don't have GroupMembership fact type
-
-slots:
-  required:
-    - name: group_name
-      type: string
-      pattern: "(?i)(administrator|domain admin|enterprise admin|schema admin|backup operator)"
-    - name: target_user
-      type: string
-  optional:
-    - name: actor_user
-      type: string
+    - id: T1098.007
+      name: 'Account Manipulation: Additional Local or Domain Groups'
+    - id: T1136
+      name: 'Create Account'
 
 rules:
-  - name: "Admin Group Member Added"
-    window: 10
-    conditions:
-      - tag: "group_member_added"
-      - or:
-          - field: group
-            matches: "(?i)administrators"
-          - field: group
-            matches: "(?i)domain admins"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "privilege_escalation"
-          - "admin_group"
-    evidence:
-      - event_type: "group_membership"
-        event_id: [4728, 4732, 4756]
-        field_mapping:
-          group: "TargetUserName"
-          member: "MemberName"
-          actor: "SubjectUserName"
+  - name: 'Admin Group Member Added'
+    severity: CRITICAL
+    fact: AuthEvent
+    match:
+      - field: event_id
+        in: [4728, 4732, 4756]
+      - field: TargetUserName
+        regex: '(?i)^(administrators|domain admins)$'
+    techniques: [T1098.007]
+    tags: [admin_group]
 
-  - name: "Enterprise Admin Added"
-    window: 10
-    conditions:
-      - tag: "group_member_added"
-      - field: group
-        matches: "(?i)enterprise admins"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "domain_escalation"
-          - "high_privilege"
+  - name: 'Enterprise or Schema Admin Added'
+    severity: CRITICAL
+    fact: AuthEvent
+    match:
+      - field: event_id
+        in: [4728, 4732, 4756]
+      - field: TargetUserName
+        regex: '(?i)^(enterprise admins|schema admins)$'
+    techniques: [T1098.007]
+    tags: [domain_escalation]
 
-  - name: "Remote Desktop Users Added"
-    window: 10
-    conditions:
-      - tag: "group_member_added"
-      - field: group
-        matches: "(?i)remote desktop users"
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "rdp_access"
-          - "lateral_movement_prep"
+  - name: 'Remote Desktop Users Added'
+    severity: MEDIUM
+    fact: AuthEvent
+    match:
+      - field: event_id
+        in: [4728, 4732, 4756]
+      - field: TargetUserName
+        regex: '(?i)^remote desktop users$'
+    techniques: [T1098.007]
+    tags: [rdp_access]
 
-  - name: "Backup Operators Added"
-    window: 10
-    conditions:
-      - tag: "group_member_added"
-      - field: group
-        matches: "(?i)backup operators"
-    actions:
-      - severity: HIGH
-        tags:
-          - "backup_escalation"
-          - "ntds_theft_risk"
+  - name: 'Backup Operators Added'
+    severity: HIGH
+    fact: AuthEvent
+    match:
+      - field: event_id
+        in: [4728, 4732, 4756]
+      - field: TargetUserName
+        regex: '(?i)^backup operators$'
+    techniques: [T1098.007]
+    tags: [backup_escalation]
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "Sensitive Group Membership Changed"
-    priority: "critical"
+  - name: 'User Account Created'
+    severity: MEDIUM
+    fact: AuthEvent
+    match:
+      - field: event_id
+        equals: 4720
+    techniques: [T1136]
+    tags: [account_created]
 
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "Legitimate user provisioning"
-  - "Scheduled admin rotations"
+- Legitimate user provisioning
+- Scheduled admin rotations
+response:
+- type: alert
+  channel: siem
+  title: Sensitive Group Membership Changed
+  priority: critical

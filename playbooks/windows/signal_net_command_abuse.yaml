@@ -1,147 +1,140 @@
 ---
 # playbooks/windows/signal_net_command_abuse.yaml
-# Detection of net.exe command abuse
+# Detects net.exe used to add accounts, enumerate shares and groups, or reach admin shares.
 
-id: "windows_net_command_001"
-title: "Net Command Abuse"
-name: "Net Command Detection"
-family: "discovery"
-version: "2.0"
+id: signal_net_command_abuse
+title: 'Net Command Abuse'
+family: discovery
+version: "3.0"
 description: |
-  Detects suspicious net.exe usage for:
-  - User/group enumeration
+  Detects suspicious net.exe and net1.exe usage for:
+  - Domain group enumeration
   - Share enumeration
-  - Session management
-  - Account manipulation
+  - Adding local users and adding users to local groups
+  - Mapping a remote administrative share
+  - Deleting sessions or share connections to cover tracks
+  - Resetting a password interactively
 
 enabled: true
-confidence_threshold: 0.70
+severity: HIGH
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Security 4688 with command line, or Sysmon 1'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - discovery
-    - lateral_movement
     - persistence
+    - privilege_escalation
+    - lateral_movement
+    - stealth
   techniques:
-    - T1087      # Account Discovery
-    - T1069      # Permission Groups Discovery
-    - T1135      # Network Share Discovery
-    - T1136      # Create Account
-
-input_facts:
-  required:
-    - Exec
-
-slots:
-  required:
-    - name: process_name
-      type: string
-      pattern: "(?i)net\\.exe|net1\\.exe"
-  optional:
-    - name: subcommand
-      type: string
-      pattern: "(?i)user|localgroup|group|share|session|use"
+    - id: T1069.002
+      name: 'Permission Groups Discovery: Domain Groups'
+    - id: T1087.002
+      name: 'Account Discovery: Domain Account'
+    - id: T1135
+      name: 'Network Share Discovery'
+    - id: T1136.001
+      name: 'Create Account: Local Account'
+    - id: T1098.007
+      name: 'Account Manipulation: Additional Local or Domain Groups'
+    - id: T1098
+      name: 'Account Manipulation'
+    - id: T1021.002
+      name: 'Remote Services: SMB/Windows Admin Shares'
+    - id: T1070.005
+      name: 'Indicator Removal: Network Share Connection Removal'
 
 rules:
-  - name: "Net User Add"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)net(1)?\\.exe"
+  - name: 'Net Domain Group Enumeration'
+    severity: MEDIUM
+    fact: Exec
+    match:
+      - field: image
+        in: ['net.exe', 'net1.exe']
       - field: cmdline
-        matches: "(?i)\\buser\\b.*/add"
-    actions:
-      - severity: HIGH
-        tags:
-          - "account_creation"
-          - "persistence"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
-
-  - name: "Net Localgroup Add"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)net(1)?\\.exe"
+        regex: '(?i)\b(group|user)\b.*\s/domain\b'
+    exclude:
       - field: cmdline
-        matches: "(?i)\\blocalgroup\\b.*/add"
-    actions:
-      - severity: HIGH
-        tags:
-          - "group_modification"
-          - "privilege_escalation"
+        regex: '(?i)\s/(add|delete|del)\b'
+    techniques: [T1069.002, T1087.002]
 
-  - name: "Net Share Enumeration"
-    window: 60
-    aggregation: count
+  - name: 'Net User Add'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        in: ['net.exe', 'net1.exe']
+      - field: cmdline
+        regex: '(?i)\buser\b.*\s/add\b'
+    techniques: [T1136.001]
+
+  - name: 'Net Localgroup Add'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        in: ['net.exe', 'net1.exe']
+      - field: cmdline
+        regex: '(?i)\blocalgroup\b.*\s/add\b'
+    techniques: [T1098.007]
+
+  - name: 'Net Share Enumeration'
+    severity: MEDIUM
+    fact: Exec
     threshold: 2
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)net(1)?\\.exe"
+    distinct: cmdline
+    window_seconds: 60
+    group_by: user
+    match:
+      - field: image
+        in: ['net.exe', 'net1.exe']
       - field: cmdline
-        matches: "(?i)\\bshare\\b|\\bview\\b"
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "share_enum"
-          - "discovery"
+        regex: '(?i)\b(share|view)\b'
+    techniques: [T1135]
 
-  - name: "Net Use Remote Connection"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)net(1)?\\.exe"
+  - name: 'Net Use to Admin Share'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        in: ['net.exe', 'net1.exe']
       - field: cmdline
-        matches: "(?i)\\buse\\b.*\\\\\\\\.*[$]"
-    actions:
-      - severity: HIGH
-        tags:
-          - "lateral_movement"
-          - "admin_share"
-
-  - name: "Net Session Clear"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)net(1)?\\.exe"
+        regex: '(?i)\buse\b.*\\\\[^\\\s]+\\(c|admin)\$'
+    exclude:
       - field: cmdline
-        matches: "(?i)\\bsession\\b.*/delete"
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "session_cleanup"
-          - "anti_forensics"
+        regex: '(?i)\s/del(ete)?\b'
+    techniques: [T1021.002]
 
-  - name: "Net Password Change"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)net(1)?\\.exe"
+  - name: 'Net Session or Connection Delete'
+    severity: MEDIUM
+    fact: Exec
+    match:
+      - field: image
+        in: ['net.exe', 'net1.exe']
       - field: cmdline
-        matches: "(?i)\\buser\\b.*\\*"
-    actions:
-      - severity: HIGH
-        tags:
-          - "password_change"
-          - "credential_modification"
+        regex: '(?i)\b(session|use)\b.*\s/del(ete)?\b'
+    techniques: [T1070.005]
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "Net Command Abuse Detected"
-    priority: "high"
+  - name: 'Net User Password Reset'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        in: ['net.exe', 'net1.exe']
+      - field: cmdline
+        regex: '(?i)\buser\s+\S+\s+\*'
+    techniques: [T1098]
 
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "IT administrators managing users/shares"
-  - "Domain join operations"
+- IT administrators managing users/shares
+- Domain join operations
+response:
+- type: alert
+  channel: siem
+  title: Net Command Abuse Detected
+  priority: high

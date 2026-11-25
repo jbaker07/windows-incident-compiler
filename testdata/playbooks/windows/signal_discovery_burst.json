@@ -1,0 +1,262 @@
+{
+ "playbook": "signal_discovery_burst",
+ "fires": [
+  {
+   "rule": "User Discovery Burst",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\whoami.exe",
+      "CommandLine": "whoami /all",
+      "SubjectUserName": "alice"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "\"C:\\Windows\\system32\\net.exe\" user",
+      "SubjectUserName": "alice"
+     },
+     "t": 3
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net localgroup administrators",
+      "SubjectUserName": "alice"
+     },
+     "t": 6
+    }
+   ]
+  },
+  {
+   "rule": "Network Discovery Burst",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\ipconfig.exe",
+      "CommandLine": "ipconfig /all",
+      "User": "CORP\\alice"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\ARP.EXE",
+      "CommandLine": "arp -a",
+      "User": "CORP\\alice"
+     },
+     "t": 2
+    },
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\NETSTAT.EXE",
+      "CommandLine": "netstat -ano",
+      "User": "CORP\\alice"
+     },
+     "t": 4
+    }
+   ]
+  },
+  {
+   "rule": "Domain Discovery Burst",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\nltest.exe",
+      "CommandLine": "nltest /domain_trusts",
+      "SubjectUserName": "alice"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net group \"Domain Admins\" /domain",
+      "SubjectUserName": "alice"
+     },
+     "t": 4
+    }
+   ]
+  },
+  {
+   "rule": "Combined Discovery Activity",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\hostname.exe",
+      "CommandLine": "hostname",
+      "SubjectUserName": "alice"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\systeminfo.exe",
+      "CommandLine": "systeminfo",
+      "SubjectUserName": "alice"
+     },
+     "t": 20
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\tasklist.exe",
+      "CommandLine": "tasklist /v",
+      "SubjectUserName": "alice"
+     },
+     "t": 40
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\whoami.exe",
+      "CommandLine": "whoami",
+      "SubjectUserName": "alice"
+     },
+     "t": 60
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\ipconfig.exe",
+      "CommandLine": "ipconfig",
+      "SubjectUserName": "alice"
+     },
+     "t": 80
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "same command three times",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\whoami.exe",
+      "CommandLine": "whoami",
+      "SubjectUserName": "alice"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\whoami.exe",
+      "CommandLine": "whoami",
+      "SubjectUserName": "alice"
+     },
+     "t": 5
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\whoami.exe",
+      "CommandLine": "whoami",
+      "SubjectUserName": "alice"
+     },
+     "t": 10
+    }
+   ]
+  },
+  {
+   "name": "three commands spread over ten minutes",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\whoami.exe",
+      "CommandLine": "whoami /all",
+      "SubjectUserName": "alice"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net user",
+      "SubjectUserName": "alice"
+     },
+     "t": 300
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net localgroup",
+      "SubjectUserName": "alice"
+     },
+     "t": 600
+    }
+   ]
+  },
+  {
+   "name": "three commands from three users",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\whoami.exe",
+      "CommandLine": "whoami /all",
+      "SubjectUserName": "a"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net user",
+      "SubjectUserName": "b"
+     },
+     "t": 1
+    },
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\net.exe",
+      "CommandLine": "net localgroup",
+      "SubjectUserName": "c"
+     },
+     "t": 2
+    }
+   ]
+  }
+ ]
+}

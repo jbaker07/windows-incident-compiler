@@ -1,0 +1,101 @@
+{
+ "playbook": "signal_defense_evasion",
+ "fires": [
+  {
+   "rule": "Security Log Cleared",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1102,
+      "windows.channel": "Security",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Defender Disabled by Command",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c Set-MpPreference -DisableRealtimeMonitoring $true",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Event Log Settings Changed",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\System\\CurrentControlSet\\Services\\EventLog\\Security\\MaxSize",
+      "Details": "DWORD (0x00010000)",
+      "Image": "C:\\Windows\\System32\\reg.exe"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Event Log File Deleted",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 23,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetFilename": "C:\\Windows\\System32\\winevt\\Logs\\Security.evtx",
+      "Image": "C:\\Users\\Public\\wipe.exe"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "defender switched back on",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c Set-MpPreference -DisableRealtimeMonitoring $false",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "reading Defender settings",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c Get-MpPreference",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "other service registry value",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\System\\CurrentControlSet\\Services\\Spooler\\Start",
+      "Details": "DWORD (0x00000002)"
+     }
+    }
+   ]
+  }
+ ]
+}

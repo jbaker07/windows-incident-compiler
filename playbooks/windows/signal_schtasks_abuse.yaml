@@ -1,137 +1,90 @@
 ---
 # playbooks/windows/signal_schtasks_abuse.yaml
-# Detection of schtasks.exe abuse for persistence
+# Detects schtasks.exe creating tasks that run as SYSTEM, run remotely, or run shells from user folders.
 
-id: "windows_schtasks_abuse_001"
-title: "Schtasks Persistence Abuse"
-name: "Schtasks Abuse Detection"
-family: "persistence"
-version: "2.0"
+id: signal_schtasks_abuse
+title: 'Schtasks Persistence Abuse'
+family: persistence
+version: "3.0"
 description: |
   Detects abuse of schtasks.exe for:
-  - Task creation for persistence
-  - Remote task creation (lateral movement)
-  - SYSTEM privilege escalation
-  - Hidden task scheduling
+  - Creating a task that runs as SYSTEM
+  - Creating a task on a remote host (/s)
+  - Creating a logon or startup task that runs a shell or script engine
+  - Creating a task that runs PowerShell
+  - Creating a task that runs a program from a temp, AppData or public folder
 
 enabled: true
-confidence_threshold: 0.75
+severity: HIGH
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Security 4688 with command line, or Sysmon 1'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - persistence
     - execution
     - privilege_escalation
   techniques:
-    - T1053.005  # Scheduled Task
-
-input_facts:
-  required:
-    - Exec
-  optional:
-    - PersistArtifact
-
-slots:
-  required:
-    - name: process_name
-      type: string
-      pattern: "(?i)schtasks\\.exe"
-  optional:
-    - name: create_flag
-      type: string
-      pattern: "(?i)/create"
-    - name: run_as_system
-      type: string
-      pattern: "(?i)/ru\\s+(system|\"system\")"
-    - name: remote_target
-      type: string
-      pattern: "(?i)/s\\s+\\\\\\\\|/s\\s+[a-zA-Z0-9]"
+    - id: T1053.005
+      name: 'Scheduled Task/Job: Scheduled Task'
 
 rules:
-  - name: "Task Created with SYSTEM Privilege"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)schtasks"
+  - name: 'Task Created to Run as SYSTEM'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        equals: 'schtasks.exe'
       - field: cmdline
-        matches: "(?i)/create.*/ru\\s+(system|\"system\")"
-    actions:
-      - severity: HIGH
-        tags:
-          - "persistence"
-          - "privilege_escalation"
-          - "system_task"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
+        regex: '(?i)/create\b.*/ru\s+"?(system|nt authority\\system)\b'
 
-  - name: "Remote Task Creation"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)schtasks"
+  - name: 'Remote Task Creation'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        equals: 'schtasks.exe'
       - field: cmdline
-        matches: "(?i)/create.*/s\\s+"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "lateral_movement"
-          - "remote_task"
+        regex: '(?i)/create\b.*\s/s\s+\S+'
 
-  - name: "Task with Hidden Attribute"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)schtasks"
+  - name: 'Logon or Startup Task Runs a Shell'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        equals: 'schtasks.exe'
       - field: cmdline
-        matches: "(?i)/create.*/v1"  # V1 allows hiding
-    actions:
-      - severity: HIGH
-        tags:
-          - "hidden_task"
-          - "evasion"
-
-  - name: "Task Running PowerShell"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)schtasks"
+        regex: '(?i)/create\b.*/sc\s+(onlogon|onstart)\b'
       - field: cmdline
-        matches: "(?i)/create.*/tr\\s+.*powershell"
-    actions:
-      - severity: HIGH
-        tags:
-          - "powershell_persistence"
-          - "scheduled_task"
+        regex: '(?i)/tr\s+.*(cmd|powershell|pwsh|wscript|cscript|mshta)(\.exe)?\b'
 
-  - name: "Task Running from Temp"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)schtasks"
+  - name: 'Task Running PowerShell'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        equals: 'schtasks.exe'
       - field: cmdline
-        matches: "(?i)/create.*/tr\\s+.*(\\\\temp\\\\|%temp%|\\\\appdata\\\\)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "suspicious_location"
-          - "malware_persistence"
+        regex: '(?i)/create\b.*/tr\s+.*\b(powershell|pwsh)\b'
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "Schtasks Abuse Detected"
-    priority: "high"
+  - name: 'Task Running from User Writable Path'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        equals: 'schtasks.exe'
+      - field: cmdline
+        regex: '(?i)/create\b.*/tr\s+.*(\\temp\\|%temp%|\\appdata\\|%appdata%|\\users\\public\\)'
 
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "IT deployment scripts creating legitimate tasks"
-  - "Backup software scheduling operations"
+- IT deployment scripts creating legitimate tasks
+- Backup software scheduling operations
+response:
+- type: alert
+  channel: siem
+  title: Schtasks Abuse Detected
+  priority: high

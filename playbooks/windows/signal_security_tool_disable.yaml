@@ -1,109 +1,108 @@
 ---
 # playbooks/windows/signal_security_tool_disable.yaml
-# Detection of security tool disabling
+# Detects Defender, firewall, AMSI, EventLog or EDR protection being switched off or killed.
 
-id: "windows_security_disable_001"
-title: "Security Tool Disable"
-name: "Security Tool Disable Detection"
-family: "defense_evasion"
-version: "2.0"
+id: signal_security_tool_disable
+title: 'Security Tool Disable'
+family: defense_impairment
+version: "3.0"
 description: |
   Detects attempts to disable security tools:
-  - Windows Defender manipulation
-  - Firewall disable
-  - Event logging disable
-  - EDR/AV service termination
+  - Windows Defender switched off by PowerShell, sc.exe or net.exe
+  - Defender exclusions added for a path, process or extension
+  - Windows Firewall switched off with netsh or Set-NetFirewallProfile
+  - The EventLog service stopped
+  - AMSI bypass strings on a command line
+  - Antivirus or EDR processes killed with taskkill /f
+
+  ATT&CK v19 moved Disable or Modify Tools to T1685 under Defense Impairment and
+  the firewall technique to T1686.
 
 enabled: true
-confidence_threshold: 0.90
+severity: CRITICAL
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Security 4688 with command line, or Sysmon 1'
 
 mitre:
+  attack_version: "20.1"
   tactics:
-    - defense_evasion
+    - defense_impairment
+    - stealth
   techniques:
-    - T1562.001  # Disable or Modify Tools
-    - T1562.004  # Disable Windows Event Logging
-
-input_facts:
-  required:
-    - Exec
-  optional:
-    - SecurityToolDisable
+    - id: T1685
+      name: 'Disable or Modify Tools'
+    - id: T1685.001
+      name: 'Disable or Modify Tools: Disable or Modify Windows Event Log'
+    - id: T1686.003
+      name: 'Disable or Modify System Firewall: Windows Host Firewall'
+    - id: T1564.012
+      name: 'Hide Artifacts: File/Path Exclusions'
 
 rules:
-  - name: "Disable Windows Defender"
-    window: 10
-    conditions:
-      - fact_type: Exec
+  - name: 'Disable Windows Defender'
+    severity: CRITICAL
+    fact: Exec
+    any:
       - field: cmdline
-        matches: "(?i)(set-mppreference.*-disablerealtimemonitoring|sc.*stop.*windefend|net.*stop.*windefend)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "defender_disable"
-          - "evasion"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
-
-  - name: "Disable Windows Firewall"
-    window: 10
-    conditions:
-      - fact_type: Exec
+        regex: '(?i)set-mppreference\b.*-disable\w+\s+(\$true|1)\b'
       - field: cmdline
-        matches: "(?i)(netsh.*firewall.*set.*opmode.*disable|netsh.*advfirewall.*set.*state.*off)"
-    actions:
-      - severity: HIGH
-        tags:
-          - "firewall_disable"
-          - "evasion"
+        regex: '(?i)\b(sc|net1?)(\.exe)?"?\s+(stop|config)\s+windefend\b'
+    techniques: [T1685]
 
-  - name: "Stop Event Log Service"
-    window: 10
-    conditions:
-      - fact_type: Exec
+  - name: 'Defender Exclusion Added'
+    severity: HIGH
+    fact: Exec
+    match:
       - field: cmdline
-        matches: "(?i)(sc.*stop.*eventlog|net.*stop.*eventlog)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "logging_disable"
-          - "anti_forensics"
+        regex: '(?i)add-mppreference\b.*-exclusion(path|process|extension)\b'
+    techniques: [T1564.012]
 
-  - name: "Disable AMSI"
-    window: 10
-    conditions:
-      - fact_type: Exec
+  - name: 'Disable Windows Firewall'
+    severity: HIGH
+    fact: Exec
+    any:
       - field: cmdline
-        matches: "(?i)(amsiInitFailed|amsi\\.dll|amsiscanbuffer)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "amsi_bypass"
-          - "evasion"
-
-  - name: "Kill Security Process"
-    window: 10
-    conditions:
-      - fact_type: Exec
+        regex: '(?i)\bnetsh(\.exe)?\b.*\bfirewall\s+set\s+opmode\s+(mode=)?disable\b'
       - field: cmdline
-        matches: "(?i)taskkill.*/f.*(msmpeng|mssense|savservice|avp|mbam)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "security_kill"
-          - "evasion"
+        regex: '(?i)\bnetsh(\.exe)?\b.*\badvfirewall\s+set\s+\w+\s+state\s+off\b'
+      - field: cmdline
+        regex: '(?i)set-netfirewallprofile\b.*-enabled\s+(false|0|\$false)\b'
+    techniques: [T1686.003]
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "Security Tool Disable Attempt"
-    priority: "critical"
+  - name: 'Stop Event Log Service'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: cmdline
+        regex: '(?i)\b(sc|net1?)(\.exe)?"?\s+stop\s+eventlog\b'
+    techniques: [T1685.001]
 
+  - name: 'AMSI Bypass Attempt'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: cmdline
+        regex: '(?i)(amsiinitfailed|amsiscanbuffer|amsiutils|amsicontext)'
+    techniques: [T1685]
+
+  - name: 'Security Process Killed'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: cmdline
+        regex: '(?i)\btaskkill(\.exe)?\b.*\b(msmpeng|mssense|sensecncproxy|savservice|avp|mbam|csfalconservice|sentinelagent|cb)(\.exe)?\b'
+      - field: cmdline
+        regex: '(?i)\s/f\b'
+    techniques: [T1685]
+
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "Authorized maintenance"
-  - "Software installation requiring temp disable"
+- Authorized maintenance
+- Software installation requiring temp disable
+response:
+- type: alert
+  channel: siem
+  title: Security Tool Disable Attempt
+  priority: critical

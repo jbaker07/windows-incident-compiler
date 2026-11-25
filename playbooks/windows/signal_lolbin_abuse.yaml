@@ -1,61 +1,85 @@
 ---
 # playbooks/windows/signal_lolbin_abuse.yaml
-# Detect LOLBin abuse (rundll32, regsvr32, mshta, powershell, etc.)
+# Detects suspicious use of signed Windows binaries that proxy execution, as flagged by the fact extractor.
 
-name: "LOLBin Abuse Detection"
-description: "Detect suspicious use of Windows Living-off-the-land binaries"
-version: "1.0"
+id: signal_lolbin_abuse
+title: 'LOLBin Abuse Detection'
+family: stealth
+version: "3.0"
+description: |
+  Detects suspicious use of Windows living off the land binaries. The Windows
+  fact extractor emits a ShellCommand fact only when a LOLBin command line has a
+  known abuse pattern (for example mshta with a URL or vbscript:, regsvr32 with
+  /i:http or scrobj, rundll32 with javascript: or comsvcs, PowerShell with -enc,
+  DownloadString, IEX, -ep bypass or -w hidden). These rules turn those facts
+  into signals, one rule per binary so each maps to its own technique.
+
+  The dedicated playbooks for mshta, regsvr32, rundll32 and PowerShell carry more
+  specific rules. This playbook is the broad catch all.
+
+enabled: true
+severity: HIGH
+cooldown_seconds: 60
+
+requires:
+  - 'Security 4688 with command line, or Sysmon 1'
 
 mitre:
+  attack_version: "20.1"
   tactics:
-    - defense_evasion
+    - stealth
     - execution
   techniques:
-    - T1218      # System Binary Proxy Execution
-    - T1218.005  # Mshta
-    - T1218.010  # Regsvr32
-    - T1218.011  # Rundll32
-    - T1059.001  # PowerShell
+    - id: T1218
+      name: 'System Binary Proxy Execution'
+    - id: T1218.005
+      name: 'System Binary Proxy Execution: Mshta'
+    - id: T1218.010
+      name: 'System Binary Proxy Execution: Regsvr32'
+    - id: T1218.011
+      name: 'System Binary Proxy Execution: Rundll32'
+    - id: T1059.001
+      name: 'Command and Scripting Interpreter: PowerShell'
 
-detection:
-  signal:
-    type: "windows_lolbin_abuse"
-    lolbins:
-      - "rundll32.exe"
-      - "regsvr32.exe"
-      - "mshta.exe"
-      - "powershell.exe"
-      - "wscript.exe"
-      - "cscript.exe"
-      - "certutil.exe"
-      - "bitsadmin.exe"
-      - "schtasks.exe"
-      - "wmic.exe"
-      - "sc.exe"
-      - "net.exe"
-      - "nltest.exe"
-    suspicious_args:
-      - "-nop"
-      - "-enc"
-      - "-ep bypass"
-      - "System.Reflection"
-      - "IEX"
-      - "DownloadString"
+rules:
+  - name: 'Mshta Proxy Execution'
+    severity: HIGH
+    fact: ShellCommand
+    match:
+      - field: image
+        equals: 'mshta.exe'
+    techniques: [T1218, T1218.005]
 
+  - name: 'Regsvr32 Proxy Execution'
+    severity: HIGH
+    fact: ShellCommand
+    match:
+      - field: image
+        equals: 'regsvr32.exe'
+    techniques: [T1218, T1218.010]
+
+  - name: 'Rundll32 Proxy Execution'
+    severity: HIGH
+    fact: ShellCommand
+    match:
+      - field: image
+        equals: 'rundll32.exe'
+    techniques: [T1218, T1218.011]
+
+  - name: 'PowerShell With Evasion Flags'
+    severity: HIGH
+    fact: ShellCommand
+    match:
+      - field: image
+        in: ['powershell.exe', 'pwsh.exe']
+    techniques: [T1059.001]
+
+# Analyst guidance below is documentation. The engine does not execute it.
+false_positives:
+- Installers that register components with regsvr32
+- Administrators running PowerShell with -ExecutionPolicy Bypass for signed internal scripts
 response:
-  severity: "high"
-  actions:
-    - alert: true
-    - isolate: true
-    - block_network: false
-  
-  correlations:
-    - type: "same_parent_exe"
-      window: 300
-    - type: "parent_is_explorer_or_office"
-      multiplier: 1.5
-
-tags:
-  - "T1218"
-  - "defense_evasion"
-  - "execution"
+- type: alert
+  channel: siem
+  title: LOLBin Abuse Detected
+  priority: high

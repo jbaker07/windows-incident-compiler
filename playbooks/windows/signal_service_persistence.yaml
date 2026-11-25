@@ -1,129 +1,100 @@
 ---
 # playbooks/windows/signal_service_persistence.yaml
-# Detection of service installation for persistence
-# Monitors System event log (Event ID 7045) for new services
+# Detects new services whose binary runs a shell, lives in a user folder, or belongs to a remote admin tool.
 
-name: "Windows Service Installation"
-id: "windows_service_persistence_001"
-version: "1.0"
+id: signal_service_persistence
+title: 'Windows Service Installation'
+family: persistence
+version: "3.0"
 description: |
-  Detects creation of Windows services for persistence.
-  Looks for:
-  - Services with suspicious binary paths (%TEMP%, %APPDATA%, removable media)
-  - Services started by non-admin accounts
-  - Services with auto/boot start type
-  - Service property modifications post-installation
+  Detects creation of Windows services for persistence (System 7045 and
+  Security 4697):
+  - The service command line runs cmd, PowerShell, mshta, rundll32 or regsvr32
+  - The service binary is in a temp, AppData, ProgramData, Users\Public or
+    Downloads folder
+  - The service is a remote admin tool such as PsExec, PAExec or RemCom, or its
+    binary sits on an admin share
 
 enabled: true
-confidence_threshold: 0.75
+severity: HIGH
+cooldown_seconds: 60
+
+requires:
+  - 'System 7045, or Security 4697 (security system extension auditing)'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - persistence
     - privilege_escalation
+    - execution
   techniques:
-    - T1543.003  # Windows Service
+    - id: T1543.003
+      name: 'Create or Modify System Process: Windows Service'
+    - id: T1569.002
+      name: 'System Services: Service Execution'
 
-# Input signals from service_monitor
-signals:
-  - tag: "windows_service"
-  - tag: "service_install"
-  - tag: "service_modify"
-
-# Correlation rules
 rules:
-  - name: "Suspicious Service Installation"
-    window: 60
-    aggregation: count
-    threshold: 1
-    conditions:
-      - tag: "service_install"
-      - tag: "persistence"
-    actions:
-      - severity: HIGH
-        tags:
-          - "persistence"
-          - "service"
-          - "privilege_escalation"
-    evidence:
-      - event_type: "service_creation"
-        event_id: 7045
-        field_mapping:
-          service_name: "ServiceName"
-          binary_path: "ImagePath"
-          start_type: "StartType"
+  - name: 'Service With Shell Command Line'
+    severity: HIGH
+    fact: PersistArtifact
+    match:
+      - field: artifact_type
+        equals: 'service'
+      - field: service_path
+        regex: '(?i)(\bcmd(\.exe)?"?\s+/[ck]\b|%comspec%|\b(powershell|pwsh|mshta|rundll32|regsvr32)(\.exe)?\b)'
+    techniques: [T1543.003]
 
-  - name: "Temp/Appdata Service Binary"
-    window: 60
-    aggregation: count
-    threshold: 1
-    conditions:
-      - tag: "service_install"
-      - or:
-          - binary_path: "*\\Temp\\*"
-          - binary_path: "*\\AppData\\*"
-          - binary_path: "*\\ProgramData\\*"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "malware"
-          - "persistence"
+  - name: 'Service Binary in User Writable Path'
+    severity: CRITICAL
+    fact: PersistArtifact
+    match:
+      - field: artifact_type
+        equals: 'service'
+      - field: service_path
+        regex: '(?i)\\(temp|appdata|programdata|users\\public|downloads)\\'
+    techniques: [T1543.003]
 
-  - name: "Service Registry Modification"
-    window: 300
-    aggregation: count
-    threshold: 1
-    conditions:
-      - tag: "service_modify"
-      - event_id: 4697
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "post_exploitation"
+  - name: 'Remote Admin Tool Service'
+    severity: HIGH
+    fact: PersistArtifact
+    match:
+      - field: artifact_type
+        equals: 'service'
+    any:
+      - field: service_name
+        regex: '(?i)^(psexesvc|paexec|remcomsvc|csexecsvc)'
+      - field: service_path
+        regex: '(?i)\\(admin|c)\$\\|\\psexesvc\.exe'
+    techniques: [T1543.003, T1569.002]
 
-# Playbook response
+# Analyst guidance below is documentation. The engine does not execute it.
 response:
-  - type: "isolate_service"
-    target: "service"
-    action: "stop"
-    description: "Stop suspicious service immediately"
-    
-  - type: "preserve_evidence"
-    target: "service_executable"
-    action: "quarantine"
-    description: "Quarantine service binary for analysis"
-
-  - type: "audit_log"
-    description: "Extract full service details and modification history"
-    fields:
-      - service_name
-      - binary_path
-      - display_name
-      - start_type
-      - service_account
-
-  - type: "alert"
-    channel: "siem"
-    title: "Malicious Service Detected"
-    priority: "critical"
-
-# Remediation steps
+- type: isolate_service
+  target: service
+  action: stop
+  description: Stop suspicious service immediately
+- type: preserve_evidence
+  target: service_executable
+  action: quarantine
+  description: Quarantine service binary for analysis
+- type: audit_log
+  description: Extract full service details and modification history
+  fields:
+  - service_name
+  - binary_path
+  - display_name
+  - start_type
+  - service_account
+- type: alert
+  channel: siem
+  title: Malicious Service Detected
+  priority: critical
 remediation:
   steps:
-    - "Stop the service: 'sc stop ServiceName'"
-    - "Delete the service: 'sc delete ServiceName'"
-    - "Quarantine the executable for malware analysis"
-    - "Review system for lateral movement attempts (e.g., psexec)"
-    - "Check for code injection via 'Get-Process | Select-Object -Property Handle,ProcessName'"
-    - "Perform memory dump for artifact analysis"
-
-# Exceptions/whitelisting
-whitelist:
-  - services:
-    - "WinDefend"  # Windows Defender
-    - "wuauserv"   # Windows Update
-    - "RealTimeProtection"
-    - "SecurityHealthService"
-  - by_account:
-    - "NT AUTHORITY\\SYSTEM"
-    - "NT AUTHORITY\\LOCAL SERVICE"
+  - 'Stop the service: ''sc stop ServiceName'''
+  - 'Delete the service: ''sc delete ServiceName'''
+  - Quarantine the executable for malware analysis
+  - Review system for lateral movement attempts (e.g., psexec)
+  - Check for code injection via 'Get-Process | Select-Object -Property Handle,ProcessName'
+  - Perform memory dump for artifact analysis

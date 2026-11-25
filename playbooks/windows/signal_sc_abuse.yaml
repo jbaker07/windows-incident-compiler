@@ -1,137 +1,101 @@
 ---
 # playbooks/windows/signal_sc_abuse.yaml
-# Detection of sc.exe abuse for service manipulation
+# Detects sc.exe creating or changing services, stopping security services, or creating remote services.
 
-id: "windows_sc_abuse_001"
-title: "SC Service Manipulation"
-name: "SC.exe Abuse Detection"
-family: "persistence"
-version: "2.0"
+id: signal_sc_abuse
+title: 'SC Service Manipulation'
+family: persistence
+version: "3.0"
 description: |
   Detects abuse of sc.exe for:
-  - Malicious service creation
-  - Security service manipulation
-  - Lateral movement via service
-  - Privilege escalation via service
+  - Creating a service with a binary path
+  - Changing the binary path of an existing service
+  - Stopping, deleting or disabling Defender, firewall, Security Center, EDR
+    sensor or EventLog services
+  - Creating a service on a remote host (\\host create)
+  - Creating a service whose binary lives in a temp or user folder
 
 enabled: true
-confidence_threshold: 0.75
+severity: HIGH
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Security 4688 with command line, or Sysmon 1'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - persistence
     - privilege_escalation
-    - defense_evasion
+    - defense_impairment
+    - lateral_movement
   techniques:
-    - T1543.003  # Windows Service
-    - T1562.001  # Disable Security Tools
-
-input_facts:
-  required:
-    - Exec
-  optional:
-    - PersistArtifact
-
-slots:
-  required:
-    - name: process_name
-      type: string
-      pattern: "(?i)sc\\.exe"
-  optional:
-    - name: create_flag
-      type: string
-      pattern: "(?i)\\bcreate\\b"
-    - name: config_flag
-      type: string
-      pattern: "(?i)\\bconfig\\b"
-    - name: stop_flag
-      type: string
-      pattern: "(?i)\\bstop\\b"
+    - id: T1543.003
+      name: 'Create or Modify System Process: Windows Service'
+    - id: T1685
+      name: 'Disable or Modify Tools'
+    - id: T1685.001
+      name: 'Disable or Modify Tools: Disable or Modify Windows Event Log'
+    - id: T1021.002
+      name: 'Remote Services: SMB/Windows Admin Shares'
 
 rules:
-  - name: "Service Creation"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)sc(\\.exe)?"
+  - name: 'Service Creation'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        equals: 'sc.exe'
       - field: cmdline
-        matches: "(?i)\\bcreate\\b.*binpath"
-    actions:
-      - severity: HIGH
-        tags:
-          - "service_creation"
-          - "persistence"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
+        regex: '(?i)\bcreate\b.*\bbinpath\s*='
+    techniques: [T1543.003]
 
-  - name: "Security Service Stop"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)sc(\\.exe)?"
+  - name: 'Security Service Stopped or Disabled'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        equals: 'sc.exe'
       - field: cmdline
-        matches: "(?i)\\bstop\\b.*(windefend|mpssvc|wscsvc|wuauserv|eventlog|sense)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "defense_evasion"
-          - "security_disable"
+        regex: '(?i)\b(stop|delete|config)\s+(windefend|mpssvc|wscsvc|sense|wdnissvc|wdboot|wdfilter|eventlog)\b'
+    techniques: [T1685, T1685.001]
 
-  - name: "Service Binary Path Change"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)sc(\\.exe)?"
+  - name: 'Service Binary Path Changed'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        equals: 'sc.exe'
       - field: cmdline
-        matches: "(?i)\\bconfig\\b.*binpath"
-    actions:
-      - severity: HIGH
-        tags:
-          - "service_hijack"
-          - "persistence"
+        regex: '(?i)\bconfig\b.*\bbinpath\s*='
+    techniques: [T1543.003]
 
-  - name: "Remote Service Creation"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)sc(\\.exe)?"
+  - name: 'Remote Service Creation'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        equals: 'sc.exe'
       - field: cmdline
-        matches: "(?i)\\\\\\\\.*\\bcreate\\b"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "lateral_movement"
-          - "remote_service"
+        regex: '(?i)\\\\[^\\\s]+\s+create\b'
+    techniques: [T1543.003, T1021.002]
 
-  - name: "Service from Suspicious Path"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)sc(\\.exe)?"
+  - name: 'Service Binary in User Writable Path'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        equals: 'sc.exe'
       - field: cmdline
-        matches: "(?i)binpath.*(%temp%|\\\\temp\\\\|\\\\appdata\\\\|\\\\users\\\\public)"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "suspicious_location"
-          - "malware"
+        regex: '(?i)\bbinpath\s*=\s*"?[^"]*(%temp%|\\temp\\|\\appdata\\|\\users\\public\\)'
+    techniques: [T1543.003]
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "SC.exe Abuse Detected"
-    priority: "high"
-
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "IT administrators managing services"
-  - "Software installation scripts"
+- IT administrators managing services
+- Software installation scripts
+response:
+- type: alert
+  channel: siem
+  title: SC.exe Abuse Detected
+  priority: high

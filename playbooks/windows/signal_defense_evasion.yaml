@@ -1,57 +1,86 @@
 ---
 # playbooks/windows/signal_defense_evasion.yaml
-# Detect defense evasion attempts (log clearing, Defender disable, etc.)
+# Detects log clearing, Defender being switched off, and event log settings being weakened.
 
-name: "Defense Evasion Detection (Windows)"
-description: "Detect attempts to disable or evade security controls"
-version: "1.0"
+id: signal_defense_evasion
+title: 'Defense Impairment Detection (Windows)'
+family: defense_impairment
+version: "3.0"
+description: |
+  Detects attempts to switch off or weaken Windows security controls:
+  - The Security log being cleared (event 1102)
+  - Defender real time, behavior or script scanning switched off with Set-MpPreference
+  - Event log retention or size settings changed in the registry
+  - .evtx log files deleted from disk
+
+  ATT&CK v19 moved these behaviors from Defense Evasion to Defense Impairment.
+
+enabled: true
+severity: CRITICAL
+cooldown_seconds: 60
+
+requires:
+  - 'Security 1102'
+  - 'Security 4688 with command line, or Sysmon 1'
+  - 'Sysmon 13 and Sysmon 23 for registry and delete events'
 
 mitre:
+  attack_version: "20.1"
   tactics:
-    - defense_evasion
+    - defense_impairment
   techniques:
-    - T1070.001  # Clear Windows Event Logs
-    - T1562      # Impair Defenses
-    - T1562.001  # Disable or Modify Tools
-    - T1112      # Modify Registry
+    - id: T1685
+      name: 'Disable or Modify Tools'
+    - id: T1685.001
+      name: 'Disable or Modify Tools: Disable or Modify Windows Event Log'
+    - id: T1685.005
+      name: 'Disable or Modify Tools: Clear Windows Event Logs'
+    - id: T1112
+      name: 'Modify Registry'
 
-detection:
-  signals:
-    - type: "windows_log_clear"
-      event_ids:
-        - 1102  # Security log cleared
-      sources:
-        - "cmd.exe"
-        - "powershell.exe"
-        - "wevtutil.exe"
+rules:
+  - name: 'Security Log Cleared'
+    severity: CRITICAL
+    fact: LogTamper
+    match:
+      - field: event_id
+        equals: 1102
+    techniques: [T1685.005]
+    tags: [log_clear]
 
-    - type: "windows_defender_disable"
-      commands:
-        - "Set-MpPreference -DisableRealtimeMonitoring"
-        - "Disable-WindowsOptionalFeature"
-        - "sc stop WinDefend"
-        - "sc delete WinDefend"
+  - name: 'Defender Disabled by Command'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: cmdline
+        regex: '(?i)set-mppreference\b.*-disable(realtimemonitoring|behaviormonitoring|ioavprotection|scriptscanning|blockatfirstseen)\s+(\$true|1)\b'
+    techniques: [T1685]
+    tags: [defender]
 
-    - type: "windows_security_tamper"
-      registry_changes:
-        - "HKLM\\System\\CurrentControlSet\\Services\\EventLog\\Security\\Retention"
-      file_deletions:
-        - "*.evtx"
+  - name: 'Event Log Settings Changed'
+    severity: HIGH
+    fact: RegistryMod
+    match:
+      - field: key
+        regex: '(?i)\\services\\eventlog\\[^\\]+\\(retention|maxsize|autobackuplogfiles)$'
+    techniques: [T1685.001, T1112]
+    tags: [log_settings]
 
+  - name: 'Event Log File Deleted'
+    severity: HIGH
+    fact: DeletePath
+    match:
+      - field: path
+        regex: '(?i)\.evtx$'
+    techniques: [T1685.005]
+    tags: [log_delete]
+
+# Analyst guidance below is documentation. The engine does not execute it.
+false_positives:
+- Administrators resizing event logs
+- Log rotation tools that delete archived .evtx files
 response:
-  severity: "critical"
-  actions:
-    - alert: true
-    - isolate: true
-    - block_network: true
-    - escalate_incident: true
-
-correlation_boost:
-  - followed_by_malware_execution: 2.0
-  - combined_with_lateral_movement: 1.8
-
-tags:
-  - "T1562"
-  - "T1089"
-  - "T1070.001"
-  - "defense_evasion"
+- type: alert
+  channel: siem
+  title: Defense Impairment Detected
+  priority: critical

@@ -1,102 +1,80 @@
 ---
 # playbooks/windows/signal_wscript_cscript_abuse.yaml
-# Detection of WScript/CScript abuse for script execution
+# Detects Windows Script Host running scripts from Office, user folders or the network.
 
-id: "windows_script_host_abuse_001"
-title: "Windows Script Host Abuse"
-name: "WScript/CScript Detection"
-family: "execution"
-version: "2.0"
+id: signal_wscript_cscript_abuse
+title: 'Windows Script Host Abuse'
+family: execution
+version: "3.0"
 description: |
-  Detects abuse of Windows Script Host (wscript/cscript) for:
-  - VBScript/JScript execution
-  - Script-based dropper execution
-  - Office macro spawned scripts
+  Detects abuse of Windows Script Host (wscript.exe and cscript.exe) for:
+  - Scripts started by an Office application
+  - VBScript or JScript files run from temp, AppData, Downloads or public folders
+  - Scripts run from a URL or a network share
+  - Script engines starting PowerShell
+
+  The Script Host runs both VBScript (T1059.005) and JScript (T1059.007).
 
 enabled: true
-confidence_threshold: 0.75
+severity: HIGH
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Sysmon 1, or Security 4688 with command line and parent process name'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - execution
-    - defense_evasion
   techniques:
-    - T1059.005  # VBScript
-    - T1059.007  # JavaScript
-
-input_facts:
-  required:
-    - Exec
+    - id: T1059.005
+      name: 'Command and Scripting Interpreter: Visual Basic'
+    - id: T1059.007
+      name: 'Command and Scripting Interpreter: JavaScript'
 
 rules:
-  - name: "Script Host from Office"
-    window: 60
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)(wscript|cscript)\\.exe"
-      - field: parent_cmdline
-        matches: "(?i)(winword|excel|powerpnt|outlook)\\.exe"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "macro_execution"
-          - "office_spawn"
-          - "initial_access"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
+  - name: 'Script Host Spawned by Office'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        in: ['wscript.exe', 'cscript.exe']
+      - field: parent_image
+        in: ['winword.exe', 'excel.exe', 'powerpnt.exe', 'outlook.exe', 'msaccess.exe']
 
-  - name: "Script from Temp Directory"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)(wscript|cscript)\\.exe"
+  - name: 'Script From User Writable Path'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        in: ['wscript.exe', 'cscript.exe']
       - field: cmdline
-        matches: "(?i)(\\\\temp\\\\|%temp%|\\\\appdata\\\\).*\\.(vbs|js|wsf)"
-    actions:
-      - severity: HIGH
-        tags:
-          - "suspicious_location"
-          - "dropper"
+        regex: '(?i)(\\temp\\|%temp%|\\appdata\\|%appdata%|\\users\\public\\|\\downloads\\)[^"]*\.(vbs|vbe|js|jse|wsf|wsh)\b'
 
-  - name: "Script with Download Content"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)(wscript|cscript)\\.exe"
-      # Can't see script content from cmdline, but track for correlation
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "script_execution"
+  - name: 'Script From URL or Network Share'
+    severity: MEDIUM
+    fact: Exec
+    match:
+      - field: image
+        in: ['wscript.exe', 'cscript.exe']
+      - field: cmdline
+        regex: '(?i)(https?://|\s"?\\\\[^\\\s]+\\)'
 
-  - name: "Script Engine Spawns PowerShell"
-    window: 60
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)powershell"
-      - field: parent_cmdline
-        matches: "(?i)(wscript|cscript)\\.exe"
-    actions:
-      - severity: HIGH
-        tags:
-          - "script_chain"
-          - "multi_stage"
+  - name: 'Script Engine Spawns PowerShell'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        in: ['powershell.exe', 'pwsh.exe']
+      - field: parent_image
+        in: ['wscript.exe', 'cscript.exe']
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "Script Host Abuse Detected"
-    priority: "high"
-
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "Legitimate login scripts"
-  - "IT automation VBScripts"
+- Legitimate login scripts
+- IT automation VBScripts
+response:
+- type: alert
+  channel: siem
+  title: Script Host Abuse Detected
+  priority: high

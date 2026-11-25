@@ -1,0 +1,77 @@
+{
+ "playbook": "signal_dll_side_loading",
+ "fires": [
+  {
+   "rule": "DLL Loaded from Temp Directory",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Program Files\\Vendor\\app.exe",
+      "ImageLoaded": "C:\\Users\\alice\\AppData\\Local\\Temp\\version.dll",
+      "Signed": "false"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Unsigned DLL from User Writable Path",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Users\\alice\\AppData\\Local\\Teams\\current\\Teams.exe",
+      "ImageLoaded": "C:\\Users\\alice\\AppData\\Local\\Teams\\current\\dbghelp.dll",
+      "Signed": "false"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "signed DLL in AppData",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Users\\alice\\AppData\\Local\\Teams\\current\\Teams.exe",
+      "ImageLoaded": "C:\\Users\\alice\\AppData\\Local\\Teams\\current\\ffmpeg.dll",
+      "Signed": "true"
+     }
+    }
+   ]
+  },
+  {
+   "name": "unsigned DLL under a Microsoft folder",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Program Files\\Office\\winword.exe",
+      "ImageLoaded": "C:\\ProgramData\\Microsoft\\Office\\x.dll",
+      "Signed": "false"
+     }
+    }
+   ]
+  },
+  {
+   "name": "system DLL",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 7,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\explorer.exe",
+      "ImageLoaded": "C:\\Windows\\System32\\ntdll.dll",
+      "Signed": "true"
+     }
+    }
+   ]
+  }
+ ]
+}

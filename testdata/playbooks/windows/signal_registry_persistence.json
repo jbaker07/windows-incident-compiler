@@ -1,0 +1,103 @@
+{
+ "playbook": "signal_registry_persistence",
+ "fires": [
+  {
+   "rule": "Run or RunOnce Key Modified",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\\Updater",
+      "Details": "C:\\ProgramData\\u.exe",
+      "Image": "C:\\Windows\\System32\\reg.exe"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "IFEO Debugger Set",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\sethc.exe\\Debugger",
+      "Details": "C:\\Windows\\System32\\cmd.exe",
+      "Image": "C:\\Windows\\System32\\reg.exe"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Winlogon Value Changed",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\Userinit",
+      "Details": "C:\\Windows\\system32\\userinit.exe,C:\\ProgramData\\u.exe",
+      "Image": "C:\\Windows\\System32\\reg.exe"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Service Path Changed Outside the Service Manager",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\System\\CurrentControlSet\\Services\\Spooler\\ImagePath",
+      "Details": "C:\\ProgramData\\s.exe",
+      "Image": "C:\\Windows\\System32\\reg.exe"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "unrelated software key",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\Software\\Vendor\\App\\InstallPath",
+      "Details": "C:\\Program Files\\Vendor"
+     }
+    }
+   ]
+  },
+  {
+   "name": "service path set by the service manager",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\System\\CurrentControlSet\\Services\\NewSvc\\ImagePath",
+      "Details": "C:\\Program Files\\Vendor\\svc.exe",
+      "Image": "C:\\Windows\\System32\\services.exe"
+     }
+    }
+   ]
+  },
+  {
+   "name": "other IFEO value",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 13,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetObject": "HKLM\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\app.exe\\MitigationOptions",
+      "Details": "QWORD"
+     }
+    }
+   ]
+  }
+ ]
+}

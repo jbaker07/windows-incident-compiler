@@ -1,0 +1,133 @@
+{
+ "playbook": "signal_sc_abuse",
+ "fires": [
+  {
+   "rule": "Service Creation",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc create Updater binPath= \"C:\\Program Files\\Updater\\u.exe\" start= auto",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Security Service Stopped or Disabled",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc stop WinDefend",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Security Service Stopped or Disabled",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc config eventlog start= disabled",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Service Binary Path Changed",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc config Spooler binPath= \"cmd.exe /c C:\\ProgramData\\s.exe\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Remote Service Creation",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc \\\\FS01 create x binPath= \"C:\\Windows\\x.exe\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Service Binary in User Writable Path",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc create x binPath= \"C:\\Users\\Public\\x.exe\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "querying a service",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc query WinDefend",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "stopping the print spooler",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\sc.exe",
+      "CommandLine": "sc stop Spooler",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "script host named like sc",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\cscript.exe",
+      "CommandLine": "cscript create binpath= C:\\x.vbs",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

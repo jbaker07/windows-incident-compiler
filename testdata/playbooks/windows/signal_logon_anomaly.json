@@ -1,0 +1,288 @@
+{
+ "playbook": "signal_logon_anomaly",
+ "fires": [
+  {
+   "rule": "Failed Logon Burst",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 10
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 20
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 30
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 40
+    }
+   ]
+  },
+  {
+   "rule": "Password Spray",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "bob",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 5
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "carol",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 10
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "dave",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 15
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "erin",
+      "LogonType": "3",
+      "IpAddress": "198.51.100.9"
+     },
+     "t": 20
+    }
+   ]
+  },
+  {
+   "rule": "Multiple Logon Sources",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.9.40"
+     },
+     "t": 600
+    },
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "10",
+      "IpAddress": "10.0.12.7"
+     },
+     "t": 1200
+    }
+   ]
+  },
+  {
+   "rule": "Service Account Interactive Logon",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "svc_sql",
+      "LogonType": "2",
+      "IpAddress": "-"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "RDP From Public IP",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "10",
+      "IpAddress": "203.0.113.50"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "four failures then a success",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     },
+     "t": 1
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     },
+     "t": 2
+    },
+    {
+     "fields": {
+      "windows.event_id": 4625,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     },
+     "t": 3
+    },
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     },
+     "t": 5
+    }
+   ]
+  },
+  {
+   "name": "RDP from the office network",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "10",
+      "IpAddress": "192.168.10.20"
+     }
+    }
+   ]
+  },
+  {
+   "name": "service account network logon",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "svc_sql",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     }
+    }
+   ]
+  },
+  {
+   "name": "two logon sources in an hour",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.4.21"
+     },
+     "t": 0
+    },
+    {
+     "fields": {
+      "windows.event_id": 4624,
+      "windows.channel": "Security",
+      "TargetUserName": "alice",
+      "LogonType": "3",
+      "IpAddress": "10.0.9.40"
+     },
+     "t": 600
+    }
+   ]
+  }
+ ]
+}

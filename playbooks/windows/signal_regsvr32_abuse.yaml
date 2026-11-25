@@ -1,105 +1,69 @@
 ---
 # playbooks/windows/signal_regsvr32_abuse.yaml
-# Detection of regsvr32.exe abuse (Squiblydoo)
+# Detects regsvr32.exe running scriptlets (Squiblydoo) or DLLs from user writable folders.
 
-id: "windows_regsvr32_abuse_001"
-title: "Regsvr32 LOLBin Abuse"
-name: "Regsvr32 Abuse Detection"
-family: "execution"
-version: "2.0"
+id: signal_regsvr32_abuse
+title: 'Regsvr32 LOLBin Abuse'
+family: stealth
+version: "3.0"
 description: |
   Detects abuse of regsvr32.exe for:
-  - Squiblydoo attacks (/s /n /u /i:URL scrobj.dll)
-  - Remote scriptlet execution
-  - AppLocker bypass
-  - COM object execution from remote sources
+  - Squiblydoo (/i: with scrobj.dll), which runs a COM scriptlet
+  - Loading a scriptlet straight from a URL
+  - Registering a DLL, OCX or scriptlet from a temp, AppData or public folder
+
+  These are System Binary Proxy Execution (T1218.010). ATT&CK places that under
+  Stealth, so this playbook no longer lists the Execution tactic.
 
 enabled: true
-confidence_threshold: 0.85
+severity: CRITICAL
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Security 4688 with command line, or Sysmon 1'
 
 mitre:
+  attack_version: "20.1"
   tactics:
-    - defense_evasion
-    - execution
+    - stealth
   techniques:
-    - T1218.010  # Regsvr32
-
-input_facts:
-  required:
-    - Exec
-
-slots:
-  required:
-    - name: process_name
-      type: string
-      pattern: "(?i)regsvr32\\.exe"
-  optional:
-    - name: scrobj_pattern
-      type: string
-      pattern: "(?i)scrobj\\.dll"
-    - name: remote_url
-      type: string
-      pattern: "(?i)/i:https?://"
+    - id: T1218.010
+      name: 'System Binary Proxy Execution: Regsvr32'
 
 rules:
-  - name: "Regsvr32 Squiblydoo"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)regsvr32"
+  - name: 'Regsvr32 Squiblydoo'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        equals: 'regsvr32.exe'
       - field: cmdline
-        matches: "(?i)/s.*/n.*/u.*/i:.*scrobj"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "squiblydoo"
-          - "applocker_bypass"
-          - "scriptlet"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
+        regex: '(?i)/i:.*scrobj(\.dll)?'
 
-  - name: "Regsvr32 Remote Scriptlet"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)regsvr32"
+  - name: 'Regsvr32 Remote Scriptlet'
+    severity: CRITICAL
+    fact: Exec
+    match:
+      - field: image
+        equals: 'regsvr32.exe'
       - field: cmdline
-        matches: "(?i)/i:https?://"
-    actions:
-      - severity: CRITICAL
-        tags:
-          - "remote_execution"
-          - "dropper"
+        regex: '(?i)/i:\s*https?://'
 
-  - name: "Regsvr32 Silent Execute"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)regsvr32"
+  - name: 'Regsvr32 From User Writable Path'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        equals: 'regsvr32.exe'
       - field: cmdline
-        matches: "(?i)/s.*\\.dll"
-      - field: cmdline
-        matches: "(?i)(\\\\temp\\\\|\\\\appdata\\\\|%temp%)"
-    actions:
-      - severity: HIGH
-        tags:
-          - "dll_execution"
-          - "suspicious_location"
+        regex: '(?i)(\\temp\\|%temp%|\\appdata\\|%appdata%|\\users\\public\\|\\downloads\\)[^"]*\.(dll|ocx|sct)\b'
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "Regsvr32 Abuse Detected"
-    priority: "critical"
-
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "Legitimate COM/DLL registration during software installation"
-  - "System maintenance operations"
+- Legitimate COM/DLL registration during software installation
+- System maintenance operations
+response:
+- type: alert
+  channel: siem
+  title: Regsvr32 Abuse Detected
+  priority: critical

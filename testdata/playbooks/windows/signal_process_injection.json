@@ -1,0 +1,96 @@
+{
+ "playbook": "signal_process_injection",
+ "fires": [
+  {
+   "rule": "Remote Thread Creation",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 8,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "SourceImage": "C:\\Tools\\loader.exe",
+      "TargetImage": "C:\\Windows\\System32\\notepad.exe",
+      "SourceProcessId": 4410,
+      "TargetProcessId": 5120,
+      "StartFunction": "LoadLibraryW"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Injection into System Process",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 8,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "SourceImage": "C:\\Tools\\loader.exe",
+      "TargetImage": "C:\\Windows\\System32\\lsass.exe",
+      "SourceProcessId": 4410,
+      "TargetProcessId": 640
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Injection from User Writable Path",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 8,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "SourceImage": "C:\\Users\\alice\\AppData\\Local\\Temp\\x.exe",
+      "TargetImage": "C:\\Windows\\System32\\notepad.exe",
+      "SourceProcessId": 4410,
+      "TargetProcessId": 5120
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Process Image Tampering",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 25,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\svchost.exe",
+      "ProcessId": 7012,
+      "Type": "Image is replaced"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "csrss remote thread",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 8,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "SourceImage": "C:\\Windows\\System32\\csrss.exe",
+      "TargetImage": "C:\\Windows\\System32\\notepad.exe",
+      "SourceProcessId": 600,
+      "TargetProcessId": 5120
+     }
+    }
+   ]
+  },
+  {
+   "name": "LSASS handle open is not injection",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 10,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "SourceImage": "C:\\Tools\\loader.exe",
+      "TargetImage": "C:\\Windows\\System32\\lsass.exe",
+      "GrantedAccess": "0x1000"
+     }
+    }
+   ]
+  }
+ ]
+}

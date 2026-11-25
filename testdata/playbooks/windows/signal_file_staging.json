@@ -1,0 +1,102 @@
+{
+ "playbook": "signal_file_staging",
+ "fires": [
+  {
+   "rule": "Archive Utility Execution",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Program Files\\7-Zip\\7z.exe",
+      "CommandLine": "7z.exe a out.7z C:\\Users\\alice\\Documents\\*",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "PowerShell Compress-Archive",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell Compress-Archive -Path C:\\Users\\alice\\Documents -DestinationPath C:\\Users\\alice\\d.zip",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Archive Created in Temp",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Program Files\\7-Zip\\7z.exe",
+      "CommandLine": "7z.exe a C:\\Windows\\Temp\\x.7z C:\\Shares\\Finance",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Password Protected Archive",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Program Files\\WinRAR\\rar.exe",
+      "CommandLine": "rar.exe a -hpS3cret out.rar C:\\Users\\alice\\Documents",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Archive Written to Staging Folder",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 11,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetFilename": "C:\\Users\\Public\\backup.zip",
+      "Image": "C:\\Program Files\\7-Zip\\7z.exe"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "7-Zip listing an archive",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Program Files\\7-Zip\\7z.exe",
+      "CommandLine": "7z.exe l C:\\Users\\alice\\Downloads\\tools.zip",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "zip saved to the user's own folder",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 11,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "TargetFilename": "C:\\Users\\alice\\Documents\\report.zip"
+     }
+    }
+   ]
+  }
+ ]
+}

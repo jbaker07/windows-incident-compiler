@@ -1,0 +1,105 @@
+{
+ "playbook": "signal_schtasks_abuse",
+ "fires": [
+  {
+   "rule": "Task Created to Run as SYSTEM",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\schtasks.exe",
+      "CommandLine": "schtasks /create /tn Updater /tr \"C:\\ProgramData\\u.exe\" /sc daily /ru SYSTEM",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Remote Task Creation",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\schtasks.exe",
+      "CommandLine": "schtasks /create /s FS01 /tn x /tr \"C:\\Windows\\x.exe\" /sc once /st 23:00",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Logon or Startup Task Runs a Shell",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\schtasks.exe",
+      "CommandLine": "schtasks /create /tn Sync /sc onlogon /tr \"cmd.exe /c start /min C:\\ProgramData\\s.bat\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Task Running PowerShell",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\schtasks.exe",
+      "CommandLine": "schtasks /create /tn Report /sc hourly /tr \"powershell -w hidden -f C:\\ProgramData\\r.ps1\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "Task Running from User Writable Path",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\schtasks.exe",
+      "CommandLine": "schtasks /create /tn x /sc daily /tr \"C:\\Users\\alice\\AppData\\Local\\Temp\\x.exe\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "listing tasks",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\schtasks.exe",
+      "CommandLine": "schtasks /query /fo LIST /v",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "ordinary daily task",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\schtasks.exe",
+      "CommandLine": "schtasks /create /tn Backup /sc daily /tr \"C:\\Program Files\\Backup\\b.exe\"",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

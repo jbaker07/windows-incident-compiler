@@ -1,103 +1,89 @@
 ---
 # playbooks/windows/signal_bitsadmin_abuse.yaml
-# Detection of bitsadmin.exe abuse for download
+# Detects bitsadmin.exe used to download files or to set up BITS jobs.
 
-id: "windows_bitsadmin_abuse_001"
-title: "BITSAdmin LOLBin Abuse"
-name: "BITSAdmin Abuse Detection"
-family: "execution"
-version: "2.0"
+id: signal_bitsadmin_abuse
+title: 'BITSAdmin LOLBin Abuse'
+family: command_and_control
+version: "3.0"
 description: |
-  Detects abuse of bitsadmin.exe for:
-  - File download bypassing proxies
-  - Persistent download jobs
-  - Evasion of network monitoring
+  Detects abuse of bitsadmin.exe, a built in Windows tool, for:
+  - Downloading files over HTTP or HTTPS (ingress tool transfer)
+  - Creating BITS jobs and adding files to them
+  - Setting a notify command line, which makes a BITS job run a program and
+    survive reboots
 
 enabled: true
-confidence_threshold: 0.80
+severity: HIGH
+cooldown_seconds: 60
 
 requires:
-  - security_log
-  - audit_proc_creation
+  - 'Security 4688 with command line, or Sysmon 1'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - command_and_control
-    - defense_evasion
+    - stealth
     - persistence
+    - execution
   techniques:
-    - T1197      # BITS Jobs
-    - T1105      # Ingress Tool Transfer
-
-input_facts:
-  required:
-    - Exec
-
-slots:
-  required:
-    - name: process_name
-      type: string
-      pattern: "(?i)bitsadmin\\.exe"
-  optional:
-    - name: transfer_flag
-      type: string
-      pattern: "(?i)/transfer|/addfile"
-    - name: remote_url
-      type: string
-      pattern: "(?i)https?://"
+    - id: T1105
+      name: 'Ingress Tool Transfer'
+    - id: T1197
+      name: 'BITS Jobs'
 
 rules:
-  - name: "BITSAdmin Download"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)bitsadmin"
+  - name: 'BITSAdmin Download'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        equals: 'bitsadmin.exe'
       - field: cmdline
-        matches: "(?i)/transfer.*https?://"
-    actions:
-      - severity: HIGH
-        tags:
-          - "download"
-          - "lolbin"
-          - "bits"
-    evidence:
-      - event_type: "process_creation"
-        event_id: [4688, 1]
+        regex: '(?i)/transfer\b.*https?://'
+    techniques: [T1197, T1105]
+    tags: [download, lolbin]
 
-  - name: "BITSAdmin Add File"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)bitsadmin"
+  - name: 'BITSAdmin Add File'
+    severity: MEDIUM
+    fact: Exec
+    match:
+      - field: image
+        equals: 'bitsadmin.exe'
       - field: cmdline
-        matches: "(?i)/addfile"
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "bits_job"
-          - "staging"
+        regex: '(?i)/addfile\b'
+    techniques: [T1197]
+    tags: [bits_job]
 
-  - name: "BITSAdmin Create Job"
-    window: 10
-    conditions:
-      - fact_type: Exec
-      - field: path
-        matches: "(?i)bitsadmin"
+  - name: 'BITSAdmin Create Job'
+    severity: MEDIUM
+    fact: Exec
+    match:
+      - field: image
+        equals: 'bitsadmin.exe'
       - field: cmdline
-        matches: "(?i)/create"
-    actions:
-      - severity: MEDIUM
-        tags:
-          - "bits_persistence"
+        regex: '(?i)/create\b'
+    techniques: [T1197]
+    tags: [bits_job]
 
-response:
-  - type: "alert"
-    channel: "siem"
-    title: "BITSAdmin Abuse Detected"
-    priority: "high"
+  - name: 'BITSAdmin Notify Command'
+    severity: HIGH
+    fact: Exec
+    match:
+      - field: image
+        equals: 'bitsadmin.exe'
+      - field: cmdline
+        regex: '(?i)/setnotifycmdline\b'
+    techniques: [T1197]
+    tags: [bits_persistence]
 
+# Analyst guidance below is documentation. The engine does not execute it.
 false_positives:
-  - "WSUS and Windows Update operations"
-  - "Some enterprise software using BITS for updates"
+- WSUS and Windows Update operations
+- Some enterprise software using BITS for updates
+response:
+- type: alert
+  channel: siem
+  title: BITSAdmin Abuse Detected
+  priority: high

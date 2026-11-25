@@ -1,64 +1,84 @@
 ---
 # playbooks/windows/signal_persistence_windows.yaml
-# Detect Windows persistence mechanisms
+# Detects autostart persistence: run keys pointing at scripts, Startup folder drops and WMI subscriptions.
 
-name: "Persistence Detection (Windows)"
-description: "Detect service, task, and registry persistence attempts"
-version: "1.0"
+id: signal_persistence_windows
+title: 'Autostart Persistence (Windows)'
+family: persistence
+version: "3.0"
+description: |
+  Detects classic autostart persistence locations:
+  - A Run or RunOnce value that points at a script or a temp or public folder
+  - A file dropped into a Startup folder
+  - A WMI event consumer being created (Sysmon 20)
+  - A WMI filter being bound to a consumer (Sysmon 21)
+
+  Service and scheduled task persistence have their own playbooks
+  (signal_service_persistence, signal_task_persistence, signal_sc_abuse and
+  signal_schtasks_abuse).
+
+enabled: true
+severity: HIGH
+cooldown_seconds: 60
+
+requires:
+  - 'Sysmon 11, 13, 20 and 21'
 
 mitre:
+  attack_version: "20.1"
   tactics:
     - persistence
     - privilege_escalation
-    - execution
   techniques:
-    - T1543.003  # Windows Service
-    - T1053.005  # Scheduled Task
-    - T1547.001  # Registry Run Keys / Startup Folder
+    - id: T1547.001
+      name: 'Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder'
+    - id: T1546.003
+      name: 'Event Triggered Execution: Windows Management Instrumentation Event Subscription'
 
-detection:
-  signals:
-    - type: "windows_service_persistence"
-      suspicious_paths:
-        - "\\Temp\\"
-        - "\\AppData\\Local\\Temp"
-        - "\\Downloads\\"
-        - "Users\\Public\\"
-      binary_not_signed: true
-      path_writable: true
+rules:
+  - name: 'Run Key Points to Script or Temp Path'
+    severity: HIGH
+    fact: RegistryMod
+    match:
+      - field: key
+        regex: '(?i)\\software\\(wow6432node\\)?microsoft\\windows\\currentversion\\run(once)?\\'
+      - field: details
+        regex: '(?i)(\.(ps1|bat|cmd|vbs|vbe|js|jse|hta)\b|\\temp\\|\\users\\public\\|powershell|mshta|wscript)'
+    techniques: [T1547.001]
 
-    - type: "windows_scheduled_task_persistence"
-      suspicious_actions:
-        - "cmd.exe"
-        - "powershell.exe"
-        - "python.exe"
-        - "bash.exe"
-      hidden_task: true
+  - name: 'File Dropped in Startup Folder'
+    severity: MEDIUM
+    fact: CreatePath
+    match:
+      - field: path
+        regex: '(?i)\\start menu\\programs\\startup\\'
+    exclude:
+      - field: path
+        regex: '(?i)\\desktop\.ini$'
+    techniques: [T1547.001]
 
-    - type: "windows_registry_runkey"
-      registry_paths:
-        - "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-        - "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"
-      suspicious_targets:
-        - ".ps1"
-        - ".bat"
-        - ".vbs"
-        - ":\\Windows\\Temp"
+  - name: 'WMI Event Consumer Created'
+    severity: HIGH
+    fact: PersistArtifact
+    match:
+      - field: event_id
+        equals: 20
+    techniques: [T1546.003]
 
+  - name: 'WMI Filter to Consumer Binding'
+    severity: HIGH
+    fact: PersistArtifact
+    match:
+      - field: event_id
+        equals: 21
+    techniques: [T1546.003]
+
+# Analyst guidance below is documentation. The engine does not execute it.
+false_positives:
+- Software installers that add Run values for helpers
+- Management agents that register WMI consumers
 response:
-  severity: "high"
-  actions:
-    - alert: true
-    - isolate: false
-    - remediate: true
-  
-  correlation_boost:
-    - parent_is_system_process: 1.2
-    - followed_by_lateral_movement: 1.5
-
-tags:
-  - "T1543.003"
-  - "T1053.005"
-  - "T1547.001"
-  - "persistence"
+- type: alert
+  channel: siem
+  title: Autostart Persistence Detected
+  priority: high
