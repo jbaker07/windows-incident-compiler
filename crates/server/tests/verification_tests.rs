@@ -233,7 +233,7 @@ fn test_pdf_verification_pack_watermark() {
     assert!(synthetic);
 
     // PDF generation would add this banner:
-    let expected_banner = "⚠️ VERIFICATION PACK - SYNTHETIC DATA ⚠️";
+    let expected_banner = "WARNING: VERIFICATION PACK - SYNTHETIC DATA";
     assert!(expected_banner.contains("VERIFICATION PACK"));
     assert!(expected_banner.contains("SYNTHETIC"));
 }

@@ -176,7 +176,56 @@ pub struct CollectorInfo {
 }
 
 impl IntegrationApiState {
-    /// Create a new state with sample data for demo
+    /// State the running server reports.
+    ///
+    /// edr-locald does not run third party integrations yet, so no integration
+    /// profiles or sample events exist and the lists are empty. The one
+    /// collector is the Windows event log capture agent, listed with the fact
+    /// types the Windows fact extractor produces. It does not fill any join key
+    /// (process, file, socket or identity keys are not set by the capture).
+    pub fn runtime() -> Self {
+        let facts = [
+            "exec",
+            "outbound_connect",
+            "dns_resolve",
+            "create_path",
+            "delete_path",
+            "persist_artifact",
+            "mem_alloc",
+            "module_load",
+            "injection",
+            "registry_mod",
+            "auth_event",
+            "log_tamper",
+            "security_tool_disable",
+            "shell_command",
+            "script_exec",
+        ];
+        let collectors = vec![CollectorInfo {
+            id: "windows_event_log".to_string(),
+            name: "Windows Event Log capture (WEVTAPI)".to_string(),
+            platform: "windows".to_string(),
+            facts_supported: facts.iter().map(|f| f.to_string()).collect(),
+            join_keys_supported: JoinKeySupport {
+                proc_key: false,
+                file_key: false,
+                socket_key: false,
+                identity_key: false,
+                dns_attribution: false,
+                thread_key: false,
+            },
+            health_status: HealthStatus::Unknown,
+        }];
+        Self {
+            profiles: Arc::new(RwLock::new(HashMap::new())),
+            samples: Arc::new(RwLock::new(HashMap::new())),
+            collectors: Arc::new(RwLock::new(collectors)),
+        }
+    }
+
+    /// Sample integrations for the API tests in crates/server/tests. The running
+    /// server uses `runtime()`.
+    #[allow(dead_code)]
     pub fn demo() -> Self {
         let mut profiles = HashMap::new();
         let mut samples = HashMap::new();
@@ -716,7 +765,7 @@ pub fn integration_api_router(state: IntegrationApiState) -> Router {
 pub async fn list_integrations_bridge(
     Query(query): Query<ListIntegrationsQuery>,
 ) -> impl IntoResponse {
-    let state = IntegrationApiState::demo();
+    let state = IntegrationApiState::runtime();
     let profiles = state.profiles.read().unwrap();
 
     let mut result: Vec<IntegrationProfileApi> = profiles
@@ -758,7 +807,7 @@ pub async fn list_integrations_bridge(
 
 /// Bridge handler for get_integration that creates its own state
 pub async fn get_integration_bridge(Path(integration_id): Path<String>) -> impl IntoResponse {
-    let state = IntegrationApiState::demo();
+    let state = IntegrationApiState::runtime();
     let profiles = state.profiles.read().unwrap();
 
     match profiles.get(&integration_id) {
@@ -779,7 +828,7 @@ pub async fn get_integration_bridge(Path(integration_id): Path<String>) -> impl 
 
 /// Bridge handler for get_capabilities that creates its own state
 pub async fn get_capabilities_bridge(Query(query): Query<CapabilitiesQuery>) -> impl IntoResponse {
-    let state = IntegrationApiState::demo();
+    let state = IntegrationApiState::runtime();
     let profiles = state.profiles.read().unwrap();
     let collectors = state.collectors.read().unwrap();
 
@@ -852,7 +901,7 @@ pub async fn get_samples_bridge(
     Path(integration_id): Path<String>,
     Query(query): Query<SampleQuery>,
 ) -> impl IntoResponse {
-    let state = IntegrationApiState::demo();
+    let state = IntegrationApiState::runtime();
     let samples = state.samples.read().unwrap();
 
     match samples.get(&integration_id) {
@@ -878,6 +927,17 @@ pub async fn get_samples_bridge(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn runtime_state_reports_only_real_sources() {
+        let state = IntegrationApiState::runtime();
+        assert!(state.profiles.read().unwrap().is_empty());
+        assert!(state.samples.read().unwrap().is_empty());
+        let collectors = state.collectors.read().unwrap();
+        assert_eq!(collectors.len(), 1);
+        assert_eq!(collectors[0].platform, "windows");
+        assert_eq!(collectors[0].facts_supported.len(), 15);
+    }
+
     use super::*;
     use axum::body::Body;
     use axum::http::Request;

@@ -24,7 +24,8 @@
   ],
   
   "required_docs": [
-    "README.md"
+    "README.md",
+    "LIBERATION-FONTS-LICENSE.txt"
   ],
   
   "optional_docs": [

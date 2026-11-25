@@ -96,7 +96,7 @@ jobs:
             $srcPath = Join-Path $targetRelease $bin
             if (Test-Path $srcPath) {
               Copy-Item $srcPath $distDir -Force
-              Write-Host "  ✓ Copied: $bin" -ForegroundColor Green
+              Write-Host "  [OK] Copied: $bin" -ForegroundColor Green
             } else {
               Write-Error "FATAL: Required binary not found: $srcPath"
               exit 1
@@ -114,10 +114,10 @@ jobs:
             }
             $srcForbidden = Join-Path $targetRelease $forbidden
             if (Test-Path $srcForbidden) {
-              Write-Host "  ⚠ Built but NOT shipped: $forbidden" -ForegroundColor Yellow
+              Write-Host "  [WARN] Built but NOT shipped: $forbidden" -ForegroundColor Yellow
             }
           }
-          Write-Host "  ✓ Security check passed" -ForegroundColor Green
+          Write-Host "  [OK] Security check passed" -ForegroundColor Green
           Write-Host ""
           
           # Copy UI assets
@@ -128,7 +128,7 @@ jobs:
           }
           $uiDest = Join-Path $distDir "ui"
           Copy-Item -Path $uiDir -Destination $uiDest -Recurse -Force
-          Write-Host "  ✓ Copied ui/ directory" -ForegroundColor Green
+          Write-Host "  [OK] Copied ui/ directory" -ForegroundColor Green
           Write-Host ""
           
           # Copy docs
@@ -138,17 +138,26 @@ jobs:
           
           if (Test-Path $licensingDoc) {
             Copy-Item $licensingDoc $distDir -Force
-            Write-Host "  ✓ Copied: LICENSING.md" -ForegroundColor Green
+            Write-Host "  [OK] Copied: LICENSING.md" -ForegroundColor Green
           } else {
             Write-Warning "Optional doc not found: docs/LICENSING.md"
           }
           
           if (Test-Path $readme) {
             Copy-Item $readme $distDir -Force
-            Write-Host "  ✓ Copied: README.md" -ForegroundColor Green
+            Write-Host "  [OK] Copied: README.md" -ForegroundColor Green
           } else {
             Write-Warning "Optional doc not found: README.md"
           }
+
+          # edr-server.exe embeds the Liberation Sans fonts, so their license ships with it
+          $fontsLicense = Join-Path $PWD "crates" "server" "fonts" "LICENSE"
+          if (-not (Test-Path $fontsLicense)) {
+            Write-Error "FATAL: crates/server/fonts/LICENSE not found"
+            exit 1
+          }
+          Copy-Item $fontsLicense (Join-Path $distDir "LIBERATION-FONTS-LICENSE.txt") -Force
+          Write-Host "  [OK] Copied: LIBERATION-FONTS-LICENSE.txt" -ForegroundColor Green
           Write-Host ""
           
           # Generate deterministic MANIFEST.txt (sorted file list + sizes + sha256)
@@ -170,7 +179,7 @@ jobs:
             }
           }
           $manifestLines -join "`n" | Out-File -FilePath $manifestPath -Encoding utf8 -NoNewline
-          Write-Host "  ✓ Generated MANIFEST.txt ($(($manifestLines | Where-Object { $_ -match '^\w{64}' }).Count) files)" -ForegroundColor Green
+          Write-Host "  [OK] Generated MANIFEST.txt ($(($manifestLines | Where-Object { $_ -match '^\w{64}' }).Count) files)" -ForegroundColor Green
           Write-Host ""
           
           # Generate SHA256 checksums (compatible format for sha256sum -c)
@@ -194,7 +203,7 @@ jobs:
             Write-Host "$indent$($_.Name)"
           }
           Write-Host ""
-          Write-Host "✓ Artifact collection complete!" -ForegroundColor Green
+          Write-Host "[OK] Artifact collection complete!" -ForegroundColor Green
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -233,9 +242,9 @@ jobs:
           echo "Checking required binaries..."
           for bin in $ALLOWED_BINARIES; do
             if [ -f "dist/$bin" ]; then
-              echo "  ✓ Found: $bin"
+              echo "  [OK] Found: $bin"
             else
-              echo "  ✗ MISSING: $bin"
+              echo "  [FAIL] MISSING: $bin"
               exit 1
             fi
           done
@@ -245,20 +254,20 @@ jobs:
           echo "Security check: forbidden binaries..."
           for forbidden in $FORBIDDEN_BINARIES; do
             if [ -f "dist/$forbidden" ]; then
-              echo "  ✗ SECURITY VIOLATION: Found forbidden binary: $forbidden"
+              echo "  [FAIL] SECURITY VIOLATION: Found forbidden binary: $forbidden"
               exit 1
             fi
           done
-          echo "  ✓ No forbidden binaries found"
+          echo "  [OK] No forbidden binaries found"
           
           # Check ui folder exists
           echo ""
           echo "Checking UI assets..."
           if [ -d "dist/ui" ]; then
-            echo "  ✓ ui/ directory exists"
+            echo "  [OK] ui/ directory exists"
             ls -la dist/ui/
           else
-            echo "  ✗ ui/ directory missing"
+            echo "  [FAIL] ui/ directory missing"
             exit 1
           fi
           
@@ -270,7 +279,7 @@ jobs:
           fi
           
           echo ""
-          echo "✓ Artifact validation passed!"
+          echo "[OK] Artifact validation passed!"
 
       - name: Create release archive
         run: |

@@ -3,6 +3,7 @@
 
 mod bundle_exchange;
 mod capture_control;
+mod dashboard_api;
 mod db;
 mod diagnostics;
 mod diff_api;
@@ -34,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::ServeDir;
 use verification_pack::{
     AppStateResponse, SelfCheckRequest, SelfCheckResponse as LegacySelfCheckResponse, SessionInfo,
@@ -610,14 +611,54 @@ async fn list_runs_endpoint(State(state): State<SharedState>) -> impl IntoRespon
 // Narrative Endpoints
 // ============================================================================
 
+/// Origins allowed to call the API from a browser: the UI this server hosts
+/// and the desktop app (Tauri serves its pages from these origins).
+fn cors_origin_allowed(origin: &str, port: u16) -> bool {
+    origin == format!("http://127.0.0.1:{}", port)
+        || origin == format!("http://localhost:{}", port)
+        || matches!(
+            origin,
+            "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost"
+        )
+}
+
+/// Set `mode_context.mode` and `mode_context.mission_spec` of a narrative to
+/// the current mission state.
+fn refresh_mode_context(
+    narrative: &mut serde_json::Value,
+    mission_spec: Option<serde_json::Value>,
+) {
+    let mode = if mission_spec.is_some() {
+        "Mission"
+    } else {
+        "Discovery"
+    };
+    if let Some(obj) = narrative.as_object_mut() {
+        let ctx = obj
+            .entry("mode_context")
+            .or_insert_with(|| serde_json::json!({}));
+        if let Some(ctx) = ctx.as_object_mut() {
+            ctx.insert("mode".to_string(), serde_json::json!(mode));
+            ctx.insert(
+                "mission_spec".to_string(),
+                mission_spec.unwrap_or(serde_json::Value::Null),
+            );
+        }
+    }
+}
+
 /// Get narrative for a signal. Generates from ExplanationBundle + arbitration if not cached.
 async fn get_signal_narrative(
     State(state): State<SharedState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    // Check if narrative is already cached
+    // Check if narrative is already cached. The sentences come from the
+    // explanation and stay valid, but the mode is live state, so it is
+    // refreshed on every read.
     match state.db.get_narrative(&id) {
-        Ok(Some(narrative)) => {
+        Ok(Some(mut narrative)) => {
+            let mission_spec = state.db.get_active_mission_spec().ok().flatten();
+            refresh_mode_context(&mut narrative, mission_spec);
             return (StatusCode::OK, ApiResponse::ok(narrative));
         }
         Ok(None) => {} // Not cached, generate below
@@ -2257,7 +2298,7 @@ async fn api_docs() -> Html<&'static str> {
     </style>
 </head>
 <body>
-    <h1>🔬 Attack Documentation Workbench API</h1>
+    <h1>Attack Documentation Workbench API</h1>
     <p>Capture, analyze, edit, and export attack documentation for detection engineering.</p>
     <p><a href="/ui/workbench.html">Open Workbench UI →</a></p>
     
@@ -2379,8 +2420,8 @@ async fn main() {
     std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
 
     let db_path = data_dir.join("workbench.db");
-    tracing::info!("📁 Database: {:?}", db_path);
-    tracing::info!("📡 Port: {}", port);
+    tracing::info!("Database: {:?}", db_path);
+    tracing::info!("Port: {}", port);
 
     let db = Database::open(&db_path).expect("Failed to open database");
 
@@ -2414,10 +2455,20 @@ async fn main() {
 
     // Log first-run status
     let is_first_run = verification_pack::is_first_run(&data_dir);
-    tracing::info!("📋 First run: {}", is_first_run);
+    tracing::info!("First run: {}", is_first_run);
 
+    // The API has no authentication, so browsers may call it only from the UI
+    // this server hosts and from the desktop app. A page on any other origin
+    // gets no CORS headers and cannot read the responses.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(AllowOrigin::predicate(
+            move |origin: &axum::http::HeaderValue, _| {
+                origin
+                    .to_str()
+                    .map(|o| cors_origin_allowed(o, port))
+                    .unwrap_or(false)
+            },
+        ))
         .allow_methods(Any)
         .allow_headers(Any);
 
@@ -2481,6 +2532,20 @@ async fn main() {
         .route("/api/report/pdf", post(generate_pdf_report))
         // Bundle Export/Import API
         .route("/api/export/bundle", post(export_bundle))
+        // Dashboard data for ui/index.html and ui/graph.html (see dashboard_api.rs)
+        .route("/metrics", get(dashboard_api::metrics))
+        .route("/alerts", get(dashboard_api::alerts_stream))
+        .route("/incidents/stream", get(dashboard_api::incidents_stream))
+        .route("/playbooks/hits", get(dashboard_api::playbook_hits))
+        .route("/playbooks/stream", get(dashboard_api::playbooks_stream))
+        .route("/graph/live", get(dashboard_api::graph_live))
+        .route("/graph/stream", get(dashboard_api::graph_stream))
+        .route("/api/import/cases", get(dashboard_api::list_import_cases))
+        .route("/api/import/cases/:id", get(dashboard_api::get_import_case))
+        .route(
+            "/api/import/cases/:id/manifest",
+            get(dashboard_api::get_import_case_manifest),
+        )
         .route("/api/import/bundle", post(import_bundle_endpoint))
         .route(
             "/api/import/bundle/recompute",
@@ -2535,13 +2600,16 @@ async fn main() {
         .layer(cors)
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{}", port);
-    tracing::info!(
-        "🚀 Attack Documentation Workbench running at http://{}",
-        addr
-    );
+    // Loopback only by default. EDR_SERVER_BIND=0.0.0.0 opens it to the
+    // network, which a container needs for a published port.
+    let bind_ip: std::net::IpAddr = std::env::var("EDR_SERVER_BIND")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+    let addr = std::net::SocketAddr::new(bind_ip, port);
+    tracing::info!("Attack Documentation Workbench running at http://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
@@ -2553,4 +2621,45 @@ async fn shutdown_signal() {
         .await
         .expect("Failed to listen for ctrl+c");
     tracing::info!("Shutting down...");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cors_allows_only_the_ui_and_the_desktop_app() {
+        assert!(cors_origin_allowed("http://127.0.0.1:3000", 3000));
+        assert!(cors_origin_allowed("http://localhost:3000", 3000));
+        assert!(cors_origin_allowed("tauri://localhost", 3000));
+        assert!(cors_origin_allowed("http://tauri.localhost", 3000));
+        assert!(!cors_origin_allowed("http://127.0.0.1:3001", 3000));
+        assert!(!cors_origin_allowed("https://example.com", 3000));
+        assert!(!cors_origin_allowed(
+            "http://localhost.example.com:3000",
+            3000
+        ));
+        assert!(!cors_origin_allowed("null", 3000));
+    }
+
+    #[test]
+    fn cached_narrative_gets_the_current_mode() {
+        let mut narrative = serde_json::json!({
+            "narrative_id": "narr_1",
+            "mode_context": {"mode": "Discovery", "mission_spec": null, "user_actions": []}
+        });
+
+        let spec = serde_json::json!({"mission_id": "m1", "name": "Test Mission"});
+        refresh_mode_context(&mut narrative, Some(spec.clone()));
+        assert_eq!(narrative["mode_context"]["mode"], "Mission");
+        assert_eq!(narrative["mode_context"]["mission_spec"], spec);
+        assert_eq!(
+            narrative["mode_context"]["user_actions"],
+            serde_json::json!([])
+        );
+
+        refresh_mode_context(&mut narrative, None);
+        assert_eq!(narrative["mode_context"]["mode"], "Discovery");
+        assert!(narrative["mode_context"]["mission_spec"].is_null());
+    }
 }

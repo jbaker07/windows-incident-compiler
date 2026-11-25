@@ -710,6 +710,62 @@ impl Database {
         Ok(stats)
     }
 
+    /// Signals inserted after `after_rowid`, oldest first, with their rowid.
+    /// The dashboard streams use the rowid as a cursor so each signal is sent
+    /// once.
+    pub fn signals_after_rowid(
+        &self,
+        after_rowid: i64,
+        limit: usize,
+    ) -> Result<Vec<(i64, StoredSignal)>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT signal_id, signal_type, severity, host, ts, ts_start, ts_end,
+                    proc_key, file_key, identity_key, metadata, evidence_ptrs, dropped_evidence_count, rowid
+             FROM signals WHERE rowid > ?1 ORDER BY rowid ASC LIMIT ?2",
+        )?;
+        let mut rows = stmt.query(params![after_rowid, limit as i64])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            let rowid: i64 = row.get(13)?;
+            out.push((rowid, Self::row_to_signal(row)?));
+        }
+        Ok(out)
+    }
+
+    /// Highest signal rowid, or 0 when the table is empty.
+    pub fn max_signal_rowid(&self) -> Result<i64, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT COALESCE(MAX(rowid), 0) FROM signals", [], |r| {
+            r.get(0)
+        })
+    }
+
+    /// Store an explanation bundle for a signal (edr-locald does this in
+    /// production, tests use it to build fixtures).
+    #[cfg(test)]
+    pub fn save_signal_explanation(
+        &self,
+        signal_id: &str,
+        explanation: &serde_json::Value,
+    ) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS signal_explanations (
+                signal_id TEXT PRIMARY KEY,
+                explanation_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )",
+            [],
+        )?;
+        conn.execute(
+            "INSERT OR REPLACE INTO signal_explanations (signal_id, explanation_json, created_at)
+             VALUES (?1, ?2, 'test')",
+            params![signal_id, explanation.to_string()],
+        )?;
+        Ok(())
+    }
+
     fn row_to_signal(row: &rusqlite::Row) -> Result<StoredSignal, rusqlite::Error> {
         let metadata_str: String = row.get(10)?;
         let evidence_str: String = row.get(11)?;

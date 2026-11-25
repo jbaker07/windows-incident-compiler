@@ -175,39 +175,26 @@ pub struct IntegrityNoteEntry {
 // PDF Renderer
 // ============================================================================
 
-/// Font directories to search on different platforms
-const FONT_DIRS: &[&str] = &[
-    "./fonts",
-    "/usr/share/fonts/liberation",
-    "/usr/share/fonts/truetype/liberation",
-    "/usr/share/fonts/truetype/dejavu",
-    "/System/Library/Fonts",
-    "/Library/Fonts",
-    "/System/Library/Fonts/Supplemental",
-];
+/// Liberation Sans from `crates/server/fonts`, built into the binary so a
+/// report renders wherever edr-server runs. The release folder has no fonts
+/// and Windows has no Liberation fonts, so a lookup on disk failed there.
+const SANS_REGULAR: &[u8] = include_bytes!("../fonts/LiberationSans-Regular.ttf");
+const SANS_BOLD: &[u8] = include_bytes!("../fonts/LiberationSans-Bold.ttf");
+const SANS_ITALIC: &[u8] = include_bytes!("../fonts/LiberationSans-Italic.ttf");
+const SANS_BOLD_ITALIC: &[u8] = include_bytes!("../fonts/LiberationSans-BoldItalic.ttf");
 
-/// Get the fonts directory relative to the crate root
-fn get_crate_fonts_dir() -> Option<std::path::PathBuf> {
-    // Try CARGO_MANIFEST_DIR first (available during build)
-    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let fonts_dir = std::path::PathBuf::from(manifest_dir).join("fonts");
-        if fonts_dir.exists() {
-            return Some(fonts_dir);
-        }
-    }
-
-    // Try relative to current executable (for tests)
-    if let Ok(exe_path) = std::env::current_exe() {
-        // Navigate from target/debug/deps up to crate root
-        if let Some(target_dir) = exe_path.ancestors().nth(4) {
-            let fonts_dir = target_dir.join("crates/server/fonts");
-            if fonts_dir.exists() {
-                return Some(fonts_dir);
-            }
-        }
-    }
-
-    None
+/// The embedded font family. Fonts are embedded in the PDF (no builtin
+/// fallback), which unicode text needs.
+fn embedded_font_family() -> Result<fonts::FontFamily<fonts::FontData>, String> {
+    let load = |bytes: &[u8]| {
+        fonts::FontData::new(bytes.to_vec(), None).map_err(|e| format!("Embedded font: {}", e))
+    };
+    Ok(fonts::FontFamily {
+        regular: load(SANS_REGULAR)?,
+        bold: load(SANS_BOLD)?,
+        italic: load(SANS_ITALIC)?,
+        bold_italic: load(SANS_BOLD_ITALIC)?,
+    })
 }
 
 /// Pure Rust PDF renderer using genpdf
@@ -223,32 +210,7 @@ impl PdfRenderer {
 
     /// Render ReportBundle to PDF bytes
     pub fn render(&self, bundle: &ReportBundle) -> Result<Vec<u8>, String> {
-        // Build list of font directories to search
-        let mut font_dirs: Vec<std::path::PathBuf> =
-            FONT_DIRS.iter().map(std::path::PathBuf::from).collect();
-
-        // Add crate-relative fonts directory (for embedded fonts)
-        if let Some(crate_fonts) = get_crate_fonts_dir() {
-            font_dirs.insert(0, crate_fonts);
-        }
-
-        // Try to load fonts from system directories
-        // Liberation fonts are commonly available on Linux/macOS
-        // Use None for builtin to ensure fonts are embedded (required for unicode support)
-        let font_family = font_dirs
-            .iter()
-            .filter(|path| path.exists())
-            .find_map(|dir| {
-                let dir_str = dir.to_str().unwrap_or(".");
-                // Try Liberation fonts first - must be embedded (no builtin) for unicode support
-                fonts::from_files(dir_str, "LiberationSans", None).ok()
-            })
-            .ok_or_else(|| {
-                format!(
-                    "No suitable fonts found. Searched: {:?}. Please install Liberation fonts.",
-                    font_dirs
-                )
-            })?;
+        let font_family = embedded_font_family()?;
 
         // Create document
         let mut doc = Document::new(font_family);
@@ -273,7 +235,7 @@ impl PdfRenderer {
                     .styled(Style::new().bold().with_font_size(10)),
             );
             doc.push(
-                Paragraph::new("⚠️  VERIFICATION PACK - SYNTHETIC DATA  ⚠️")
+                Paragraph::new("WARNING: VERIFICATION PACK - SYNTHETIC DATA")
                     .styled(Style::new().bold().with_font_size(14)),
             );
             doc.push(
@@ -322,7 +284,7 @@ impl PdfRenderer {
             // Check if this is an imported incident and add warning banner
             if incident_id.starts_with("imported_") {
                 doc.push(
-                    Paragraph::new("⚠️ IMPORTED BUNDLE - This report is from external data, not live telemetry")
+                    Paragraph::new("NOTICE: IMPORTED BUNDLE - This report is from external data, not live telemetry")
                         .styled(Style::new().bold().with_font_size(11)),
                 );
                 doc.push(Break::new(0.3));
@@ -567,7 +529,7 @@ impl PdfRenderer {
 
         if bundle.visibility.degraded {
             doc.push(
-                Paragraph::new("⚠ DEGRADED").styled(
+                Paragraph::new("DEGRADED").styled(
                     Style::new()
                         .bold()
                         .with_font_size(11)
