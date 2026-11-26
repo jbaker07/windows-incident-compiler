@@ -50,7 +50,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Persistence
-rusqlite = { version = "0.29", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 dirs = "6.0"
 
 # Error handling
@@ -63,7 +63,7 @@ md5 = "0.7"
 genpdf = "0.2"
 
 # Bundle export/import
-zip = { version = "0.6", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 regex = "1"
 sha2 = "0.10"
 
@@ -76,7 +76,7 @@ rand = "0.8"
 libc = "0.2"  # Ship hardening: disk free space and uid checks
 
 [dev-dependencies]
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde_json = "1"
 tower = { version = "0.5", features = ["util"] }

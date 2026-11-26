@@ -401,7 +401,10 @@ impl EvidenceStore {
             Err(_) => return 0,
         };
 
-        stmt.query_row([], |row| row.get(0)).unwrap_or(0)
+        // SQLite counts are i64. rusqlite 0.43 no longer reads a column into u64.
+        stmt.query_row([], |row| row.get::<_, i64>(0))
+            .map(|n| n.max(0) as u64)
+            .unwrap_or(0)
     }
 
     /// Clear cache

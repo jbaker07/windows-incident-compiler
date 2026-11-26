@@ -217,7 +217,8 @@ impl Database {
                     signal.identity_key,
                     metadata,
                     evidence,
-                    signal.dropped_evidence_count,
+                    // rusqlite 0.43 stores integers as i64, not usize
+                    signal.dropped_evidence_count as i64,
                     created_at
                 ],
             )?;
@@ -783,7 +784,7 @@ impl Database {
             identity_key: row.get(9)?,
             metadata: serde_json::from_str(&metadata_str).unwrap_or_default(),
             evidence_ptrs: serde_json::from_str(&evidence_str).unwrap_or_default(),
-            dropped_evidence_count: row.get(12)?,
+            dropped_evidence_count: row.get::<_, i64>(12)?.max(0) as usize,
         })
     }
 }

@@ -686,7 +686,7 @@ pub fn export_to_zip(bundle: &IncidentBundle) -> Result<Vec<u8>, String> {
     {
         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buffer));
 
-        let options = zip::write::FileOptions::default()
+        let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .compression_level(Some(6));
 
@@ -824,7 +824,12 @@ pub fn validate_zip_safety(data: &[u8], policy: &ZipSafetyPolicy) -> Result<(), 
             .by_index_raw(i)
             .map_err(|e| format!("Failed to read ZIP entry {}: {}", i, e))?;
 
-        let name = file.name();
+        // zip 9 returns an error for a name it cannot decode, which is refused like any other bad entry.
+        let name = file
+            .name()
+            .map_err(|e| format!("Unreadable name in ZIP entry {}: {}", i, e))?
+            .to_string();
+        let name = name.as_str();
 
         // Check for path traversal
         if policy.reject_path_traversal {
@@ -977,7 +982,8 @@ pub fn import_from_zip(data: &[u8]) -> Result<IncidentBundle, String> {
             .by_index(i)
             .map_err(|e| format!("Failed to read ZIP entry: {}", e))?;
 
-        if file.name().ends_with(".json") && !file.name().contains('/') {
+        let name = file.name().map(|n| n.to_string()).unwrap_or_default();
+        if name.ends_with(".json") && !name.contains('/') {
             file.read_to_end(&mut json_data)
                 .map_err(|e| format!("Failed to read JSON from ZIP: {}", e))?;
             break;
@@ -1447,7 +1453,7 @@ mod tests {
         let mut zip_buffer = Vec::new();
         {
             let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buffer));
-            let options = zip::write::FileOptions::default();
+            let options = zip::write::SimpleFileOptions::default();
             zip.start_file("../../../etc/passwd", options).unwrap();
             zip.write_all(b"malicious").unwrap();
             zip.finish().unwrap();
@@ -1465,7 +1471,7 @@ mod tests {
         let mut zip_buffer = Vec::new();
         {
             let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut zip_buffer));
-            let options = zip::write::FileOptions::default();
+            let options = zip::write::SimpleFileOptions::default();
             for i in 0..50 {
                 zip.start_file(format!("file_{}.json", i), options).unwrap();
                 zip.write_all(b"{}").unwrap();

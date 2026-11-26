@@ -315,16 +315,22 @@ impl SupportBundleBuilder {
 
             let manifest_json = serde_json::to_string_pretty(&manifest)
                 .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
-            zip.start_file("support/manifest.json", Default::default())
-                .map_err(|e| format!("Failed to add manifest to ZIP: {}", e))?;
+            zip.start_file(
+                "support/manifest.json",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .map_err(|e| format!("Failed to add manifest to ZIP: {}", e))?;
             zip.write_all(manifest_json.as_bytes())
                 .map_err(|e| format!("Failed to write manifest: {}", e))?;
 
             // 2. Selfcheck
             let selfcheck_content =
                 redact_content(&self.selfcheck_json, self.request.redact, &redaction_map);
-            zip.start_file("support/selfcheck.json", Default::default())
-                .map_err(|e| format!("Failed to add selfcheck to ZIP: {}", e))?;
+            zip.start_file(
+                "support/selfcheck.json",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .map_err(|e| format!("Failed to add selfcheck to ZIP: {}", e))?;
             zip.write_all(selfcheck_content.as_bytes())
                 .map_err(|e| format!("Failed to write selfcheck: {}", e))?;
 
@@ -334,7 +340,7 @@ impl SupportBundleBuilder {
             let logs = log_collector.collect();
             for (path, content) in logs {
                 let redacted = redact_content(&content, self.request.redact, &redaction_map);
-                zip.start_file(&path, Default::default())
+                zip.start_file(&path, zip::write::SimpleFileOptions::default())
                     .map_err(|e| format!("Failed to add log file to ZIP: {}", e))?;
                 zip.write_all(redacted.as_bytes())
                     .map_err(|e| format!("Failed to write log file: {}", e))?;
@@ -343,8 +349,11 @@ impl SupportBundleBuilder {
             // 4. System info
             let system_json = serde_json::to_string_pretty(&self.system_info)
                 .map_err(|e| format!("Failed to serialize system info: {}", e))?;
-            zip.start_file("support/system.json", Default::default())
-                .map_err(|e| format!("Failed to add system info to ZIP: {}", e))?;
+            zip.start_file(
+                "support/system.json",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .map_err(|e| format!("Failed to add system info to ZIP: {}", e))?;
             zip.write_all(system_json.as_bytes())
                 .map_err(|e| format!("Failed to write system info: {}", e))?;
 
@@ -353,8 +362,11 @@ impl SupportBundleBuilder {
                 if let Some(incident_json) = self.latest_incident {
                     let redacted =
                         redact_content(&incident_json, self.request.redact, &redaction_map);
-                    zip.start_file("support/incidents/latest.json", Default::default())
-                        .map_err(|e| format!("Failed to add incident to ZIP: {}", e))?;
+                    zip.start_file(
+                        "support/incidents/latest.json",
+                        zip::write::SimpleFileOptions::default(),
+                    )
+                    .map_err(|e| format!("Failed to add incident to ZIP: {}", e))?;
                     zip.write_all(redacted.as_bytes())
                         .map_err(|e| format!("Failed to write incident: {}", e))?;
                 }
