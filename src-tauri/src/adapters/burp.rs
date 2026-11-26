@@ -96,7 +96,7 @@ impl Adapter for BurpAdapter {
                             for attr in e.attributes().flatten() {
                                 if attr.key.as_ref() == b"exportTime" {
                                     let v = attr
-                                        .unescape_value()
+                                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                                         .map(|v| v.into_owned())
                                         .unwrap_or_default();
                                     export_time = parse_burp_time(&v);
@@ -119,8 +119,12 @@ impl Adapter for BurpAdapter {
                                 if tag == "host" {
                                     for attr in e.attributes().flatten() {
                                         if attr.key.as_ref() == b"ip" {
-                                            rec.host_ip =
-                                                attr.unescape_value().ok().map(|v| v.into_owned());
+                                            rec.host_ip = attr
+                                                .normalized_value(
+                                                    quick_xml::XmlVersion::Implicit1_0,
+                                                )
+                                                .ok()
+                                                .map(|v| v.into_owned());
                                         }
                                     }
                                 }
@@ -131,8 +135,18 @@ impl Adapter for BurpAdapter {
                 }
                 XmlEvent::Text(t) => {
                     if let (Some(rec), Some(name)) = (current.as_mut(), child.as_ref()) {
-                        let text = t.unescape().map(|v| v.into_owned()).unwrap_or_default();
+                        let text = t.decode().map(|v| v.into_owned()).unwrap_or_default();
                         rec.values.entry(name.clone()).or_default().push_str(&text);
+                    }
+                }
+                // Since quick-xml 0.38 an entity such as &amp; arrives as its own event
+                // between the text around it.
+                XmlEvent::GeneralRef(r) => {
+                    if let (Some(rec), Some(name)) = (current.as_mut(), child.as_ref()) {
+                        rec.values
+                            .entry(name.clone())
+                            .or_default()
+                            .push_str(&entity_text(&r));
                     }
                 }
                 XmlEvent::CData(c) => {
@@ -345,6 +359,23 @@ fn issue_event(
     }
 }
 
+/// The text an entity reference stands for: a character reference, one of the five
+/// XML entities, or the reference itself as written if it is neither.
+fn entity_text(r: &quick_xml::events::BytesRef) -> String {
+    if let Ok(Some(c)) = r.resolve_char_ref() {
+        return c.to_string();
+    }
+    let name = r.decode().map(|n| n.into_owned()).unwrap_or_default();
+    match name.as_str() {
+        "lt" => "<".to_string(),
+        "gt" => ">".to_string(),
+        "amp" => "&".to_string(),
+        "apos" => "'".to_string(),
+        "quot" => "\"".to_string(),
+        _ => format!("&{};", name),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,5 +388,33 @@ mod tests {
         let (_, q) = parse_burp_time("Mon Jan 01 00:00:05 CST 2024").unwrap();
         assert_eq!(q, TimestampQuality::Estimated);
         assert!(parse_burp_time("yesterday").is_none());
+    }
+
+    #[test]
+    fn entities_resolve_to_their_text() {
+        use quick_xml::events::BytesRef;
+        assert_eq!(entity_text(&BytesRef::new("amp")), "&");
+        assert_eq!(entity_text(&BytesRef::new("lt")), "<");
+        assert_eq!(entity_text(&BytesRef::new("quot")), "\"");
+        assert_eq!(entity_text(&BytesRef::new("#x41")), "A");
+        assert_eq!(entity_text(&BytesRef::new("#10")), "\n");
+        // Not one of the five XML entities: kept as written.
+        assert_eq!(entity_text(&BytesRef::new("nbsp")), "&nbsp;");
+    }
+
+    #[test]
+    fn text_with_entities_comes_back_whole() {
+        // The reader splits "GET /a?x=1&amp;y=2" into text, an entity event and text.
+        let mut reader = quick_xml::Reader::from_str("<url>GET /a?x=1&amp;y=2&#x21;</url>");
+        let mut out = String::new();
+        loop {
+            match reader.read_event().unwrap() {
+                XmlEvent::Text(t) => out.push_str(&t.decode().unwrap()),
+                XmlEvent::GeneralRef(r) => out.push_str(&entity_text(&r)),
+                XmlEvent::Eof => break,
+                _ => {}
+            }
+        }
+        assert_eq!(out, "GET /a?x=1&y=2!");
     }
 }

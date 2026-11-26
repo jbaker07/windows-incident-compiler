@@ -401,7 +401,7 @@ fn parse_attrs(e: &quick_xml::events::BytesStart) -> HashMap<String, String> {
         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
         // Decode entities such as &#xa; (nmap writes newlines in script output that way)
         let value = attr
-            .unescape_value()
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
             .map(|v| v.into_owned())
             .unwrap_or_else(|_| String::from_utf8_lossy(&attr.value).to_string());
         attrs.insert(key, value);
