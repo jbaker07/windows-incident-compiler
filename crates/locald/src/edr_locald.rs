@@ -1438,8 +1438,7 @@ fn extract_workflow_facts(
     // PortOpen: regex nmap output like "80/tcp open http"
     if cmd.contains("nmap") || stdout.contains("open") {
         for line in stdout.lines() {
-            if let Some(caps) = regex::Regex::new(r"(\d+)/(tcp|udp)\s+(open|closed)")
-                .ok()
+            if let Some(caps) = cached_static_regex(&PORT_LINE, r"(\d+)/(tcp|udp)\s+(open|closed)")
                 .and_then(|re| re.captures(line))
             {
                 if let Some(port_str) = caps.get(1).map(|m| m.as_str()) {
@@ -1470,8 +1469,7 @@ fn extract_workflow_facts(
 
     // HttpStatus: curl output with status codes
     if cmd.contains("curl") || cmd.contains("wget") {
-        if let Some(caps) = regex::Regex::new(r"HTTP/[\d\.]+\s+(\d{3})")
-            .ok()
+        if let Some(caps) = cached_static_regex(&HTTP_STATUS, r"HTTP/[\d\.]+\s+(\d{3})")
             .and_then(|re| re.captures(stdout))
         {
             if let Some(status_str) = caps.get(1).map(|m| m.as_str()) {
@@ -2851,4 +2849,15 @@ mod tests {
             "Unreferenced segment should not be found"
         );
     }
+}
+
+static PORT_LINE: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
+static HTTP_STATUS: std::sync::OnceLock<Option<regex::Regex>> = std::sync::OnceLock::new();
+
+/// A fixed pattern compiled on first use, not once per output line.
+fn cached_static_regex(
+    cell: &'static std::sync::OnceLock<Option<regex::Regex>>,
+    pattern: &str,
+) -> Option<&'static regex::Regex> {
+    cell.get_or_init(|| regex::Regex::new(pattern).ok()).as_ref()
 }

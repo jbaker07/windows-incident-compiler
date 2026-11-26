@@ -16,6 +16,19 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 
+/// Playbook patterns compiled once instead of for every fact and slot.
+/// An invalid pattern is cached as None.
+fn cached_regex(pattern: &str) -> Option<regex::Regex> {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, Option<regex::Regex>>>> =
+        OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let mut map = cache.lock().unwrap_or_else(|e| e.into_inner());
+    map.entry(pattern.to_string())
+        .or_insert_with(|| regex::Regex::new(pattern).ok())
+        .clone()
+}
+
 // ============================================================================
 // Capability Model
 // ============================================================================
@@ -464,12 +477,10 @@ impl SlotMatcher {
         // Path regex matching
         if let Some(regex_pattern) = &pred.path_regex {
             let path = self.extract_path(fact)?;
-            if let Ok(re) = regex::Regex::new(regex_pattern) {
-                if !re.is_match(&path) {
-                    return None;
-                }
-            } else {
-                return None; // Invalid regex
+            // An invalid pattern matches nothing.
+            let re = cached_regex(regex_pattern)?;
+            if !re.is_match(&path) {
+                return None;
             }
         }
 
